@@ -1,0 +1,500 @@
+/* Layout: a full-bleed 3D stage with a floating HUD; the wardrobe is a bottom sheet on phones
+   and a side panel on wide screens. One deliberate look: daylight scene, ink-outlined controls
+   that echo the outlines on the characters. */
+:root {
+  --sky: #e6e9fb;
+  --ink: #262250;
+  --ink-soft: #5f5c8a;
+  --paper: #fcfcff;
+  --well: #eceefb;
+  --accent: #ffc83d;
+  --accent-deep: #f2a81d;
+  --font-display: 'Fredoka', ui-rounded, 'SF Pro Rounded', 'Arial Rounded MT Bold', system-ui, sans-serif;
+  --font-body: 'Nunito', ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --gutter-left: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-right: max(16px, env(safe-area-inset-right, 0px));
+  color-scheme: light;
+}
+
+html {
+  height: 100%;
+  box-sizing: border-box;
+}
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--sky);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.35;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+[hidden] {
+  display: none !important;
+}
+h1, h2, h3, p, dl, dd {
+  margin: 0;
+}
+button, input {
+  font: inherit;
+  color: inherit;
+}
+
+#app {
+  height: 100%;
+}
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding-left: var(--gutter-left);
+  padding-right: var(--gutter-right);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ stage */
+.stage {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+.stage__canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: pointer;
+}
+.stage__canvas canvas {
+  display: block;
+}
+.app[data-mode='dress'] .stage__canvas {
+  cursor: grab;
+}
+.hud {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-block: 12px;
+  padding-left: var(--gutter-left);
+  padding-right: var(--gutter-right);
+  pointer-events: none;
+}
+.hud > * {
+  pointer-events: auto;
+}
+.hud__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hud__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+.chip {
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  min-width: 3.6em;
+  text-align: right;
+}
+.hint {
+  align-self: center;
+  margin-top: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+.hint--gone {
+  opacity: 0;
+}
+.hud__bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+/* In the wardrobe the actions stay on one swipeable line so they cover less of the hero. */
+.app[data-mode='dress'] .actions {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  scrollbar-width: none;
+}
+.app[data-mode='dress'] .actions::-webkit-scrollbar {
+  display: none;
+}
+.app[data-mode='dress'] .actions .btn {
+  flex: none;
+}
+.app[data-mode='play'] .dress-only,
+.app[data-mode='dress'] .play-only {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ controls */
+.btn {
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper);
+  padding: 9px 20px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  box-shadow: 0 3px 0 var(--ink);
+  cursor: pointer;
+  transition: transform 0.06s, box-shadow 0.06s, background-color 0.12s;
+  touch-action: manipulation;
+}
+.btn:active,
+.btn[aria-pressed='true'] {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+.btn[aria-pressed='true'] {
+  background: var(--accent);
+}
+.btn--small {
+  padding: 6px 13px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  border-radius: 10px;
+}
+.btn--primary {
+  background: var(--accent);
+}
+.btn--primary:hover {
+  background: var(--accent-deep);
+}
+:focus-visible {
+  outline: 3px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+.popover {
+  align-self: flex-end;
+  width: min(300px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 4px 0 var(--ink);
+}
+.field {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+}
+.field output {
+  font-variant-numeric: tabular-nums;
+}
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.switch input {
+  appearance: none;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--well);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.15s;
+}
+.switch input:checked {
+  background: var(--accent);
+}
+.switch input:checked::after {
+  transform: translateX(16px);
+}
+.numbers {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  padding-top: 10px;
+  border-top: 2px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.numbers dt {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+.numbers dd {
+  text-align: right;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ wardrobe sheet */
+.sheet {
+  display: none;
+  flex-direction: column;
+  flex: none;
+  height: 52%;
+  min-height: 0;
+  background: var(--paper);
+  border-top: 2px solid var(--ink);
+}
+.app[data-mode='dress'] .sheet {
+  display: flex;
+}
+.sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 10px 6px;
+  padding-left: var(--gutter-left);
+  padding-right: var(--gutter-right);
+}
+.sheet__head h2 {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-block: 4px 10px;
+  padding-left: var(--gutter-left);
+  padding-right: var(--gutter-right);
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tab {
+  flex: none;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--well);
+  padding: 5px 13px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+.sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block: 4px 20px;
+  padding-left: var(--gutter-left);
+  padding-right: var(--gutter-right);
+}
+.note {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--well);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.group h3 {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 10px;
+}
+.grid--faces {
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 4px 7px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: var(--well);
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+.card:active {
+  transform: scale(0.96);
+}
+.card[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--ink);
+  box-shadow: 0 3px 0 var(--ink);
+}
+.card__image,
+.card__none {
+  width: 64px;
+  height: 64px;
+  max-width: 100%;
+}
+.card__none {
+  position: relative;
+}
+.card__none::before {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border: 3px solid var(--ink-soft);
+  border-radius: 50%;
+  background: linear-gradient(to top right, transparent 45%, var(--ink-soft) 45%, var(--ink-soft) 55%, transparent 55%);
+}
+.card__label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.card--face {
+  padding: 4px;
+}
+.card__face {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  display: block;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.swatch--own {
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 5px;
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.swatch--own::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--swatch);
+}
+.swatch[aria-pressed='true'] {
+  box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--ink);
+}
+.swatch--own[aria-pressed='true'] {
+  background: var(--accent);
+  box-shadow: 0 3px 0 var(--ink);
+}
+
+/* ------------------------------------------------------------------ wide screens */
+@media (min-width: 860px) and (min-aspect-ratio: 1/1) {
+  .app {
+    flex-direction: row;
+  }
+  .sheet {
+    width: 400px;
+    height: auto;
+    border-top: 0;
+    border-left: 2px solid var(--ink);
+  }
+  .brand {
+    font-size: 1.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .card, .hint, .switch input, .switch input::after {
+    transition: none;
+  }
+}

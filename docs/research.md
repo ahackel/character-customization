@@ -201,13 +201,8 @@ From search summaries:
 - See-through layer decomposition: https://arxiv.org/abs/2602.03749
 - PixelLab 8-direction sprites: https://www.pixellab.ai/docs/tools/create-8-rotations-pro
 
-## Prototype plan
+## Prototype
 
-A web prototype (Three.js) of option A, using the CC0 KayKit Adventurers pack as stand-in content:
+A web prototype of option A is in this repository, using the CC0 KayKit Adventurers pack as stand-in content. See the [README](../README.md) for what it demonstrates and what it leaves open.
 
-1. One shared skeleton with body parts and items swapped per slot at runtime.
-2. Rigid accessories attached to bones.
-3. Face features composed as texture layers.
-4. Palette-based recolouring.
-5. One animation set driving every combination, with squash and stretch and spring motion added in code.
-6. Fixed 3/4 camera, toon shading with outline, and up to 10 characters on screen with a frame-time readout.
+It confirmed the runtime side of the recommendation: mixing parts from different source characters on one skeleton, automatic recolouring and cover masking, texture-layer faces, and one animation set for every combination all work with little code. It did not test generated content, which remains the main risk.

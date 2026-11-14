@@ -4,6 +4,7 @@ An exploration of how to build customizable, stylized game characters with good 
 
 - [`docs/research.md`](docs/research.md) compares six 2D and 3D approaches, recommends one, and covers how it carries over to pixel art.
 - The rest of this repository is a web prototype of that approach: 3D characters assembled from modular parts on one shared skeleton, drawn as pixel art.
+- [`docs/plan.md`](docs/plan.md) is the plan that followed feedback on that prototype: a true 2D pixel-art character whose items are written by a language model. `lab/` holds its first experiments and their results.
 
 ## Run it
 
@@ -22,6 +23,19 @@ npm run build
 ```
 
 builds a static site into `dist/`.
+
+## The 2D experiments
+
+With the dev server running, open `/lab/` for the comparison page.
+
+| File | Purpose |
+|---|---|
+| `lab/puppet.ts` | Draws a 32 by 48 character from joint positions by fixed pixel rules, in four facings |
+| `lab/poses.ts` | Hand-written key poses, and poses built from sampled 3D clips |
+| `lab/items.ts` | The two item formats, their checks, and conversion to one common item shape |
+| `lab/base.ts`, `lab/palette.ts` | Generated base body and the master palette |
+| `lab/generated/` | Format descriptions given to the model, its unedited answers, sampled poses, the 3D reference sheet |
+| `lab/tools/` | Scripts that write the format descriptions, sample the 3D clips and render preview sheets |
 
 ## What the prototype shows
 

@@ -1,0 +1,27 @@
+[
+ {
+  "id": "shirt",
+  "slot": "top",
+  "request": "A torn striped shirt: off-white with red horizontal stripes, short ragged sleeves and a tattered hem."
+ },
+ {
+  "id": "shorts",
+  "slot": "bottom",
+  "request": "Ragged shorts cut down from old blue trousers, frayed above the knee."
+ },
+ {
+  "id": "hat",
+  "slot": "hat",
+  "request": "A woven straw hat with a wide brim."
+ },
+ {
+  "id": "beard",
+  "slot": "beard",
+  "request": "A full, unkempt castaway beard in dark brown."
+ },
+ {
+  "id": "spear",
+  "slot": "tool",
+  "request": "A fishing spear: a long wooden pole with a sharpened stone tip, held upright."
+ }
+]

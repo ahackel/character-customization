@@ -73,7 +73,7 @@ What this gives each game need:
 
 ## Experiments
 
-Three small tests on the same handful of items, so the choice rests on results. Items: torn striped shirt, ragged shorts, straw hat, long hair with beard, fishing spear.
+Three small tests on the same handful of items, so the choice rests on results. Items: torn striped shirt, ragged shorts, straw hat, castaway beard, fishing spear.
 
 | Test | Question | Compared |
 |---|---|---|
@@ -83,7 +83,7 @@ Three small tests on the same handful of items, so the choice rests on results. 
 
 For test 3 the model calls are made from this session as stand-ins for an automated pipeline. Each call gets only the format description and the request, as an automated call would.
 
-Results go into a comparison page and into the last section of this document.
+Results are in the last section of this document and on the comparison page built from `lab/`.
 
 ## Decisions still open
 
@@ -98,3 +98,54 @@ Results go into a comparison page and into the last section of this document.
 2. Build the curation tool around that format: candidates on the character, regenerate with a note, pixel touch-up.
 3. Generate a first real catalogue of about 30 castaway items and judge consistency.
 4. Rebuild the wardrobe and the island scene on the puppet.
+
+## Experiment results
+
+Run on 14 November 2026. Code and all generated data are in `lab/`. To view the comparison page, run `npm run dev` and open `/lab/`.
+
+The observations below are mine, from looking at rendered frames. The page shows everything unedited so you can form your own view.
+
+### 1. Foundation
+
+A 32 by 48 puppet drawn by rules walks in four facings and wears generated items. Next to it, the 3D prototype rendered at the same size without outlines.
+
+- The puppet has straight limb edges, even patterns and a face made of chosen pixels. The 3D render has uneven edges and stray pixels, and its silhouette shifts between frames.
+- The puppet is stiffer: a rigid torso block and limbs without volume.
+- The base body, face and short hair were written by the model, with one round of correction after looking at the result. They are a first draft.
+
+### 2. Motion source
+
+- Sampling the 3D clips works. Only bone directions are taken, so the source character's proportions do not matter. All 31 clips are available this way; idle, walk, run, wave and chop were tried.
+- Sampled motion carries the source's posture (arms held away from the body, bent knees). It suits actions; the hand-written walk is tidier.
+- Tools stay upright in every pose. Swinging actions need rotated tool variants.
+
+### 3. Item generation
+
+Ten fresh model calls, three candidates each, given only the format description and the request.
+
+| Format | Valid as returned | Rejected | Time per call |
+|---|---|---|---|
+| Whole-sprite paint | 15 of 15 | 0 | 82 to 116 s |
+| Recipes and stamps | 15 of 15 | 0 | 5 to 6 s for clothing, 116 to 195 s for stamps |
+
+Times include the overhead of running each call as a helper inside the working session, so they are relative, not absolute.
+
+- Clothing recipes are fastest and cannot come out misshapen, but express only what their settings allow.
+- Whole-sprite paint is freer. It produced a patch and a contrasting frayed hem the recipes had no setting for.
+- For tools, whole-sprite paint was clearly better: straight shafts with readable tips. Stamp versions leaned and broke into jagged lines.
+- Both formats drew beards wrongly in back views, as a tuft at the neck.
+- Recipe shorts came out very short because of the length scale in my format description.
+- Two frame-size limits in my own code clipped whole-sprite hats and spears on the first pass. I fixed the code; nothing was regenerated.
+
+### Recommendation
+
+1. Build on the puppet.
+2. Use both formats by item type: recipes for plain clothing and wear states, whole-sprite paint for anything with a distinctive shape. Both compile to the same item data.
+3. Write the everyday poses (idle, walk) by hand and sample the rest from the 3D clips.
+4. Expect curation. By my count about 18 of the 30 candidates are usable as returned. The six beards need their back view fixed, and the recipe shorts and stamp spears need a retry.
+
+### Not tested
+
+- Consistency across a large catalogue. Fifteen candidates per format is a small sample.
+- Regenerating with a note, pixel touch-up, wear over time, beard growth.
+- Hair falling behind the shoulders, skirts, backpacks, rotating tools.

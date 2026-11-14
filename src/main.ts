@@ -254,7 +254,9 @@ async function start(): Promise<void> {
     }
   });
 
-  if (import.meta.env.DEV) Object.assign(window, { app: { world, player, crowd, assets, ui, THREE } });
+  if (import.meta.env.DEV) {
+    Object.assign(window, { app: { world, player, crowd, assets, ui, THREE, setTurn: (angle: number) => (turntable = angle) } });
+  }
   document.body.dataset.ready = '1';
 }
 

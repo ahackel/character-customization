@@ -23,6 +23,8 @@ export class World {
   readonly island = new Island();
   readonly focus = new THREE.Vector3();
   mode: CameraMode = 'play';
+  /** Art pixels per world unit in the pixel look. */
+  texelsPerUnit = TEXELS_PER_UNIT;
   /** Height in CSS pixels of controls covering the bottom of the stage. */
   bottomInset = 0;
 
@@ -155,8 +157,8 @@ export class World {
     out.copy(position);
     if (!this.pixelated) return out;
     const { right, up } = this;
-    const sr = Math.round((position.x * right.x + position.z * right.z) * TEXELS_PER_UNIT) / TEXELS_PER_UNIT;
-    const su = Math.round((position.x * up.x + position.z * up.z) * TEXELS_PER_UNIT) / TEXELS_PER_UNIT;
+    const sr = Math.round((position.x * right.x + position.z * right.z) * this.texelsPerUnit) / this.texelsPerUnit;
+    const su = Math.round((position.x * up.x + position.z * up.z) * this.texelsPerUnit) / this.texelsPerUnit;
     // Invert the ground-to-screen mapping.
     const det = right.x * up.z - right.z * up.x;
     out.x = (sr * up.z - right.z * su) / det;
@@ -185,14 +187,14 @@ export class World {
       // Zoom is a whole number of screen pixels per art pixel. The art itself has one fixed
       // density, so the wardrobe shows exactly the sprite seen in play, only enlarged.
       this.scale = dress
-        ? Math.max(2, Math.floor(Math.min((freeCss * dpr) / (HERO_HEIGHT * TEXELS_PER_UNIT), size.x / (HERO_WIDTH * TEXELS_PER_UNIT))))
+        ? Math.max(2, Math.floor(Math.min((freeCss * dpr) / (HERO_HEIGHT * this.texelsPerUnit), size.x / (HERO_WIDTH * this.texelsPerUnit))))
         : Math.max(2, Math.floor(Math.min(size.x, size.y) / 210));
       const lowW = Math.ceil(size.x / this.scale) + 2;
       const lowH = Math.ceil(size.y / this.scale) + 2;
       this.pipeline.setSize(lowW, lowH);
-      halfW = lowW / (2 * TEXELS_PER_UNIT);
-      halfH = lowH / (2 * TEXELS_PER_UNIT);
-      insetWorld = (inset * dpr) / (this.scale * TEXELS_PER_UNIT);
+      halfW = lowW / (2 * this.texelsPerUnit);
+      halfH = lowH / (2 * this.texelsPerUnit);
+      insetWorld = (inset * dpr) / (this.scale * this.texelsPerUnit);
     } else {
       const aspect = cssW / cssH;
       const wanted = dress
@@ -218,12 +220,12 @@ export class World {
     this.camera.position.copy(this.lookAt).addScaledVector(this.back, CAMERA_DISTANCE);
     this.fraction.set(0, 0);
     if (this.pixelated) {
-      const r = this.camera.position.dot(this.right) * TEXELS_PER_UNIT;
-      const u = this.camera.position.dot(this.up) * TEXELS_PER_UNIT;
+      const r = this.camera.position.dot(this.right) * this.texelsPerUnit;
+      const u = this.camera.position.dot(this.up) * this.texelsPerUnit;
       this.fraction.set(r - Math.round(r), u - Math.round(u));
       this.camera.position
-        .addScaledVector(this.right, -this.fraction.x / TEXELS_PER_UNIT)
-        .addScaledVector(this.up, -this.fraction.y / TEXELS_PER_UNIT);
+        .addScaledVector(this.right, -this.fraction.x / this.texelsPerUnit)
+        .addScaledVector(this.up, -this.fraction.y / this.texelsPerUnit);
     }
     this.camera.updateMatrixWorld();
 

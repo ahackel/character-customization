@@ -1,7 +1,9 @@
 import type { Pose, Vec3 } from './puppet.ts';
 
 /** Bone lengths of the puppet, in pixels. */
-export const BONES = { thigh: 5, shin: 5, upperArm: 4.5, forearm: 4.5, spine: 10, shoulder: 6.6, hip: 2.8 };
+// Shoulder and hip offsets are chosen so the limbs land on whole pixel columns: arms just outside
+// the nine-pixel torso, legs four wide with a one-pixel gap between them.
+export const BONES = { thigh: 5, shin: 5, upperArm: 4.5, forearm: 4.5, spine: 10, shoulder: 7.07, hip: 3.54 };
 
 /** Joint angles in degrees. swing: forward is positive. bend: elbow or knee flex. out: away from the body. */
 export interface LimbAngles {
@@ -43,7 +45,7 @@ export function buildPose(spec: PoseSpec = {}): Pose {
   const pose = { hips, chest, neck: add(chest, [0, 1, 0]) } as Pose;
   for (const [s, side] of [['L', -1], ['R', 1]] as const) {
     const arm = spec[`arm${s}`] ?? { swing: 0 };
-    const shoulder = add(chest, [side * BONES.shoulder, -1, 0]);
+    const shoulder = add(chest, [side * BONES.shoulder, -0.5, 0]);
     const elbow = add(shoulder, direction(arm.swing, arm.out ?? 0, side), BONES.upperArm);
     const hand = add(elbow, direction(arm.swing + (arm.bend ?? 0), arm.out ?? 0, side), BONES.forearm);
     pose[`shoulder${s}`] = shoulder;
@@ -51,7 +53,7 @@ export function buildPose(spec: PoseSpec = {}): Pose {
     pose[`hand${s}`] = hand;
 
     const leg = spec[`leg${s}`] ?? { swing: 0 };
-    const hip = add(hips, [side * BONES.hip, 0, 0]);
+    const hip = add(hips, [side * BONES.hip, -0.5, 0]);
     const knee = add(hip, direction(leg.swing, leg.out ?? 0, side), BONES.thigh);
     const foot = add(knee, direction(leg.swing - (leg.bend ?? 0), leg.out ?? 0, side), BONES.shin);
     pose[`hip${s}`] = hip;
@@ -66,10 +68,11 @@ const mirrored = (spec: PoseSpec): PoseSpec => ({
 });
 
 // Walk: contact, down, passing, then the same on the other foot. Authored as key poses.
+// The body drops on the step and rises as the legs pass; arms swing against the legs.
 const walkHalf: PoseSpec[] = [
-  { legR: { swing: 30 }, legL: { swing: -26, bend: 10 }, armL: { swing: 30, bend: 12 }, armR: { swing: -24, bend: 6 } },
-  { bob: -1, legR: { swing: 14, bend: 20 }, legL: { swing: -32, bend: 34 }, armL: { swing: 18, bend: 10 }, armR: { swing: -14, bend: 6 } },
-  { bob: 1, legR: { swing: -4 }, legL: { swing: 22, bend: 58 }, armL: { swing: -4, bend: 6 }, armR: { swing: 6, bend: 8 } },
+  { legR: { swing: 32 }, legL: { swing: -28, bend: 12 }, armL: { swing: 34, bend: 22 }, armR: { swing: -28, bend: 8 }, lean: 3 },
+  { bob: -1, legR: { swing: 14, bend: 22 }, legL: { swing: -34, bend: 38 }, armL: { swing: 20, bend: 18 }, armR: { swing: -16, bend: 8 }, lean: 4 },
+  { bob: 1, legR: { swing: -4 }, legL: { swing: 24, bend: 62 }, armL: { swing: -6, bend: 10 }, armR: { swing: 8, bend: 14 }, lean: 2 },
 ];
 
 export interface Clip {
@@ -77,22 +80,34 @@ export interface Clip {
   /** Frames shown per second. */
   rate: number;
   frames: Pose[];
+  /** Face to show on each frame. Missing entries mean the neutral face. */
+  faces?: (string | undefined)[];
 }
 
 export const STAND = buildPose();
 
+const breatheIn = buildPose({ armL: { swing: 0, out: 3 }, armR: { swing: 0, out: 3 } });
+const breatheOut = buildPose({ sink: 1 });
+
 export const AUTHORED: Record<string, Clip> = {
-  idle: { name: 'Idle', rate: 2, frames: [buildPose(), buildPose({ sink: 1 })] },
+  // Breathing, with a blink every third breath.
+  idle: {
+    name: 'Idle',
+    rate: 2.5,
+    frames: [breatheIn, breatheOut, breatheIn, breatheOut, breatheIn, breatheOut],
+    faces: [undefined, undefined, undefined, undefined, 'blink', undefined],
+  },
   walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
   wave: {
     name: 'Wave',
     rate: 6,
     frames: [
-      { armR: { swing: 70, bend: 60, out: 15 } },
-      { armR: { swing: 150, bend: 30, out: 25 } },
-      { armR: { swing: 160, bend: -30, out: 25 } },
-      { armR: { swing: 150, bend: 30, out: 25 } },
+      { armL: { swing: 70, bend: 60, out: 15 } },
+      { armL: { swing: 150, bend: 30, out: 25 }, bob: 1 },
+      { armL: { swing: 160, bend: -30, out: 25 } },
+      { armL: { swing: 150, bend: 30, out: 25 }, bob: 1 },
     ].map(buildPose),
+    faces: ['happy', 'happy', 'happy', 'happy'],
   },
 };
 
@@ -116,12 +131,12 @@ export function poseFromSample(frame: SampledFrame): Pose {
   const chest = add(hips, frame.spine, BONES.spine);
   const pose = { hips, chest, neck: add(chest, [0, 1, 0]) } as Pose;
   for (const [s, side] of [['L', -1], ['R', 1]] as const) {
-    const shoulder = add(chest, [side * BONES.shoulder, -1, 0]);
+    const shoulder = add(chest, [side * BONES.shoulder, -0.5, 0]);
     const elbow = add(shoulder, frame[`upperArm${s}`], BONES.upperArm);
     pose[`shoulder${s}`] = shoulder;
     pose[`elbow${s}`] = elbow;
     pose[`hand${s}`] = add(elbow, frame[`forearm${s}`], BONES.forearm);
-    const hip = add(hips, [side * BONES.hip, 0, 0]);
+    const hip = add(hips, [side * BONES.hip, -0.5, 0]);
     const knee = add(hip, frame[`thigh${s}`], BONES.thigh);
     pose[`hip${s}`] = hip;
     pose[`knee${s}`] = knee;

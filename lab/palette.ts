@@ -1,52 +1,84 @@
 /**
- * The master palette. Every colour an item may use is an entry here with a paired shade, which
- * is what keeps separately generated items looking like one set.
+ * The master palette. Every colour an item may use is an entry here. Each entry is a base colour
+ * from which a darker and a lighter tone are derived by one rule: shadows turn cooler,
+ * highlights turn warmer. Deriving the ramps keeps every material shaded
+ * the same way, which is a large part of what makes separate items look like one set.
  */
-export const PALETTE = {
-  skinA: ['#f6cfa8', '#dba57f'],
-  skinB: ['#e8b48a', '#c88e62'],
-  skinC: ['#c98a5f', '#a66a45'],
-  skinD: ['#9a6240', '#774628'],
-  skinE: ['#6b4128', '#4f2d1b'],
-  hairBlack: ['#2b2530', '#1b1720'],
-  hairBrown: ['#6b4530', '#4d2f20'],
-  hairBlond: ['#e2b85c', '#b98a3a'],
-  hairRed: ['#c2552d', '#933a1c'],
-  hairGrey: ['#a9a9b3', '#7f7f8c'],
-  white: ['#f2efe4', '#cfc9b8'],
-  cream: ['#e8dcb8', '#c4b58a'],
-  red: ['#d1453f', '#a02e33'],
-  orange: ['#e88a3a', '#b9652a'],
-  yellow: ['#f1c644', '#c79a2c'],
-  leaf: ['#5aa84e', '#3d7f3f'],
-  green: ['#2f8f6a', '#226b55'],
-  teal: ['#3fb3b0', '#2a8a8c'],
-  blue: ['#3f7fd0', '#2d5ea6'],
-  navy: ['#2f3f6e', '#222c50'],
-  purple: ['#8a5bbf', '#653f94'],
-  pink: ['#e87aa5', '#bb557f'],
-  brown: ['#8a5a3c', '#66402a'],
-  tan: ['#c9a06a', '#a07a4a'],
-  straw: ['#e6cf7a', '#bfa350'],
-  wood: ['#9a6a48', '#744c33'],
-  grey: ['#8d939c', '#666c78'],
-  steel: ['#b9c2cc', '#8a94a3'],
-  black: ['#33333d', '#22222a'],
-  ink: ['#2b1b1f', '#2b1b1f'],
-  mouth: ['#9a4040', '#7a2f33'],
-  tooth: ['#ffffff', '#e6e6ee'],
-  blush: ['#f08a8a', '#d86a72'],
-} as const satisfies Record<string, readonly [string, string]>;
+const BASES = {
+  skinA: '#f7d2ab',
+  skinB: '#eab98d',
+  skinC: '#cc9063',
+  skinD: '#9d6644',
+  skinE: '#6e452d',
+  hairBlack: '#3a3340',
+  hairBrown: '#7a4a31',
+  hairBlond: '#e3b85a',
+  hairRed: '#c4562f',
+  hairGrey: '#a9a9b6',
+  white: '#f4f0e4',
+  cream: '#e9dcb6',
+  red: '#d4463f',
+  orange: '#e98b3a',
+  yellow: '#f2c744',
+  leaf: '#62ad4f',
+  green: '#2f9068',
+  teal: '#3fb5b1',
+  blue: '#4183d3',
+  navy: '#34457a',
+  purple: '#8c5cc1',
+  pink: '#ea7ca7',
+  brown: '#8d5c3d',
+  tan: '#caa16b',
+  straw: '#e8d07a',
+  wood: '#9c6c49',
+  grey: '#8f959e',
+  steel: '#bac3cd',
+  black: '#3a3a45',
+} as const;
 
-export type PaletteKey = keyof typeof PALETTE;
+/** Colours with one fixed meaning, used by faces. They do not get derived tones. */
+const FIXED = {
+  ink: '#2c1e26',
+  mouth: '#8f3a41',
+  tooth: '#ffffff',
+  blush: '#ef8f8a',
+} as const;
+
+export type PaletteKey = keyof typeof BASES | keyof typeof FIXED;
+export type Tone = 'base' | 'shade' | 'light';
+
+const rgbOf = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const hexFrom = (rgb: number[]): string => '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+const mix = (a: number[], b: number[], t: number): number[] => a.map((v, i) => v + (b[i] - v) * t);
+
+// Shadows are the base darkened and pulled a little towards plum; highlights are the base
+// lightened and pulled towards a warm cream. The same two moves for every material.
+const SHADOW_TINT = rgbOf('#74405f');
+const LIGHT_TINT = rgbOf('#fff2c2');
+
+function ramp(hex: string): Record<Tone, string> {
+  const base = rgbOf(hex);
+  return {
+    base: hex,
+    shade: hexFrom(mix(base.map((v) => v * 0.84), SHADOW_TINT, 0.13)),
+    light: hexFrom(mix(base.map((v) => v + (255 - v) * 0.3), LIGHT_TINT, 0.25)),
+  };
+}
+
+export const PALETTE = Object.fromEntries([
+  ...Object.entries(BASES).map(([key, hex]) => [key, ramp(hex)]),
+  ...Object.entries(FIXED).map(([key, hex]) => [key, { base: hex, shade: hex, light: hex }]),
+]) as Record<PaletteKey, Record<Tone, string>>;
+
 export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
 
-/** One pixel of paint: a palette entry, lit or shaded. */
+/** One pixel of paint: a palette entry in one of its tones. */
 export interface Cell {
   key: PaletteKey;
   shade: boolean;
+  light?: boolean;
 }
 
-export const hexOf = (cell: Cell): string => PALETTE[cell.key][cell.shade ? 1 : 0];
+export const hexOf = (cell: Cell): string => PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];

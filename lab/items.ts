@@ -1,9 +1,50 @@
 import { PALETTE, type Cell, type PaletteKey } from './palette.ts';
 import {
-  HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, SPRITE_H, SPRITE_W, TOOL_FRAME, TOOL_STAMP, TORSO_FRAME, layoutOf,
-  SLOTS, type Item, type Slot, type Stamp, type StampPair,
+  HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, SPRITE_H, SPRITE_W, TOOL_FRAME, TOOL_STAMP, TORSO_FRAME,
+  SLOTS, type Item, type Layout, type Slot, type Stamp, type StampPair,
 } from './puppet.ts';
-import { STAND } from './poses.ts';
+
+/**
+ * Body-part positions in the reference the whole-sprite format shows the model. Paint is read
+ * off the sprite at these positions. This is the first base body, which the items in
+ * lab/generated were drawn against; regenerating the format description needs new values here.
+ */
+const REFERENCE: Record<'front' | 'back', Layout> = {
+  front: {
+    neck: { x: 16, y: 22 }, torso: { x: 16, top: 23, bottom: 34 },
+    arms: [{ x: 11, y0: 26, y1: 35 }, { x: 21, y0: 22, y1: 31 }],
+    legs: [{ x: 14, y0: 34, y1: 44 }, { x: 18, y0: 32, y1: 42 }],
+    handR: { x: 11, y: 35 },
+  },
+  back: {
+    neck: { x: 16, y: 22 }, torso: { x: 16, top: 23, bottom: 34 },
+    arms: [{ x: 21, y0: 26, y1: 35 }, { x: 11, y0: 22, y1: 31 }],
+    legs: [{ x: 18, y0: 34, y1: 44 }, { x: 14, y0: 32, y1: 42 }],
+    handR: { x: 21, y: 35 },
+  },
+};
+
+/** Tall tools stand on the ground beside the body; short ones are carried in the hand. */
+function holdOf(pair: StampPair): 'pole' | 'carry' {
+  const rows = pair.front.map((row) => row.some(Boolean));
+  return rows.lastIndexOf(true) - rows.indexOf(true) >= 26 ? 'pole' : 'carry';
+}
+
+/** Finds the shaft: the middle painted column in the rows around the grip. */
+function gripOf(pair: StampPair): { front: number; back: number } {
+  const offset = (stamp: Stamp): number => {
+    const columns: number[] = [];
+    for (let row = TOOL_FRAME.ay - 4; row <= TOOL_FRAME.ay + 2; row++) {
+      stamp[row]?.forEach((cell, col) => {
+        if (cell) columns.push(col);
+      });
+    }
+    if (!columns.length) return 0;
+    columns.sort((a, b) => a - b);
+    return columns[Math.floor(columns.length / 2)] - TOOL_FRAME.ax;
+  };
+  return { front: offset(pair.front), back: offset(pair.back) };
+}
 
 /** Result of turning model output into an item. `repairs` lists what had to be fixed automatically. */
 export interface Compiled {
@@ -81,11 +122,11 @@ export function compileSprite(input: any): Compiled {
   if (count(sheets.back) === 0) repairs.push('back grid is empty');
   const item: Item = { name: String(input.name ?? 'Unnamed'), slot };
 
-  const cut = (frame: { w: number; h: number; ax: number; ay: number }, at: (l: ReturnType<typeof layoutOf>) => { x: number; y: number }, keep: (x: number, y: number, l: ReturnType<typeof layoutOf>) => boolean): StampPair => {
+  const cut = (frame: { w: number; h: number; ax: number; ay: number }, at: (l: Layout) => { x: number; y: number }, keep: (x: number, y: number, l: Layout) => boolean): StampPair => {
     const pair = {} as StampPair;
     let lost = 0;
-    for (const [side, facing] of [['front', 0], ['back', 3]] as const) {
-      const layout = layoutOf(STAND, facing);
+    for (const side of ['front', 'back'] as const) {
+      const layout = REFERENCE[side];
       const origin = at(layout);
       const stamp = blank(frame.w, frame.h);
       sheets[side].forEach((row, y) => row.forEach((c, x) => {
@@ -103,8 +144,8 @@ export function compileSprite(input: any): Compiled {
   /** Reads a limb strip: the colour at the limb's middle column, row by row, nearer limb first. */
   const strip = (kind: 'arms' | 'legs'): (Cell | null)[] => {
     const out: (Cell | null)[] = Array(LIMB_CELLS).fill(null);
-    for (const [side, facing] of [['front', 0], ['back', 3]] as const) {
-      const layout = layoutOf(STAND, facing);
+    for (const side of ['front', 'back'] as const) {
+      const layout = REFERENCE[side];
       for (const limb of layout[kind]) {
         for (let i = 0; i < LIMB_CELLS; i++) {
           if (out[i]) continue;
@@ -122,6 +163,8 @@ export function compileSprite(input: any): Compiled {
     item.head = cut(HEAD_FRAME, (l) => l.neck, () => true);
   } else if (slot === 'tool') {
     item.tool = cut(TOOL_FRAME, (l) => l.handR, () => true);
+    item.hold = holdOf(item.tool);
+    item.gripDx = gripOf(item.tool);
   } else if (slot === 'top') {
     item.torso = cut(TORSO_FRAME, (l) => ({ x: l.torso.x, y: l.torso.top }), (x, y, l) => !onLimb(x, y, l.arms, 1) || Math.abs(x - l.torso.x) <= 3);
     extendUnderArms(item.torso);
@@ -132,8 +175,7 @@ export function compileSprite(input: any): Compiled {
     // Paint above the hips on the leg columns belongs to the waist, not the leg.
     item.leg[0] = item.leg[0] ?? item.leg[1];
   } else if (slot === 'shoes') {
-    const layout = layoutOf(STAND, 0);
-    const leg = layout.legs[0];
+    const leg = REFERENCE.front.legs[0];
     item.foot = sheets.front[leg.y1]?.[leg.x] ?? sheets.front[leg.y1 + 1]?.[leg.x] ?? null;
     if (!item.foot) throw new Error('no paint found on the feet');
   }
@@ -218,6 +260,8 @@ export function compileRecipe(input: any): Compiled {
       back: embed(grid(input.back ?? input.front, TOOL_STAMP.w, TOOL_STAMP.h, legend, 'back', repairs), TOOL_STAMP, TOOL_FRAME),
     };
     if (count(item.tool.front) === 0) throw new Error('front stamp is empty');
+    item.hold = holdOf(item.tool);
+    item.gripDx = gripOf(item.tool);
   } else if (slot === 'shoes') {
     item.foot = cell(need(input.color, 'color'));
   } else {

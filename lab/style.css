@@ -211,7 +211,14 @@ canvas.sprite {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   justify-items: center;
 }
+.strip--six {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  justify-items: center;
+}
 @media (max-width: 470px) {
+  .strip--six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .strip--six .sprite--x3 { width: 96px; }
   .strip--four .sprite--x3 { width: 64px; }
   .strip--four .sprite--x2 { width: 32px; }
   .strip--candidates .sprite--x3 { width: 64px; }

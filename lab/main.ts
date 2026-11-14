@@ -7,6 +7,7 @@ import sampledData from './generated/poses3d.json';
 import requests from './generated/requests.json';
 import timings from './generated/timings.json';
 import baselineUrl from './generated/baseline3d.png?inline';
+import firstBaseUrl from './generated/base-v1.png?inline';
 
 const generated = import.meta.glob<unknown[]>('./generated/{sprite,recipe}-*.json', { eager: true, import: 'default' });
 const SAMPLED = clipsFromSamples(sampledData as unknown as Record<string, { name: string; rate: number; frames: SampledFrame[] }>);
@@ -43,7 +44,7 @@ function paint(ctx: CanvasRenderingContext2D, sprite: Sprite): void {
     image.data[i * 4] = parseInt(hex.slice(1, 3), 16);
     image.data[i * 4 + 1] = parseInt(hex.slice(3, 5), 16);
     image.data[i * 4 + 2] = parseInt(hex.slice(5, 7), 16);
-    image.data[i * 4 + 3] = 255;
+    image.data[i * 4 + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
   });
   ctx.putImageData(image, 0, 0);
 }
@@ -58,19 +59,44 @@ function puppetView(look: Look, state: () => { clip: Clip; facing: Facing }, sca
     canvas,
     draw: (seconds) => {
       const { clip, facing } = state();
-      const frame = Math.floor(seconds * clip.rate) % clip.frames.length;
+      const count = clip.frames.length;
+      const frame = Math.floor(seconds * clip.rate) % count;
       const key = `${clip.name}|${facing}|${frame}`;
       if (key === shown) return;
       shown = key;
       let sprite = cache.get(key);
-      if (!sprite) cache.set(key, (sprite = drawCharacter(look, clip.frames[frame], facing)));
+      if (!sprite) {
+        // Follow-through: when the body rises or drops, the hat arrives one frame late.
+        const before = clip.frames[(frame + count - 1) % count];
+        const hatLag = Math.sign(Math.round(clip.frames[frame].hips[1] - before.hips[1]));
+        sprite = drawCharacter(look, clip.frames[frame], facing, { face: clip.faces?.[frame], hatLag });
+        cache.set(key, sprite);
+      }
       paint(ctx, sprite);
     },
   });
   return canvas;
 }
 
-// The captured sheet has 40 x 56 cells; the middle 32 x 48 of each holds the character.
+/** One sprite from a strip image, drawn once. */
+function stripView(image: HTMLImageElement, index: number, scale: number): HTMLCanvasElement {
+  const canvas = h('canvas', { class: `sprite sprite--x${scale}`, width: String(SPRITE_W), height: String(SPRITE_H) });
+  const ctx = canvas.getContext('2d')!;
+  let done = false;
+  views.push({
+    canvas,
+    draw: () => {
+      if (done || !image.complete) return;
+      done = true;
+      ctx.drawImage(image, index * SPRITE_W, 0, SPRITE_W, SPRITE_H, 0, 0, SPRITE_W, SPRITE_H);
+    },
+  });
+  return canvas;
+}
+
+const firstBase = new Image();
+firstBase.src = firstBaseUrl;
+
 const BASELINE = { cellW: 40, cellH: 56, frames: 6, rate: 8 };
 const baseline = new Image();
 baseline.src = baselineUrl;
@@ -137,11 +163,57 @@ for (const request of requests) {
 }
 
 // One outfit picked from the candidates, used wherever a dressed character is shown.
-const picked = [all.recipe.shirt?.[0], all.sprite.shorts?.[1], all.sprite.hat?.[2], all.sprite.spear?.[0]]
+const picked = [all.recipe.shirt?.[0], all.sprite.shorts?.[0], all.sprite.hat?.[2], all.sprite.spear?.[0]]
   .map((c) => c?.item)
   .filter((item): item is Item => !!item);
 const bare = baseLook('skinB', 'hairBrown');
 const dressed = wear(bare, ...picked);
+
+// ------------------------------------------------------------------ base body, second version
+
+function rebuilt(): HTMLElement {
+  const idle = () => AUTHORED.idle;
+  const before = h('div', { class: 'stage' },
+    h('h3', {}, 'First version'),
+    h('div', { class: 'strip strip--six' }, ...[0, 1, 2, 3, 4, 5].map((i) => stripView(firstBase, i, 3))),
+  );
+  const after = h('div', { class: 'stage' },
+    h('h3', {}, 'Second version'),
+    h('div', { class: 'strip strip--six' },
+      ...FACINGS.map((f) => puppetView(bare, () => ({ clip: idle(), facing: f }), 3)),
+      puppetView(dressed, () => ({ clip: idle(), facing: 0 }), 3),
+      puppetView(dressed, () => ({ clip: idle(), facing: 3 }), 3),
+    ),
+  );
+  const moving = (label: string, clip: Clip, look: Look) =>
+    h('div', { class: 'stage' },
+      h('h3', {}, label),
+      h('div', { class: 'strip strip--four' }, ...FACINGS.map((f) => cell(puppetView(look, () => ({ clip, facing: f }), 3), FACING_NAMES[f]))),
+    );
+  const unarmed = { ...dressed, items: dressed.items.filter((item) => item.slot !== 'tool') };
+  return h('section', {},
+    h('h2', {}, 'The base body, rebuilt'),
+    h('p', {}, 'You said the first body looked plain and generic, that one arm looked off and that the spear was not really held. This is the second version beside the first: the bare body in four facings, then dressed, front and back.'),
+    before,
+    after,
+    h('div', { class: 'pair' }, moving('Walking with the spear', AUTHORED.walk, dressed), moving('Waving', AUTHORED.wave, unarmed)),
+    h('div', { class: 'result' },
+      h('h3', {}, 'What changed'),
+      h('ul', {},
+        h('li', {}, 'The arm. True isometry put one shoulder two pixels above the other, so the far arm hung from the neck. Shoulders are now level and the far arm sits behind the body in shade.'),
+        h('li', {}, 'The grip. A pole now stands on the ground beside the body, the arm reaches out to it, and the fist is drawn over the shaft, from the front and from behind.'),
+        h('li', {}, 'The face. Eyes three pixels tall with a shine, blush, an open smile, a blink in the idle and a laughing face for the wave.'),
+        h('li', {}, 'Hair in clumps with a tuft that breaks the outline and a lit band across the crown.'),
+        h('li', {}, 'Hands and feet as visible blocks, and legs with a gap between them.'),
+        h('li', {}, 'Colour. Every material gets its shadow and highlight from one rule: shadows lean towards plum, highlights towards cream.'),
+        h('li', {}, 'Separation without outlines: a shaded edge where the arm crosses the body, a shadow under the chin, and a ground shadow.'),
+        h('li', {}, 'Motion: a breathing idle, a lean in the walk, and the hat arriving one frame late when the body rises or drops.'),
+      ),
+      h('p', {}, 'These follow common pixel-art practice for small sprites and how Stardew Valley, Habbo and the Liberated Pixel Cup characters are built. The research notes are in docs/pixel-style-research.md in the repository.'),
+      h('p', {}, 'Still plain: the torso is a block, the back view has little to look at, and there is one body and one hairstyle. All generated items below were drawn for the first body and are shown on the second unchanged.'),
+    ),
+  );
+}
 
 // ------------------------------------------------------------------ experiment 1
 
@@ -168,7 +240,7 @@ function foundation(): HTMLElement {
       h('ul', {},
         h('li', {}, 'The puppet has straight limb edges, even stripes and a face made of chosen pixels. Its silhouette changes only where the pose changes.'),
         h('li', {}, 'The render has uneven edges and stray single pixels on hands, hair and the knife, and its silhouette shifts slightly from frame to frame.'),
-        h('li', {}, 'The puppet is stiffer. Its torso is a rigid block and its limbs have no volume, which suits the reference but is plainer than the 3D motion.'),
+        h('li', {}, 'The puppet is stiffer. Its torso is a rigid block and its limbs are flat, which suits the reference but is plainer than the 3D motion.'),
       ),
       h('p', {}, 'Whether the puppet meets your bar is for you to judge. It is closer to the reference photo than the render is.'),
     ),
@@ -204,7 +276,7 @@ function motion(): HTMLElement {
         h('li', {}, 'The transfer works. Thirty-one clips are available this way, each costing a line of configuration.'),
         h('li', {}, 'Sampled motion carries the source character\'s posture: arms held away from the body and bent knees. It suits actions such as run and chop.'),
         h('li', {}, 'The written walk is tidier, because its poses were chosen for this size.'),
-        h('li', {}, 'The spear stays upright in every pose. Tools need a few rotation steps before swinging actions look right.'),
+        h('li', {}, 'A pole stays planted beside the body in every action. Tools that swing, such as an axe in the chop, still need rotated versions.'),
       ),
       h('p', {}, 'A workable split: write the handful of poses seen all the time (idle, walk), and sample everything else.'),
     ),
@@ -293,7 +365,7 @@ function findings(): HTMLElement {
       h('li', {}, 'Consistency across a large catalogue. Fifteen candidates per format is a small sample.'),
       h('li', {}, 'Regenerating with a note, pixel touch-up, wear over time and beard growth. They are designed for but not built.'),
       h('li', {}, 'Hair that falls behind the shoulders, skirts, backpacks, and tools that rotate.'),
-      h('li', {}, 'The base body, face and short hair were also written by the model, with one round of correction after looking at the result. They are a first draft and worth refining before a catalogue is built on them.'),
+      h('li', {}, 'The base body, face and hair were also written by the model and corrected by looking at renders. The second version is at the top of this page; it is still one body and one hairstyle.'),
     ),
   );
 }
@@ -304,8 +376,9 @@ root.append(
     h('header', { class: 'intro' },
       h('p', { class: 'kicker' }, 'Experiments for the 2D plan'),
       h('h1', {}, 'Pixel Puppet Lab'),
-      h('p', { class: 'lede' }, 'Three small tests of a 2D replacement for the 3D character prototype: a 32 by 48 pixel survivor whose body is drawn by rules and whose clothing, hair and tools are written by a language model.'),
+      h('p', { class: 'lede' }, 'A 2D replacement for the 3D character prototype: a 32 by 48 pixel survivor whose body is drawn by rules and whose clothing, hair and tools are written by a language model. First the rebuilt base body, then the three tests behind the approach.'),
     ),
+    rebuilt(),
     foundation(),
     motion(),
     generation(),

@@ -1,0 +1,99 @@
+# Pixel-art style research
+
+Date: 15 November 2026. Done to rebuild the base body after the first puppet was judged plain and generic.
+
+## How reliable this is
+
+Almost every tutorial, wiki and developer site was blocked from the research environment. Only GitHub could be read directly. In the lists below, **read** means the page itself was read, and **summary** means the claim comes from a search-result summary and was not checked against the page. Points marked *practice* are standard pixel-art practice that no source confirmed in this session.
+
+## What makes small characters appealing
+
+Ordered by expected effect on a plain sprite.
+
+| # | Principle | Applied to the puppet |
+|---|---|---|
+| 1 | The silhouette should be recognisable when filled solid. Add one feature that breaks the outline | Hair tuft; hat brims and held tools already do this |
+| 2 | Face clearly lighter or darker than hair | Yes, by palette |
+| 3 | Shift hue along every colour ramp: shadows cooler, highlights warmer. Never darken by brightness alone | One rule derives every shade (towards plum) and highlight (towards cream) |
+| 4 | One light, above and slightly in front. No shade ring around a shape | Far-side limbs and torso edge in shade, shadow under the chin |
+| 5 | Separate overlapping parts of the same colour with a shade step, not a line | Shaded inner edge on the near arm |
+| 6 | Eyes 2 to 3 pixels tall with one shine pixel in the same corner of both | Yes |
+| 7 | Hair as a few large clumps with a highlight band, never strands | Yes |
+| 8 | Chunky limbs, feet wider than legs, hands as visible blocks (*practice*) | Yes |
+| 9 | Walk bob of 1 to 2 pixels, arms against legs; a breathing idle with a blink; hair or hat one frame late | Yes |
+| 10 | A soft ground shadow about the width of the feet (*practice*) | Yes |
+
+Other points worth keeping:
+
+- Head size of a third to half of the sprite is normal for small characters. Ours is about 40%.
+- A whole sprite should stay under about 16 colours.
+- Skip dithering and anti-aliasing at this size. Remove single stray pixels unless they are an eye, shine or button.
+- An outline-free sprite depends on contrast with the ground, so judge it on the real floor tiles.
+- Clothing reads through a hem, collar or belt line and a contrasting trim, not through folds.
+- A common walk is 4 key poses mirrored to 8 frames, or 6 frames, at about 8 frames per second.
+- No source was found on how to draw a hand gripping a tool. The puppet draws the item first and the fist over it, which is *practice*.
+
+## How shipped games build layered characters
+
+**Stardew Valley** (read: decompiled `FarmerRenderer.cs`)
+
+- Hair, hats, shirts and accessories are small static sprites with one row per facing. They are not redrawn per animation frame; two offset tables move them with the body.
+- Left-facing sprites are the right-facing ones flipped.
+- Draw order is body, pants, eyes, shirt, accessory, hair, hat, with the arm drawn again on top.
+- A hat can switch the hair to a "covered" variant.
+- Skin, eyes, shoes and sleeves are recoloured by swapping fixed palette pixels.
+
+This is the puppet's approach: an item is drawn once per drawn facing and carried by the body.
+
+**Habbo** (read: Avatara and shroom repositories)
+
+- An avatar is a list of typed parts with colours. Head and body direction are separate inputs.
+- Draw order is looked up per direction and action, and changes when an item is held.
+- A separate hair part is used under hats (summary).
+
+**Liberated Pixel Cup character generator** (read: repository)
+
+- Every item is a full sprite sheet for every animation, and the project notes that many items are missing for newer animations. This is the cost the puppet avoids.
+- Useful conventions: a numeric layer order (shadow, back hair, body, legs, torso clothing, head, front hair, hats, tools) and long items split into a behind layer and a front layer.
+- Licences are mixed per asset and several forbid protected distribution, which rules its art out for a store build.
+
+**Others** (summary only)
+
+- Ragnarok Online attaches head, headgear and weapon to the body through per-frame anchor points.
+- Witchbrook builds more than 60 clothing items on five base masks. Our clothing recipes work the same way.
+- Soulbound locked skeleton, frame count and proportions early, and made new actions by reordering existing base frames.
+- A lookup-texture technique stores, in each animation frame, where every pixel comes from in a source image painted once. It is flexible but each frame's mapping is authored by hand.
+- No technical evidence was found for Kairosoft's games, the closest visual match to the reference photo.
+
+## Not yet applied
+
+- A covered-hair variant under hats. Today a hat simply draws over the hair.
+- Draw order that changes with the held item and the action.
+- Behind and front layers for long hair, capes and backpacks.
+- Rotated versions of tools for swinging actions.
+- Judging the sprite on the game's real ground tiles.
+
+## Sources
+
+Read:
+
+- https://raw.githubusercontent.com/veywrn/StardewValley/master/StardewValley/FarmerRenderer.cs
+- https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator
+- https://github.com/Quackster/Avatara
+- https://raw.githubusercontent.com/jankuss/shroom/master/src/objects/avatar/structure/AvatarDrawDefinition.ts
+- https://github.com/RagnarokResearchLab/ragnarokresearchlab.github.io/blob/main/docs/file-formats/ACT.md
+
+Search summary only:
+
+- https://www.slynyrd.com/blog/2018/1/10/pixelblog-1-color-palettes
+- https://www.slynyrd.com/blog/2019/10/21/pixelblog-22-top-down-character-sprites
+- https://www.slynyrd.com/blog/2023/11/26/pixelblog-47-tiny-pixels
+- https://www.slynyrd.com/blog/2025/3/24/pixelblog-55-top-down-character-animation
+- https://www.derekyu.com/makegames/pixelart.html
+- https://lospec.com/articles/pixel-art-outlines-part-2-using-color
+- https://the-pixel.art/articles/pixel-walk-cycle/
+- https://wiki.stardewvalley.net/Modding:Farmer_sprite
+- https://dev.to/trickstival/habbo-avatar-rendering-basics-4cg6
+- https://soulbound.game/news/how-we-built-a-pixel-art-character-and-cosmetic-system/
+- https://www.witchbrook.com/dev-blog-express-yourself/
+- https://auroratide.github.io/tarm/resources/pixel-art-animation-reinvented

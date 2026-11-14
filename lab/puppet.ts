@@ -3,13 +3,13 @@ import { hexOf, type Cell, type PaletteKey } from './palette.ts';
 // ------------------------------------------------------------------ geometry
 
 export type Vec3 = [number, number, number];
-/** Sprite size and where the feet stand in it. */
+/** Sprite size. The feet stand on row ORIGIN_Y, centred on the line between columns 15 and 16. */
 export const SPRITE_W = 32;
 export const SPRITE_H = 48;
-const ORIGIN_X = 16;
+const ORIGIN_X = 16.5;
 const ORIGIN_Y = 44;
 
-/** 0 south-east, 1 south-west, 2 north-west, 3 north-east. 0 and 3 are drawn; 1 and 2 mirror them. */
+/** 0 south-east, 1 south-west, 2 north-west, 3 north-east. 0 and 3 are drawn; 1 and 2 are their mirror images. */
 export type Facing = 0 | 1 | 2 | 3;
 export const FACING_NAMES = ['front right', 'front left', 'back left', 'back right'] as const;
 
@@ -27,19 +27,33 @@ export interface Pose {
   hipR: Vec3; kneeR: Vec3; footR: Vec3;
 }
 
-const FORWARD = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-const RIGHT = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+// Forward and right in ground coordinates, for the two drawn facings.
+const FORWARD: Record<0 | 3, [number, number]> = { 0: [1, 0], 3: [0, -1] };
+const RIGHT: Record<0 | 3, [number, number]> = { 0: [0, 1], 3: [1, 0] };
+/** How far a step forward moves a point down the screen: the 2:1 isometric ratio. */
+const FORWARD_LIFT = 0.3536;
+/**
+ * Sideways offsets inside the body are flattened. True isometry would put one shoulder two
+ * pixels above the other, which reads as a broken arm at this size; hand-drawn sprites keep the
+ * body nearly level, with the nearer side one pixel lower.
+ */
+const SIDE_LIFT = 0.06;
 
-/** Isometric projection (2:1) of a character-space point for one facing. */
-function project(p: Vec3, facing: Facing): { x: number; y: number; depth: number } {
+interface Point {
+  x: number;
+  y: number;
+  depth: number;
+}
+
+function project(p: Vec3, facing: 0 | 3): Point {
   const f = FORWARD[facing];
   const r = RIGHT[facing];
-  const wx = f[0] * p[2] + r[0] * p[0];
-  const wz = f[1] * p[2] + r[1] * p[0];
+  const forward = { x: (f[0] - f[1]) * 0.7071, down: f[0] + f[1] };
+  const right = { x: (r[0] - r[1]) * 0.7071, down: r[0] + r[1] };
   return {
-    x: ORIGIN_X + (wx - wz) * 0.7071,
-    y: ORIGIN_Y + (wx + wz) * 0.3536 - p[1],
-    depth: wx + wz,
+    x: ORIGIN_X + forward.x * p[2] + right.x * p[0],
+    y: ORIGIN_Y - p[1] + forward.down * FORWARD_LIFT * p[2] + right.down * SIDE_LIFT * p[0],
+    depth: forward.down * p[2] + right.down * p[0],
   };
 }
 
@@ -57,6 +71,8 @@ export const HEAD_STAMP = { w: 21, h: 30, ax: 10, ay: 21 };
 export const TOOL_STAMP = { w: 15, h: 44, ax: 7, ay: 30 };
 /** Limb paint is a strip of this many cells from shoulder to hand, or hip to ankle. */
 export const LIMB_CELLS = 10;
+/** A tool stamp's grip sits this many rows above its foot, which rests on the ground for poles. */
+const GRIP_HEIGHT = 9;
 
 export interface StampPair {
   front: Stamp;
@@ -67,7 +83,7 @@ export interface StampPair {
 export interface Item {
   name: string;
   slot: Slot;
-  /** Hair, beard, hat, face: rigid on the head. */
+  /** Hair, beard, hat: rigid on the head. */
   head?: StampPair;
   /** Drawn behind the body when seen from the front, for long hair. */
   headBehind?: StampPair;
@@ -78,8 +94,15 @@ export interface Item {
   /** Trouser colours from hip to ankle. */
   leg?: (Cell | null)[];
   foot?: Cell | null;
-  /** A carried object, rigid on the right hand. */
+  /** A carried object, held in the nearer hand. */
   tool?: StampPair;
+  /**
+   * How a tool is held. 'pole' stands on the ground beside the body with the fist around the
+   * shaft; 'carry' moves with the hand.
+   */
+  hold?: 'pole' | 'carry';
+  /** Columns from the tool stamp's anchor to its shaft, front and back, so the fist closes on the shaft itself. */
+  gripDx?: { front: number; back: number };
 }
 
 export const SLOTS = ['bottom', 'shoes', 'top', 'beard', 'hair', 'hat', 'tool'] as const;
@@ -87,12 +110,23 @@ export type Slot = (typeof SLOTS)[number];
 
 export interface Look {
   skin: PaletteKey;
-  /** The head with its face, as stamps. */
+  /** The bare head, as stamps. */
   head: StampPair;
+  /** Face expressions, drawn on the front of the head. 'neutral' is the default. */
+  faces: Record<string, Stamp>;
   items: Item[];
 }
 
+export interface DrawOptions {
+  /** Which face to show. */
+  face?: string;
+  /** Rows the hat sits lower (positive) or higher than the head this frame, for follow-through. */
+  hatLag?: number;
+}
+
 // ------------------------------------------------------------------ drawing
+
+const SHADOW = '#2a1c3a38';
 
 export class Sprite {
   readonly pixels: (string | null)[] = new Array(SPRITE_W * SPRITE_H).fill(null);
@@ -103,6 +137,14 @@ export class Sprite {
   get(x: number, y: number): string | null {
     return this.pixels[y * SPRITE_W + x] ?? null;
   }
+  /** The same image facing the other way. */
+  mirrored(): Sprite {
+    const out = new Sprite();
+    for (let y = 0; y < SPRITE_H; y++) {
+      for (let x = 0; x < SPRITE_W; x++) out.pixels[y * SPRITE_W + (SPRITE_W - 1 - x)] = this.pixels[y * SPRITE_W + x];
+    }
+    return out;
+  }
 }
 
 interface Layer {
@@ -110,14 +152,12 @@ interface Layer {
   draw: () => void;
 }
 
-function stampInto(sprite: Sprite, stamp: Stamp, frame: { ax: number; ay: number; w: number }, x: number, y: number, mirror: boolean): void {
+function stampInto(sprite: Sprite, stamp: Stamp, frame: { ax: number; ay: number }, x: number, y: number): void {
   for (let row = 0; row < stamp.length; row++) {
     const cells = stamp[row];
     for (let col = 0; col < cells.length; col++) {
       const cell = cells[col];
-      if (!cell) continue;
-      const dx = col - frame.ax;
-      sprite.set(x + (mirror ? -dx : dx), y + row - frame.ay, hexOf(cell));
+      if (cell) sprite.set(x + col - frame.ax, y + row - frame.ay, hexOf(cell));
     }
   }
 }
@@ -125,48 +165,49 @@ function stampInto(sprite: Sprite, stamp: Stamp, frame: { ax: number; ay: number
 /**
  * Draws a limb through its joints as clean pixel runs: one run of `width` pixels per step along
  * the longer axis, never an anti-aliased or rotated shape. `colorAt` gets the position along
- * the limb from 0 to 1.
+ * the limb from 0 to 1 and the index across it.
  */
-function drawLimb(sprite: Sprite, joints: { x: number; y: number }[], width: number, colorAt: (t: number) => string): void {
-  const points = joints.map((j) => ({ x: Math.round(j.x), y: Math.round(j.y) }));
+function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number) => string): void {
   let total = 0;
-  for (let i = 1; i < points.length; i++) {
-    total += Math.max(Math.abs(points[i].x - points[i - 1].x), Math.abs(points[i].y - points[i - 1].y));
+  for (let i = 1; i < joints.length; i++) {
+    total += Math.max(Math.abs(Math.round(joints[i].x) - Math.round(joints[i - 1].x)), Math.abs(Math.round(joints[i].y) - Math.round(joints[i - 1].y)));
   }
   let step = 0;
-  const lo = -Math.floor((width - 1) / 2);
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1];
-    const b = points[i];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const n = Math.max(Math.abs(dx), Math.abs(dy));
-    const tall = Math.abs(dy) >= Math.abs(dx);
+  for (let i = 1; i < joints.length; i++) {
+    const a = joints[i - 1];
+    const b = joints[i];
+    const n = Math.max(Math.abs(Math.round(b.x) - Math.round(a.x)), Math.abs(Math.round(b.y) - Math.round(a.y)));
+    const tall = Math.abs(b.y - a.y) >= Math.abs(b.x - a.x);
     for (let k = i === 1 ? 0 : 1; k <= n; k++) {
-      const x = Math.round(a.x + (n ? (dx * k) / n : 0));
-      const y = Math.round(a.y + (n ? (dy * k) / n : 0));
-      const color = colorAt(total ? step / total : 0);
+      const x = a.x + (n ? ((b.x - a.x) * k) / n : 0);
+      const y = a.y + (n ? ((b.y - a.y) * k) / n : 0);
+      const t = total ? step / total : 0;
       for (let w = 0; w < width; w++) {
-        if (tall) sprite.set(x + lo + w, y, color);
-        else sprite.set(x, y + lo + w, color);
+        if (tall) sprite.set(Math.round(x - width / 2) + w, Math.round(y), colorAt(t, w));
+        else sprite.set(Math.round(x), Math.round(y - width / 2) + w, colorAt(t, w));
       }
       step++;
     }
   }
 }
 
-/** Draws one frame of a character. Everything is placed by rule from the pose; nothing is rasterised from 3D. */
-export function drawCharacter(look: Look, pose: Pose, facing: Facing): Sprite {
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+/** Draws one frame of a character. Every pixel is placed by a rule or comes from a stamp. */
+export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
+  if (facing === 1) return drawCharacter(look, pose, 0, options).mirrored();
+  if (facing === 2) return drawCharacter(look, pose, 3, options).mirrored();
+
   const sprite = new Sprite();
-  const mirror = facing === 1 || facing === 2;
-  const back = facing === 2 || facing === 3;
+  const back = facing === 3;
   const side = (pair: StampPair) => (back ? pair.back : pair.front);
   const P = (v: Vec3) => project(v, facing);
   const skin: Cell = { key: look.skin, shade: false };
+  const tone = (cell: Cell, shade: boolean) => hexOf({ ...cell, shade: cell.shade || shade, light: shade ? false : cell.light });
   const layers: Layer[] = [];
-  const bySlot = (slot: Slot) => look.items.filter((i) => i.slot === slot);
   // Later slots cover earlier ones.
-  const ordered = SLOTS.flatMap((slot) => bySlot(slot));
+  const ordered = SLOTS.flatMap((slot) => look.items.filter((i) => i.slot === slot));
+  const tool = ordered.find((i) => i.tool);
 
   const limbPaint = (kind: 'arm' | 'leg', t: number): Cell => {
     let cell: Cell = skin;
@@ -178,37 +219,45 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing): Sprite {
     return cell;
   };
 
-  // ---- legs and feet
+  const chest = P(pose.chest);
+  const hips = P(pose.hips);
+
+  // ---- ground shadow: anchors an outline-free sprite to the floor
+  layers.push({
+    depth: -1000,
+    draw: () => {
+      const cx = P([0, 0, 0]).x;
+      for (const [row, half] of [[ORIGIN_Y - 1, 5], [ORIGIN_Y, 7], [ORIGIN_Y + 1, 7], [ORIGIN_Y + 2, 5]] as const) {
+        for (let x = Math.round(cx - half); x < Math.round(cx + half); x++) sprite.set(x, row, SHADOW);
+      }
+    },
+  });
+
+  // ---- legs and feet. The farther leg is drawn in the shade tone, with a gap between the two.
   for (const s of ['L', 'R'] as const) {
     const hip = P(pose[`hip${s}`]);
     const knee = P(pose[`knee${s}`]);
     const foot = P(pose[`foot${s}`]);
-    const far = hip.depth < P(pose.hips).depth;
+    const far = hip.depth < hips.depth;
     layers.push({
       depth: knee.depth - 20,
       draw: () => {
-        drawLimb(sprite, [hip, knee, foot], 4, (t) => {
-          const cell = limbPaint('leg', t);
-          return hexOf({ key: cell.key, shade: cell.shade || far });
-        });
+        drawLimb(sprite, [hip, knee, foot], 4, (t) => tone(limbPaint('leg', t), far));
         let shoe: Cell = skin;
         for (const item of ordered) if (item.foot) shoe = item.foot;
-        const fx = Math.round(foot.x);
-        const fy = Math.round(foot.y);
-        const toe = facing === 0 || facing === 3 ? 1 : -1;
-        const color = hexOf({ key: shoe.key, shade: shoe.shade || far });
-        for (let dx = -1; dx <= 2; dx++) {
-          sprite.set(fx + dx + (toe > 0 ? 0 : -1), fy, color);
-          sprite.set(fx + dx + (toe > 0 ? 0 : -1), fy + 1, color);
+        // Feet are wider than the legs and point the way the character faces.
+        const left = Math.round(foot.x - 2);
+        const top = Math.round(foot.y);
+        for (let dx = 0; dx < 5; dx++) {
+          sprite.set(left + dx, top, tone(shoe, far));
+          sprite.set(left + dx, top + 1, tone(shoe, far || dx === 0));
         }
-        sprite.set(fx + (toe > 0 ? 3 : -3), fy + 1, color);
       },
     });
   }
 
-  // ---- torso: a plain block from shoulders to hips, then rigid clothing stamps
-  const chest = P(pose.chest);
-  const hips = P(pose.hips);
+  // ---- torso: a block from shoulders to hips with a shaded far side, then rigid clothing stamps
+  const farSide = Math.sign(P(pose.shoulderL).x - chest.x) || 1;
   layers.push({
     depth: chest.depth,
     draw: () => {
@@ -216,51 +265,75 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing): Sprite {
       const bottom = Math.round(hips.y) + 1;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
-        const cx = Math.round(chest.x + (hips.x - chest.x) * k);
-        for (let dx = -4; dx <= 4; dx++) sprite.set(cx + dx, y, hexOf(skin));
+        const left = Math.round(chest.x + (hips.x - chest.x) * k - 4.5);
+        for (let i = 0; i < 9; i++) {
+          const edge = farSide > 0 ? i === 8 : i === 0;
+          // A shadow under the chin, and the far side in shade.
+          const under = y === top && i >= 2 && i <= 6;
+          sprite.set(left + i, y, tone(skin, edge || under));
+        }
       }
-      const x = Math.round(chest.x);
-      for (const item of ordered) if (item.torso) stampInto(sprite, side(item.torso), TORSO_FRAME, x, top, mirror);
+      if (!back) sprite.set(Math.floor(chest.x) + 1, top + 8, tone(skin, true));
+      for (const item of ordered) if (item.torso) stampInto(sprite, side(item.torso), TORSO_FRAME, Math.floor(chest.x), top);
     },
   });
 
-  // ---- arms. The right hand may carry a tool.
+  // ---- arms and hands. The nearer hand holds the tool.
   for (const s of ['L', 'R'] as const) {
     const shoulder = P(pose[`shoulder${s}`]);
-    const elbow = P(pose[`elbow${s}`]);
-    const hand = P(pose[`hand${s}`]);
     const far = shoulder.depth < chest.depth;
+    let elbow = P(pose[`elbow${s}`]);
+    let hand = P(pose[`hand${s}`]);
+    const holding = !far && tool;
+    if (holding && tool.hold === 'pole') {
+      // Arm held out to the side with the forearm raised, fist closed around the shaft.
+      const side3 = s === 'R' ? 1 : -1;
+      const elbow3 = add(pose[`shoulder${s}`], [side3 * 3.4, -2.9, 0.4]);
+      elbow = P(elbow3);
+      hand = P(add(elbow3, [side3 * 3.6, -0.6, 2.6]));
+    }
+    const inner = Math.sign(chest.x - shoulder.x);
     layers.push({
       depth: elbow.depth + (far ? -1 : 1),
       draw: () => {
-        if (s === 'R') {
-          for (const item of ordered) {
-            if (item.tool) stampInto(sprite, side(item.tool), TOOL_FRAME, Math.round(hand.x), Math.round(hand.y), mirror);
-          }
+        if (holding) {
+          const x = Math.round(hand.x) - (tool.gripDx?.[back ? 'back' : 'front'] ?? 0);
+          const y = tool.hold === 'pole' ? ORIGIN_Y - GRIP_HEIGHT : Math.round(hand.y);
+          stampInto(sprite, side(tool.tool!), TOOL_FRAME, x, y);
         }
-        drawLimb(sprite, [shoulder, elbow, hand], 3, (t) => {
-          const cell = limbPaint('arm', t);
-          return hexOf({ key: cell.key, shade: cell.shade || far });
+        drawLimb(sprite, [shoulder, elbow, hand], 3, (t, across) => {
+          // Where the nearer arm lies over the body, its inner edge is shaded so the two separate.
+          const contact = !far && t < 0.7 && (inner > 0 ? across === 2 : across === 0);
+          return tone(limbPaint('arm', t), far || contact);
         });
+        // Hands are a visible block of skin, drawn over whatever they hold.
+        const left = Math.round(hand.x - 1.5);
+        const top = Math.round(hand.y) - 1;
+        for (let dy = 0; dy < 3; dy++) {
+          for (let dx = 0; dx < 3; dx++) sprite.set(left + dx, top + dy, tone(skin, far || (dy === 2 && dx !== 1)));
+        }
       },
     });
   }
 
   // ---- head: rigid stamps
   const neck = P(pose.neck);
-  const hx = Math.round(neck.x);
+  const hx = Math.floor(neck.x);
   const hy = Math.round(neck.y);
   layers.push({
     depth: back ? chest.depth + 0.5 : chest.depth - 0.5,
     draw: () => {
-      for (const item of ordered) if (item.headBehind) stampInto(sprite, side(item.headBehind), HEAD_FRAME, hx, hy, mirror);
+      for (const item of ordered) if (item.headBehind) stampInto(sprite, side(item.headBehind), HEAD_FRAME, hx, hy);
     },
   });
   layers.push({
     depth: chest.depth + 3,
     draw: () => {
-      stampInto(sprite, side(look.head), HEAD_FRAME, hx, hy, mirror);
-      for (const item of ordered) if (item.head) stampInto(sprite, side(item.head), HEAD_FRAME, hx, hy, mirror);
+      stampInto(sprite, side(look.head), HEAD_FRAME, hx, hy);
+      if (!back) stampInto(sprite, look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, HEAD_FRAME, hx, hy);
+      for (const item of ordered) {
+        if (item.head) stampInto(sprite, side(item.head), HEAD_FRAME, hx, hy + (item.slot === 'hat' ? options.hatLag ?? 0 : 0));
+      }
     },
   });
 
@@ -273,16 +346,20 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing): Sprite {
 
 /**
  * Stamps are written as rows of characters. '.' is transparent. Any other character is looked
- * up in the legend; an upper-case letter is the lit colour and its lower-case form the shade.
+ * up in the legend; an upper-case letter is the base colour and its lower-case form the shade.
+ * A legend value ending in '+' selects the highlight tone. '#', '%' and '+' are the skin in its
+ * base, shade and highlight tones.
  */
-export function parseStamp(rows: string[], legend: Record<string, PaletteKey>, skin?: PaletteKey): Stamp {
+export function parseStamp(rows: string[], legend: Record<string, PaletteKey | `${PaletteKey}+`>, skin?: PaletteKey): Stamp {
   return rows.map((row) =>
-    [...row].map((ch) => {
+    [...row].map((ch): Cell | null => {
       if (ch === '.' || ch === ' ') return null;
-      if (skin && (ch === '#' || ch === '%')) return { key: skin, shade: ch === '%' };
-      const key = legend[ch.toUpperCase()];
-      if (!key) throw new Error(`Unknown character "${ch}" in stamp`);
-      return { key, shade: ch !== ch.toUpperCase() };
+      if (skin && (ch === '#' || ch === '%' || ch === '+')) return { key: skin, shade: ch === '%', light: ch === '+' };
+      const entry = legend[ch.toUpperCase()];
+      if (!entry) throw new Error(`Unknown character "${ch}" in stamp`);
+      const light = entry.endsWith('+');
+      const key = (light ? entry.slice(0, -1) : entry) as PaletteKey;
+      return { key, shade: ch !== ch.toUpperCase(), light: light && ch === ch.toUpperCase() };
     }),
   );
 }
@@ -299,10 +376,10 @@ export interface Layout {
   handR: { x: number; y: number };
 }
 
-export function layoutOf(pose: Pose, facing: Facing): Layout {
+export function layoutOf(pose: Pose, facing: 0 | 3): Layout {
   const P = (v: Vec3) => {
     const p = project(v, facing);
-    return { x: Math.round(p.x), y: Math.round(p.y), depth: p.depth };
+    return { x: Math.floor(p.x), y: Math.round(p.y), depth: p.depth };
   };
   const limb = (a: Vec3, b: Vec3) => ({ x: P(a).x, y0: P(a).y, y1: P(b).y, depth: P(a).depth });
   const nearFirst = <T extends { depth: number }>(list: T[]) => list.sort((p, q) => q.depth - p.depth);

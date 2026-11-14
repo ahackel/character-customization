@@ -4,6 +4,7 @@ An exploration of how to build customizable, stylized game characters with good 
 
 - [`docs/research.md`](docs/research.md) compares six 2D and 3D approaches, recommends one, and covers how it carries over to pixel art.
 - The rest of this repository is a web prototype of that approach: 3D characters assembled from modular parts on one shared skeleton, drawn as pixel art.
+- [`docs/pixel-style-research.md`](docs/pixel-style-research.md) collects what makes small pixel-art characters appealing and how shipped games build layered ones.
 - [`docs/plan.md`](docs/plan.md) is the plan that followed feedback on that prototype: a true 2D pixel-art character whose items are written by a language model. `lab/` holds its first experiments and their results.
 
 ## Run it
@@ -36,6 +37,8 @@ With the dev server running, open `/lab/` for the comparison page.
 | `lab/base.ts`, `lab/palette.ts` | Generated base body and the master palette |
 | `lab/generated/` | Format descriptions given to the model, its unedited answers, sampled poses, the 3D reference sheet |
 | `lab/tools/` | Scripts that write the format descriptions, sample the 3D clips and render preview sheets |
+
+The format descriptions and generated items in `lab/generated/` belong to the first base body. Running `lab/tools/make-specs.mjs` rewrites the descriptions for the current body; items should then be generated again.
 
 ## What the prototype shows
 

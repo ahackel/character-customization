@@ -111,13 +111,27 @@ A 32 by 48 puppet drawn by rules walks in four facings and wears generated items
 
 - The puppet has straight limb edges, even patterns and a face made of chosen pixels. The 3D render has uneven edges and stray pixels, and its silhouette shifts between frames.
 - The puppet is stiffer: a rigid torso block and limbs without volume.
-- The base body, face and short hair were written by the model, with one round of correction after looking at the result. They are a first draft.
+- The base body, face and short hair were written by the model and corrected by looking at renders. The first version was judged too plain; see the next section.
+
+### Base body, second version
+
+Feedback on the first body: too plain and generic, one arm looked off, and the spear was not held. It was rebuilt on 15 November 2026 after researching the style ([pixel-style-research.md](pixel-style-research.md)).
+
+- **Arm.** True isometry put one shoulder two pixels above the other, so the far arm hung from the neck. Sideways offsets inside the body are now flattened, as hand-drawn sprites do.
+- **Grip.** A pole stands on the ground beside the body, the arm reaches out to it, and the fist is drawn over the shaft, front and back.
+- **Face and hair.** Taller eyes with a shine, blush, an open smile, a blink and a laughing face. Hair in clumps with a tuft and a lit band.
+- **Body.** Hands and feet as visible blocks, legs with a gap, a shaded edge where the arm crosses the body, shadows under the chin and on the ground.
+- **Colour.** One rule derives every shadow (towards plum) and highlight (towards cream).
+- **Motion.** A breathing idle, a lean in the walk, and the hat arriving one frame late.
+- **Facings.** The two left facings are now exact mirror images of the right ones, as in Stardew Valley.
+
+Still plain: the torso is a block, the back view has little to look at, and there is one body and one hairstyle. The generated items were drawn against the first body and are shown on the second unchanged.
 
 ### 2. Motion source
 
 - Sampling the 3D clips works. Only bone directions are taken, so the source character's proportions do not matter. All 31 clips are available this way; idle, walk, run, wave and chop were tried.
 - Sampled motion carries the source's posture (arms held away from the body, bent knees). It suits actions; the hand-written walk is tidier.
-- Tools stay upright in every pose. Swinging actions need rotated tool variants.
+- A pole stays planted beside the body in every action. Tools that swing still need rotated variants.
 
 ### 3. Item generation
 

@@ -20,9 +20,10 @@ export function writeSheet(file, rows, scale = 6, background = [233, 217, 160]) 
       const hex = sprite.get(x, y);
       if (!hex) continue;
       const rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
+      const alpha = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;
       for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
         const o = (((r * ch + y) * scale + sy) * png.width + (c * cw + x) * scale + sx) * 4;
-        png.data[o] = rgb[0]; png.data[o + 1] = rgb[1]; png.data[o + 2] = rgb[2];
+        for (let k = 0; k < 3; k++) png.data[o + k] = Math.round(rgb[k] * alpha + png.data[o + k] * (1 - alpha));
       }
     }
   }));

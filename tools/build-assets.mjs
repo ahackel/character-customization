@@ -28,7 +28,7 @@ const SWATCH_ROWS = 4;
 const LABELS = {
   Knight_Head: 'Blond crop', Barbarian_Head: 'Grey beard', Mage_Head: 'Long dark hair',
   Rogue_Head: 'Auburn bob', Rogue_Head_Hooded: 'Hooded',
-  Knight_Helmet: 'Knight helmet', Barbarian_Hat: 'Horned cap', Mage_Hat: 'Wizard hat',
+  Knight_Helmet: 'Knight helmet', Barbarian_Hat: 'Bear cap', Mage_Hat: 'Wizard hat',
   Knight_Body: 'Plate armour', Barbarian_Body: 'Fur harness', Mage_Body: 'Robe', Rogue_Body: 'Leather vest',
   Knight_Arms: 'Plate gauntlets', Barbarian_Arms: 'Bracers', Mage_Arms: 'Robe sleeves', Rogue_Arms: 'Leather gloves',
   Knight_Legs: 'Plate greaves', Barbarian_Legs: 'Fur boots', Mage_Legs: 'Robe boots', Rogue_Legs: 'Leather boots',

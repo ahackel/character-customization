@@ -35,17 +35,34 @@ async function start(): Promise<void> {
 
   let world!: World;
   let thumbnails!: Thumbnails;
-  const settings = { outline: true, juice: true, shadows: true };
+  const settings = { pixel: true, outline: true, juice: true, shadows: true };
   let mode: 'play' | 'dress' = 'play';
   let gait: Gait = 'stand';
   let turntable = 0;
 
-  const spawn = (look: Look): Actor => {
-    const character = new Character(assets, materials, look);
-    character.outlineVisible = settings.outline;
+  const drawAt = (position: THREE.Vector3, out: THREE.Vector3) => world.snapToPixel(position, out);
+  const confine = (position: THREE.Vector3) => {
+    world.island.avoidObstacles(position);
+    world.island.clampToLand(position);
+  };
+  /** Applies the look-and-feel settings to one character. */
+  const configure = (actor: Actor) => {
+    const { character } = actor;
+    // The pixel look draws outlines as a screen effect, so the hull mesh is not needed there.
+    character.outlineVisible = settings.outline && !settings.pixel;
     character.juice.enabled = settings.juice;
     character.springsEnabled = settings.juice;
-    return new Actor(character);
+    // Sprite conventions: eight facings, poses held at 12 per second, positions on the pixel grid.
+    character.poseRate = settings.pixel ? 12 : 0;
+    character.pixelFace = settings.pixel;
+    actor.facings = settings.pixel ? 8 : 0;
+    actor.drawAt = settings.pixel ? drawAt : null;
+  };
+  const spawn = (look: Look): Actor => {
+    const actor = new Actor(new Character(assets, materials, look));
+    actor.confine = confine;
+    configure(actor);
+    return actor;
   };
 
   const player = spawn(loadSavedLook(assets) ?? defaultLook());
@@ -64,9 +81,10 @@ async function start(): Promise<void> {
     while (crowd.length < wanted) {
       const actor = spawn(randomLook(assets));
       const angle = Math.random() * Math.PI * 2;
-      const radius = 3 + Math.random() * 4.5;
+      const radius = 2.5 + Math.random() * 5;
       actor.place(Math.cos(angle) * radius, Math.sin(angle) * radius, Math.random() * Math.PI * 2);
-      crowd.push({ actor, brain: new Wanderer(actor, 8) });
+      confine(actor.position);
+      crowd.push({ actor, brain: new Wanderer(actor, 8.5) });
       void actor.character.rebuild().then(() => {
         actor.refreshStance();
         actor.character.root.visible = mode === 'play';
@@ -116,20 +134,26 @@ async function start(): Promise<void> {
     setCrowd,
     setToggle: (name, on) => {
       settings[name] = on;
-      if (name === 'shadows') world.shadows = on;
-      for (const actor of everyone()) {
-        actor.character.outlineVisible = settings.outline;
-        actor.character.juice.enabled = settings.juice;
-        actor.character.springsEnabled = settings.juice;
-      }
+      applySettings();
     },
   });
+
+  const applySettings = () => {
+    world.pixel = settings.pixel;
+    world.pixelOutline = settings.outline;
+    world.shadows = settings.shadows;
+    materials.flatColors.value = settings.pixel ? 1 : 0;
+    thumbnails.style = settings.pixel ? 'pixel' : 'smooth';
+    for (const actor of everyone()) configure(actor);
+    ui.setStyle(settings.pixel ? 'pixel' : 'smooth');
+  };
 
   world = new World(ui.canvasHost);
   thumbnails = new Thumbnails(world.renderer, assets, materials);
   new ResizeObserver(() => world.resize()).observe(ui.canvasHost);
   new ResizeObserver(() => (world.bottomInset = ui.bottomBar.offsetHeight + 12)).observe(ui.bottomBar);
   world.resize();
+  applySettings();
 
   await rebuildPlayer();
   world.scene.add(player.character.root);
@@ -211,6 +235,7 @@ async function start(): Promise<void> {
 
     world.focus.copy(player.position);
     world.update(dt);
+    world.renderer.info.reset();
     world.render();
 
     workMs += (performance.now() - now - workMs) * 0.1;

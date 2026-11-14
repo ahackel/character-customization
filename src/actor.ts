@@ -40,6 +40,13 @@ export class Actor {
   run = true;
   /** Animation speed to show while standing still, for previewing gaits on the spot. */
   treadmill = 0;
+  /** Number of facing directions. 0 turns freely; 8 gives the eight facings of an isometric sprite. */
+  facings = 0;
+  /** Optional mapping of the true position to where the character is drawn (pixel grid snapping). */
+  drawAt: ((position: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3) | null = null;
+  /** Optional world limits, applied to the position after each move. */
+  confine: ((position: THREE.Vector3) => void) | null = null;
+  private stuck = 0;
   private yaw = 0;
   private attackIndex = 0;
   private sitting = false;
@@ -70,6 +77,8 @@ export class Actor {
   moveTo(point: THREE.Vector3, run = true): void {
     if (this.sitting) this.stand();
     this.target = point.clone().setY(0);
+    // A destination in the sea or inside a rock is moved to the nearest reachable spot.
+    this.confine?.(this.target);
     this.run = run;
   }
 
@@ -157,7 +166,16 @@ export class Actor {
     _delta.subVectors(_desired, this.velocity).setY(0);
     const change = _delta.length();
     if (change > 0) this.velocity.addScaledVector(_delta, Math.min(1, (accel * dt) / change));
+    _delta.copy(this.position);
     this.position.addScaledVector(this.velocity, dt);
+    this.confine?.(this.position);
+    // Give up on a destination that an obstacle keeps blocking.
+    const moved = _delta.distanceTo(this.position);
+    this.stuck = this.target && dt > 0 && moved < 0.25 * dt ? this.stuck + dt : 0;
+    if (this.stuck > 0.5) {
+      this.target = null;
+      this.stuck = 0;
+    }
 
     // Facing follows travel direction, turning quickly but not instantly.
     const speed = this.speed;
@@ -168,7 +186,16 @@ export class Actor {
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       this.yaw += diff * Math.min(1, dt * 13);
     }
-    this.character.root.rotation.y = this.yaw;
+    const facingStep = this.facings > 0 ? (Math.PI * 2) / this.facings : 0;
+    this.character.root.rotation.y = facingStep ? Math.round(this.yaw / facingStep) * facingStep : this.yaw;
+    if (this.drawAt) {
+      // Offset the drawn body, in the root's own frame, without touching the true position.
+      const drawn = this.drawAt(this.position, _desired).sub(this.position);
+      drawn.applyAxisAngle(THREE.Object3D.DEFAULT_UP, -this.character.root.rotation.y);
+      this.character.body.position.copy(drawn);
+    } else {
+      this.character.body.position.set(0, 0, 0);
+    }
 
     const shown = speed < 0.1 && !animator.busy ? Math.max(speed, this.treadmill) : speed;
     this.character.update(dt, shown, this.velocity);

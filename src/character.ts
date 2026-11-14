@@ -45,6 +45,12 @@ export class Character {
   readonly stats = { triangles: 0, vertices: 0, bones: 0, drawCalls: 0 };
   /** Set by gameplay code; a blink is layered on top of 'neutral' automatically. */
   expression: Expression = 'neutral';
+  /**
+   * Poses per second. 0 poses every frame. A low value holds each pose for several frames, the
+   * way hand-drawn sprite animation does, while the character still moves smoothly.
+   */
+  poseRate = 0;
+  private poseDebt = Math.random() / 12;
 
   private readonly rig: THREE.Object3D;
   private readonly joints: THREE.Object3D[];
@@ -123,9 +129,20 @@ export class Character {
     return this.joints[this.assets.catalog.rig.joints.indexOf(name)];
   }
 
+  /** Chooses between the hand-placed pixel face and the drawn one. */
+  set pixelFace(on: boolean) {
+    this.face.pixel = on;
+    this.redrawFace();
+  }
+
   set outlineVisible(visible: boolean) {
     this.outline.userData.wanted = visible;
     this.outline.visible = visible && this.mesh.visible;
+    this.countDrawCalls();
+  }
+
+  private countDrawCalls(): void {
+    this.stats.drawCalls = 1 + (this.outline.userData.wanted !== false ? 1 : 0) + (this.faceMesh ? 1 : 0);
   }
 
   /** Items actually shown: the look's choices minus slots blocked by another worn item. */
@@ -274,7 +291,7 @@ export class Character {
 
     this.stats.vertices = vertexCount;
     this.stats.triangles = indexCount / 3 + (this.faceMesh ? this.faceMesh.geometry.index!.count / 3 : 0);
-    this.stats.drawCalls = 2 + (this.faceMesh ? 1 : 0);
+    this.countDrawCalls();
   }
 
   /** The hat pivots at its base, just above the brow line. */
@@ -344,7 +361,7 @@ export class Character {
     else if (channel.role === 'hair') hex = this.look.hair;
     else if (channel.role === 'primary') hex = this.look.colors[item.slot]?.primary;
     else if (channel.role === 'secondary') hex = this.look.colors[item.slot]?.secondary;
-    if (!hex) return [0, 0, 0, 0];
+    if (!hex) return [channel.linear[0], channel.linear[1], channel.linear[2], 0];
     _color.set(hex);
     const luminance = channel.linear[0] * LUMA[0] + channel.linear[1] * LUMA[1] + channel.linear[2] * LUMA[2];
     return [_color.r, _color.g, _color.b, 1 / Math.max(luminance, 0.02)];
@@ -360,12 +377,21 @@ export class Character {
    * @param velocity  horizontal world velocity, drives lean and trailing parts
    */
   update(dt: number, speed: number, velocity: THREE.Vector3): void {
-    this.animator.update(dt, speed);
-    this.juice.update(this.body, this.hips.position.y, velocity, this.root.rotation.y, dt);
-
+    let step = dt;
+    if (this.poseRate > 0) {
+      this.poseDebt += dt;
+      step = this.poseDebt >= 1 / this.poseRate ? this.poseDebt : 0;
+      if (step > 0) this.poseDebt = 0;
+    }
+    if (step > 0 || dt === 0) {
+      this.animator.update(step, speed);
+      this.juice.update(this.body, this.hips.position.y, velocity, this.root.rotation.y, step);
+    }
     this.root.updateMatrixWorld(true);
-    this.hatSpring.update(dt);
-    this.capeSpring.update(dt);
+    if (step > 0) {
+      this.hatSpring.update(step);
+      this.capeSpring.update(step);
+    }
 
     this.blinkIn -= dt;
     if (this.blinkLeft > 0) {

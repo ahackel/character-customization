@@ -1,8 +1,9 @@
 /* Layout: a full-bleed 3D stage with a floating HUD; the wardrobe is a bottom sheet on phones
-   and a side panel on wide screens. One deliberate look: daylight scene, ink-outlined controls
-   that echo the outlines on the characters. */
+   and a side panel on wide screens. One deliberate look: a sunlit island in open sea, with
+   ink-outlined controls that echo the outlines on the characters. The pixel style squares
+   every corner and switches headings to a pixel face. */
 :root {
-  --sky: #e6e9fb;
+  --sky: #2d86c9;
   --ink: #262250;
   --ink-soft: #5f5c8a;
   --paper: #fcfcff;
@@ -63,6 +64,7 @@ button, input {
   font-size: 1.15rem;
   font-weight: 500;
   text-align: center;
+  color: var(--paper);
 }
 
 /* ------------------------------------------------------------------ stage */
@@ -109,19 +111,27 @@ button, input {
   align-items: center;
   gap: 8px;
 }
+/* Text that sits directly on the scene: light, with an ink edge, readable on sand and sea. */
+.brand,
+.chip {
+  color: var(--paper);
+  text-shadow: 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink),
+    2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink),
+    0 4px 0 var(--ink);
+}
 .brand {
   font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   text-wrap: balance;
 }
 .chip {
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--ink-soft);
-  min-width: 3.6em;
+  min-width: 3.8em;
   text-align: right;
 }
 .hint {
@@ -129,7 +139,7 @@ button, input {
   margin-top: auto;
   padding: 4px 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--ink-soft);
@@ -475,6 +485,23 @@ input[type='range'] {
 .swatch--own[aria-pressed='true'] {
   background: var(--accent);
   box-shadow: 0 3px 0 var(--ink);
+}
+
+/* ------------------------------------------------------------------ pixel style */
+.app[data-style='pixel'] {
+  --font-display: 'Pixelify Sans', ui-monospace, 'Courier New', monospace;
+}
+.app[data-style='pixel'] :is(.btn, .tab, .card, .card__face, .popover, .note, .hint, .swatch, .swatch--own, .swatch--own::before) {
+  border-radius: 0;
+}
+.app[data-style='pixel'] :is(.switch input, .switch input::after, .card__none::before) {
+  border-radius: 0;
+}
+.app[data-style='pixel'] :is(.card__image, .card__face--pixel) {
+  image-rendering: pixelated;
+}
+.app[data-style='pixel'] .btn {
+  letter-spacing: 0.02em;
 }
 
 /* ------------------------------------------------------------------ wide screens */

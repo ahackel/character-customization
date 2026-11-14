@@ -201,8 +201,41 @@ From search summaries:
 - See-through layer decomposition: https://arxiv.org/abs/2602.03749
 - PixelLab 8-direction sprites: https://www.pixellab.ai/docs/tools/create-8-rotations-pro
 
+## Addendum: pixel art in isometric view
+
+After the first prototype the target changed to **pixel art, isometric view, a shipwreck survivor on an island**. This section re-examines the recommendation for that target. It uses the earlier research; no new sources were consulted, and items marked "from memory" were not checked.
+
+### Options
+
+| Option | One item works in all directions and animations | Looks hand-pixelled | Fit for generated content |
+|---|---|---|---|
+| **A. 3D characters rendered as pixel art at runtime** | Yes | Close, not identical | Same as the 3D pipeline, and more forgiving |
+| B. 3D characters pre-rendered to sprite layers | Only by rendering every layer, direction and frame | Close, not identical | Same as A |
+| C. Drawn or generated 2D pixel sprites, layered | No | Yes | Single characters yes, layered parts no |
+
+**Option A is the recommendation and what the prototype now does.**
+
+- Pixel art is the one style where 2D generation tools exist: PixelLab was reported to produce 8-direction rotations and skeleton-posed animation. That makes option C stronger here than in the original comparison.
+- Customization still breaks it. Every item has to line up with the body on every frame of every direction. With 5 drawn directions, about 30 clips and about 10 frames each, that is in the order of 1,500 aligned frames per item (my estimate). No tool was found that produces layered, aligned parts.
+- Option B needs the whole 3D pipeline and then adds download size and layer-sorting problems, as before.
+- Precedent: Dead Cells built its pixel-art characters from 3D models rendered to sprites (source in the list above). From memory: A Short Hike renders 3D at low resolution, and the developer t3ssel8r has published a 3D pixel-art technique with camera snapping and depth-based outlines similar to the one used here.
+
+### What changes in the architecture
+
+- **Rendering.** Low-resolution render enlarged by a whole number, one-pixel outlines from depth, camera and characters snapped to the pixel grid, eight facings, held poses. Details are in the README.
+- **Colour.** Each colour channel is drawn flat with a three-step light ramp. Textures are no longer needed on items at all: an item is geometry plus named colour channels.
+- **Faces.** Small hand-placed pixel patterns replace scaled drawings, because a feature is two or three pixels at this size.
+- **Unchanged.** Slots, the shared skeleton, merging, cover masking, slot rules, the animation set and the item pipeline.
+
+### Effect on the open risks
+
+- **Generated items become easier, in my assessment.** At about 50 pixels per character, topology flaws, texture seams and small style differences between generated meshes are mostly below what can be seen, and flat channel colours replace generated textures. This is an inference and still needs the ten-item test.
+- **Thin shapes are the new weak point.** Anything narrower than about two pixels (blades, straps, fingers) can break up or flicker. Items should be modelled chunky.
+- **A fixed colour palette** (for example 32 colours) would tie everything together further but would limit player colour choices to palette entries. Not implemented; worth a decision once real items exist.
+- **Animation.** Holding poses at 12 per second hides small flaws in generated motion. Squash and stretch reads less at this size than in the smooth look.
+
 ## Prototype
 
-A web prototype of option A is in this repository, using the CC0 KayKit Adventurers pack as stand-in content. See the [README](../README.md) for what it demonstrates and what it leaves open.
+A web prototype is in this repository, using the CC0 KayKit Adventurers pack as stand-in content. It renders in the pixel look on a castaway island by default and can switch to the smooth look. See the [README](../README.md) for what it demonstrates and what it leaves open.
 
 It confirmed the runtime side of the recommendation: mixing parts from different source characters on one skeleton, automatic recolouring and cover masking, texture-layer faces, and one animation set for every combination all work with little code. It did not test generated content, which remains the main risk.

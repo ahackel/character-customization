@@ -1,147 +1,109 @@
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toonRamp } from './materials';
+import { Island } from './island';
+import { PixelPipeline, TEXELS_PER_UNIT } from './pixel';
 
 export type CameraMode = 'play' | 'dress';
 
-const SKY = '#e6e9fb';
-const VIEWS: Record<CameraMode, { yaw: number; pitch: number; distance: number; height: number }> = {
-  // Fixed three-quarter game camera.
-  play: { yaw: Math.PI / 4, pitch: 0.62, distance: 17.5, height: 0.9 },
-  // Close, near eye level, for the wardrobe.
-  dress: { yaw: 0.42, pitch: 0.16, distance: 10.5, height: 1.45 },
-};
+// Classic pixel-art isometric view: 45 degrees around, 30 degrees down, so ground lines run 2:1.
+const YAW = Math.PI / 4;
+const PITCH = Math.PI / 6;
+const CAMERA_DISTANCE = 50;
+/** Tallest outfit (wizard hat) plus margin, and widest (weapons out), in world units. */
+const HERO_HEIGHT = 3.6;
+const HERO_WIDTH = 3.3;
+const TOP_BAR = 56;
 
-function checkerTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#d3d7f1';
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = '#c9cdec';
-  ctx.fillRect(0, 0, 64, 64);
-  ctx.fillRect(64, 64, 64, 64);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(30, 30);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
-}
+const _v = new THREE.Vector3();
 
-/** Trees and rocks around the play area, merged into one mesh plus one outline mesh. */
-function buildProps(): THREE.Group {
-  const parts: THREE.BufferGeometry[] = [];
-  const color = new THREE.Color();
-  const add = (geometry: THREE.BufferGeometry, hex: string, matrix: THREE.Matrix4) => {
-    let g = geometry.index ? geometry.toNonIndexed() : geometry;
-    g.deleteAttribute('uv');
-    g.deleteAttribute('normal');
-    g = mergeVertices(g, 1e-3);
-    g.computeVertexNormals();
-    g.applyMatrix4(matrix);
-    color.set(hex);
-    const colors = new Float32Array(g.getAttribute('position').count * 3);
-    for (let i = 0; i < colors.length; i += 3) color.toArray(colors, i);
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    parts.push(g);
-  };
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const place = (x: number, y: number, z: number, sx: number, sy: number, sz: number, turn = 0) =>
-    m.compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, turn), new THREE.Vector3(sx, sy, sz));
-
-  let seed = 7;
-  const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-  const crowns = ['#58b99a', '#6cc7a4', '#4aa98f'];
-  for (let i = 0; i < 16; i++) {
-    const angle = (i / 16) * Math.PI * 2 + random() * 0.25;
-    const radius = 10.5 + random() * 7;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
-    if (i % 3 === 2) {
-      const s = 0.6 + random() * 0.7;
-      add(new THREE.DodecahedronGeometry(1, 0), '#aeb3d6', place(x, s * 0.45, z, s * 1.3, s * 0.8, s, random() * 3));
-    } else {
-      const h = 1.3 + random() * 0.9;
-      const r = 1.2 + random() * 0.6;
-      add(new THREE.CylinderGeometry(0.2, 0.3, h, 7), '#8d6f8f', place(x, h / 2, z, 1, 1, 1));
-      add(new THREE.IcosahedronGeometry(1, 1), crowns[i % 3], place(x, h + r * 0.7, z, r, r * 0.95, r, random() * 3));
-      add(new THREE.IcosahedronGeometry(1, 1), crowns[(i + 1) % 3], place(x + r * 0.5, h + r * 0.35, z + r * 0.3, r * 0.6, r * 0.55, r * 0.6));
-    }
-  }
-  const geometry = mergeGeometries(parts)!;
-  const group = new THREE.Group();
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonRamp }));
-  mesh.castShadow = true;
-  const outlineMaterial = new THREE.MeshBasicMaterial({ color: '#3b3560', side: THREE.BackSide });
-  outlineMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\ntransformed += normal * 0.035;',
-    );
-  };
-  group.add(mesh, new THREE.Mesh(geometry, outlineMaterial));
-  return group;
-}
-
-/** Renderer, lighting, ground and the camera that follows the player. */
+/** Renderer, lighting, the island and the fixed isometric camera that follows the player. */
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(30, 1, 1, 120);
+  readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 140);
+  readonly island = new Island();
   readonly focus = new THREE.Vector3();
   mode: CameraMode = 'play';
-  /** Height in pixels of controls covering the bottom of the stage; the wardrobe view keeps the hero above them. */
+  /** Height in CSS pixels of controls covering the bottom of the stage. */
   bottomInset = 0;
-  private inset = 0;
+
+  private readonly pipeline = new PixelPipeline();
   private readonly sun: THREE.DirectionalLight;
-  private readonly view = { ...VIEWS.play };
-  private readonly lookAt = new THREE.Vector3(0, VIEWS.play.height, 0);
+  private readonly hemisphere: THREE.HemisphereLight;
+  private readonly ambient: THREE.AmbientLight;
+  private readonly right = new THREE.Vector3();
+  private readonly up = new THREE.Vector3();
+  private readonly back = new THREE.Vector3();
+  private readonly lookAt = new THREE.Vector3();
+  private readonly fraction = new THREE.Vector2();
   private readonly raycaster = new THREE.Raycaster();
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly marker: THREE.Mesh;
   private markerAge = 1;
+  private pixelated = true;
+  private scale = 2;
+  private unitsHigh = 13;
+  private lastMode: CameraMode = 'play';
 
   constructor(readonly container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Several render calls make one frame, so the frame loop resets the statistics itself.
+    this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
 
-    this.scene.background = new THREE.Color(SKY);
-    this.scene.fog = new THREE.Fog(SKY, 34, 62);
+    this.scene.background = new THREE.Color('#2d86c9');
 
-    this.scene.add(new THREE.HemisphereLight('#ffffff', '#b4a8d8', 1.55));
-    this.sun = new THREE.DirectionalLight('#fff1dc', 2.5);
+    // The camera never rotates, so its axes are fixed.
+    this.back.set(Math.sin(YAW) * Math.cos(PITCH), Math.sin(PITCH), Math.cos(YAW) * Math.cos(PITCH));
+    this.camera.position.copy(this.back).multiplyScalar(CAMERA_DISTANCE);
+    this.camera.lookAt(0, 0, 0);
+    this.right.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.up.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+
+    // Smooth look: sky light gives soft gradients. Pixel look: flat ambient light, so every
+    // surface has a small, fixed set of tones.
+    this.hemisphere = new THREE.HemisphereLight('#ffffff', '#b4a8d8', 0);
+    this.ambient = new THREE.AmbientLight('#ffffff', 1.35);
+    this.sun = new THREE.DirectionalLight('#fff4e0', 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const s = this.sun.shadow.camera;
-    s.left = s.bottom = -13;
-    s.right = s.top = 13;
+    s.left = s.bottom = -16;
+    s.right = s.top = 16;
     s.near = 1;
-    s.far = 60;
+    s.far = 70;
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.03;
-    this.scene.add(this.sun, this.sun.target);
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(240, 240),
-      new THREE.MeshLambertMaterial({ map: checkerTexture() }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground, buildProps());
+    this.scene.add(this.hemisphere, this.ambient, this.sun, this.sun.target, this.island.group);
 
     this.marker = new THREE.Mesh(
-      new THREE.RingGeometry(0.34, 0.44, 40),
-      new THREE.MeshBasicMaterial({ color: '#2a2550', transparent: true, depthWrite: false }),
+      new THREE.RingGeometry(0.3, 0.46, 24),
+      new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthWrite: false }),
     );
     this.marker.rotation.x = -Math.PI / 2;
-    this.marker.position.y = 0.02;
+    this.marker.position.y = 0.03;
     this.marker.visible = false;
     this.scene.add(this.marker);
+
+    this.pixel = true;
+  }
+
+  get pixel(): boolean {
+    return this.pixelated;
+  }
+
+  set pixel(on: boolean) {
+    this.pixelated = on;
+    this.hemisphere.intensity = on ? 0 : 1.55;
+    this.ambient.intensity = on ? 1.35 : 0;
+    this.sun.intensity = on ? 2.2 : 2.5;
+    this.island.hullOutline = !on;
+  }
+
+  set pixelOutline(on: boolean) {
+    this.pipeline.outline = on;
   }
 
   set shadows(enabled: boolean) {
@@ -152,11 +114,9 @@ export class World {
     const { clientWidth: w, clientHeight: h } = this.container;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
   }
 
-  /** Where a screen position hits the ground, or null if it misses. */
+  /** Where a screen position hits the ground, or null if it misses the island. */
   groundPoint(clientX: number, clientY: number): THREE.Vector3 | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
@@ -165,74 +125,122 @@ export class World {
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const point = this.raycaster.ray.intersectPlane(this.groundPlane, new THREE.Vector3());
-    if (!point || point.length() > 26) return null;
+    if (!point) return null;
+    this.island.clampToLand(point);
     return point;
   }
 
   showMarker(point: THREE.Vector3): void {
-    this.marker.position.set(point.x, 0.02, point.z);
+    this.marker.position.set(point.x, 0.03, point.z);
     this.markerAge = 0;
     this.marker.visible = true;
   }
 
   /** Yaw a character must have to face the camera. */
   get cameraYaw(): number {
-    return this.view.yaw;
+    return YAW;
   }
 
   /** Direction on the ground for "up" and "right" on screen, for keyboard movement. */
   screenAxes(): { forward: THREE.Vector3; right: THREE.Vector3 } {
-    const forward = new THREE.Vector3(-Math.sin(this.view.yaw), 0, -Math.cos(this.view.yaw));
+    const forward = new THREE.Vector3(-Math.sin(YAW), 0, -Math.cos(YAW));
     return { forward, right: new THREE.Vector3(-forward.z, 0, forward.x) };
   }
 
-  update(dt: number): void {
-    const goal = VIEWS[this.mode];
-    const k = 1 - Math.exp(-dt * 6);
-    const { clientWidth: w, clientHeight: h } = this.container;
-    let wanted = goal.distance;
-    let inset = 0;
-    if (this.mode === 'play') {
-      // A tall, narrow screen needs more distance to keep the same width in view.
-      wanted *= Math.max(1, 0.8 / this.camera.aspect);
-    } else {
-      // Fit the whole hero, hat included, into the part of the stage the controls leave free.
-      inset = Math.min(this.bottomInset, h * 0.45);
-      const free = Math.max(h - inset - 56, h * 0.3);
-      wanted = Math.max((6.9 * h) / free, 5.6 / this.camera.aspect);
-    }
-    this.inset += (inset - this.inset) * k;
-    if (this.inset > 0.5) this.camera.setViewOffset(w, h, 0, this.inset / 2, w, h);
-    else if (this.camera.view) this.camera.clearViewOffset();
-    this.view.yaw += (goal.yaw - this.view.yaw) * k;
-    this.view.pitch += (goal.pitch - this.view.pitch) * k;
-    this.view.distance += (wanted - this.view.distance) * k;
-    this.view.height += (goal.height - this.view.height) * k;
-    this.lookAt.x += (this.focus.x - this.lookAt.x) * k;
-    this.lookAt.z += (this.focus.z - this.lookAt.z) * k;
-    this.lookAt.y = this.view.height;
+  /**
+   * Moves a ground position onto the low-resolution pixel grid, so a character is drawn the
+   * same way wherever it stands. Returns the input unchanged in the smooth look.
+   */
+  snapToPixel(position: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    out.copy(position);
+    if (!this.pixelated) return out;
+    const { right, up } = this;
+    const sr = Math.round((position.x * right.x + position.z * right.z) * TEXELS_PER_UNIT) / TEXELS_PER_UNIT;
+    const su = Math.round((position.x * up.x + position.z * up.z) * TEXELS_PER_UNIT) / TEXELS_PER_UNIT;
+    // Invert the ground-to-screen mapping.
+    const det = right.x * up.z - right.z * up.x;
+    out.x = (sr * up.z - right.z * su) / det;
+    out.z = (right.x * su - sr * up.x) / det;
+    return out;
+  }
 
-    const { yaw, pitch, distance } = this.view;
-    this.camera.position.set(
-      this.lookAt.x + Math.sin(yaw) * Math.cos(pitch) * distance,
-      this.lookAt.y + Math.sin(pitch) * distance,
-      this.lookAt.z + Math.cos(yaw) * Math.cos(pitch) * distance,
-    );
-    this.camera.lookAt(this.lookAt);
+  update(dt: number): void {
+    this.island.update(dt);
+
+    const { clientWidth: cssW, clientHeight: cssH } = this.container;
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const dpr = size.x / Math.max(cssW, 1);
+    const dress = this.mode === 'dress';
+    const inset = dress ? Math.min(this.bottomInset, cssH * 0.45) : 0;
+    const freeCss = Math.max(cssH - inset - TOP_BAR, cssH * 0.3);
+    const cut = this.mode !== this.lastMode;
+    this.lastMode = this.mode;
+    this.island.propsVisible = !dress;
+    const k = cut && this.pixelated ? 1 : 1 - Math.exp(-dt * 6);
+
+    let halfW: number;
+    let halfH: number;
+    let insetWorld: number;
+    if (this.pixelated) {
+      // Zoom is a whole number of screen pixels per art pixel. The art itself has one fixed
+      // density, so the wardrobe shows exactly the sprite seen in play, only enlarged.
+      this.scale = dress
+        ? Math.max(2, Math.floor(Math.min((freeCss * dpr) / (HERO_HEIGHT * TEXELS_PER_UNIT), size.x / (HERO_WIDTH * TEXELS_PER_UNIT))))
+        : Math.max(2, Math.floor(Math.min(size.x, size.y) / 210));
+      const lowW = Math.ceil(size.x / this.scale) + 2;
+      const lowH = Math.ceil(size.y / this.scale) + 2;
+      this.pipeline.setSize(lowW, lowH);
+      halfW = lowW / (2 * TEXELS_PER_UNIT);
+      halfH = lowH / (2 * TEXELS_PER_UNIT);
+      insetWorld = (inset * dpr) / (this.scale * TEXELS_PER_UNIT);
+    } else {
+      const aspect = cssW / cssH;
+      const wanted = dress
+        ? Math.max((HERO_HEIGHT * cssH) / freeCss, HERO_WIDTH / aspect)
+        : 13 * Math.max(1, 0.85 / aspect);
+      this.unitsHigh += (wanted - this.unitsHigh) * k;
+      halfH = this.unitsHigh / 2;
+      halfW = halfH * aspect;
+      insetWorld = (inset / cssH) * this.unitsHigh;
+    }
+    if (this.camera.top !== halfH || this.camera.right !== halfW) {
+      this.camera.left = -halfW;
+      this.camera.right = halfW;
+      this.camera.top = halfH;
+      this.camera.bottom = -halfH;
+      this.camera.updateProjectionMatrix();
+    }
+
+    // Follow the player. In the wardrobe the view is centred on the body and lifted clear of
+    // the controls at the bottom.
+    _v.copy(this.focus).setY(dress ? 1.5 : 0.9).addScaledVector(this.up, -insetWorld / 2);
+    this.lookAt.lerp(_v, k);
+    this.camera.position.copy(this.lookAt).addScaledVector(this.back, CAMERA_DISTANCE);
+    this.fraction.set(0, 0);
+    if (this.pixelated) {
+      const r = this.camera.position.dot(this.right) * TEXELS_PER_UNIT;
+      const u = this.camera.position.dot(this.up) * TEXELS_PER_UNIT;
+      this.fraction.set(r - Math.round(r), u - Math.round(u));
+      this.camera.position
+        .addScaledVector(this.right, -this.fraction.x / TEXELS_PER_UNIT)
+        .addScaledVector(this.up, -this.fraction.y / TEXELS_PER_UNIT);
+    }
+    this.camera.updateMatrixWorld();
 
     this.sun.target.position.copy(this.lookAt).setY(0);
-    this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-9, 22, 12));
+    this.sun.position.copy(this.sun.target.position).add(_v.set(-10, 24, 9));
 
     if (this.marker.visible) {
-      this.markerAge += dt * 1.6;
+      this.markerAge += dt * 1.8;
       const t = Math.min(this.markerAge, 1);
-      this.marker.scale.setScalar(0.6 + t * 0.9);
-      (this.marker.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - t);
+      this.marker.scale.setScalar(0.5 + t * 0.8);
+      (this.marker.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - t);
       if (t >= 1) this.marker.visible = false;
     }
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.pixelated) this.pipeline.render(this.renderer, this.scene, this.camera, this.scale, this.fraction);
+    else this.renderer.render(this.scene, this.camera);
   }
 }

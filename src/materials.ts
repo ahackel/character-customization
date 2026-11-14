@@ -14,22 +14,27 @@ function makeRamp(): THREE.DataTexture {
 export const toonRamp = makeRamp();
 
 /**
- * Recolouring. Each vertex carries a `tint` (rgb = target colour, a = 1 / mean luminance of the
- * swatch it replaces, or 0 for "keep the texture"). The swatch's own gradient is kept as shading
- * and only its hue is replaced, so one mesh and one texture serve every colour variant.
+ * Recolouring. Each vertex carries a `tint`: rgb is the colour of its channel (the chosen colour,
+ * or the item's own), and a is 1 / mean luminance of the swatch when a colour was chosen, else 0.
+ * In the smooth look a chosen colour replaces the swatch's hue but keeps its gradient as shading.
+ * In the pixel look every channel is drawn in its flat colour.
  */
-function patchTint(shader: THREE.WebGLProgramParametersWithUniforms): void {
+function patchTint(shader: THREE.WebGLProgramParametersWithUniforms, flatColors: { value: number }): void {
+  shader.uniforms.flatColors = flatColors;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nattribute vec4 tint;\nvarying vec4 vTint;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTint = tint;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec4 vTint;')
+    .replace('#include <common>', '#include <common>\nvarying vec4 vTint;\nuniform float flatColors;')
     .replace(
       '#include <map_fragment>',
       /* glsl */ `
       #ifdef USE_MAP
         vec4 sampledDiffuseColor = texture2D( map, vMapUv );
-        if ( vTint.a > 0.0 ) {
+        if ( flatColors > 0.5 ) {
+          // Pixel look: one flat colour per channel, shaded only by the light ramp.
+          sampledDiffuseColor.rgb = vTint.rgb;
+        } else if ( vTint.a > 0.0 ) {
           float shade = dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ) * vTint.a;
           sampledDiffuseColor.rgb = vTint.rgb * clamp( shade, 0.5, 1.6 );
         }
@@ -43,20 +48,23 @@ export interface CharacterMaterials {
   body: THREE.MeshToonMaterial;
   outline: THREE.MeshBasicMaterial;
   outlineWidth: { value: number };
+  /** 1 draws flat channel colours (pixel look), 0 keeps texture gradients. */
+  flatColors: { value: number };
 }
 
 /** One material pair shared by every character: all per-character variation lives in vertex data. */
 export function createCharacterMaterials(atlas: THREE.Texture): CharacterMaterials {
   const outlineWidth = { value: 0.022 };
+  const flatColors = { value: 0 };
 
   const body = new THREE.MeshToonMaterial({ map: atlas, gradientMap: toonRamp });
-  body.onBeforeCompile = patchTint;
+  body.onBeforeCompile = (shader) => patchTint(shader, flatColors);
 
   // Inverted hull outline: back faces pushed out along smoothed normals, drawn in a darkened
   // version of the surface colour.
   const outline = new THREE.MeshBasicMaterial({ map: atlas, side: THREE.BackSide });
   outline.onBeforeCompile = (shader) => {
-    patchTint(shader);
+    patchTint(shader, flatColors);
     shader.uniforms.outlineWidth = outlineWidth;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 outlineNormal;\nuniform float outlineWidth;')
@@ -67,5 +75,5 @@ export function createCharacterMaterials(atlas: THREE.Texture): CharacterMateria
     );
   };
 
-  return { body, outline, outlineWidth };
+  return { body, outline, outlineWidth, flatColors };
 }

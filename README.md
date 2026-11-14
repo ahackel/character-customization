@@ -1,9 +1,9 @@
 # Character customization
 
-An exploration of how to build customizable, stylized game characters with good animation, for mobile.
+An exploration of how to build customizable, stylized game characters with good animation, for mobile. The target is a pixel-art game in isometric view about a shipwreck survivor on an island.
 
-- [`docs/research.md`](docs/research.md) compares six 2D and 3D approaches and recommends one.
-- The rest of this repository is a web prototype of the recommended approach: real-time 3D characters assembled from modular parts on one shared skeleton.
+- [`docs/research.md`](docs/research.md) compares six 2D and 3D approaches, recommends one, and covers how it carries over to pixel art.
+- The rest of this repository is a web prototype of that approach: 3D characters assembled from modular parts on one shared skeleton, drawn as pixel art.
 
 ## Run it
 
@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-Open the printed address. Tap the ground to walk (or use WASD), use the action buttons, and press **Customize** to open the wardrobe.
+Open the printed address. Tap the island to walk (or use WASD), use the action buttons, and press **Customize** to open the wardrobe. **Scene** switches between the pixel look and a smooth look for comparison.
 
 ```bash
 npm run build
@@ -37,11 +37,28 @@ builds a static site into `dist/`.
 | Held items choose the animations: stance and attack clips follow the weapon type | `src/actor.ts` |
 | Cartoon motion added in code: squash and stretch, lean, spring-driven cape and hat | `src/juice.ts` |
 | Foot-slide-free locomotion: walk and run speeds are measured from the clips | `measureStride` in `src/animator.ts` |
-| Toon shading with coloured outlines, fixed 3/4 camera, 1 to 10 characters with live frame statistics | `src/materials.ts`, `src/world.ts` |
+| Fixed isometric camera (2:1), 1 to 10 characters with live frame statistics | `src/world.ts` |
+| Island scene: sand, grass, tide line, palms, wreckage, campfire, obstacles | `src/island.ts` |
+
+### Pixel look
+
+The characters stay 3D. They are drawn small and enlarged, with sprite conventions applied so the result reads as pixel art:
+
+| Technique | Where |
+|---|---|
+| Low-resolution render enlarged by a whole number, at one fixed density of 22 pixels per world unit | `src/pixel.ts` |
+| One-pixel dark outline from depth differences, on characters and scenery alike | `src/pixel.ts` |
+| Camera snapped to the pixel grid, with the remainder applied on enlarging, so scrolling is smooth and nothing shimmers | `World.update` |
+| Flat colour per channel and a three-step light ramp, so each material has a few fixed tones | `src/materials.ts` |
+| Characters snapped to the pixel grid, eight facings, poses held at 12 per second | `src/actor.ts`, `Character.update` |
+| Faces drawn from hand-placed pixel patterns on a 24 by 24 grid | `drawPixelFace` in `src/face.ts` |
+| The wardrobe shows the in-game sprite itself, enlarged, never a higher-detail version | `World.update` |
+
+One item still works in every direction and every animation, which is the reason for keeping 3D under the pixels.
 
 With 45 items the prototype allows about 500,000 distinct outfits before colours and faces.
 
-Measured per character: about 5,000 triangles, 25 bones, 3 draw calls (body, outline, face).
+Measured per character: about 4,000 to 5,000 triangles, 25 bones, and 2 draw calls in the pixel look (body, face) or 3 in the smooth look (plus outline).
 
 ## Asset pipeline
 
@@ -70,6 +87,8 @@ This is the step a production pipeline would run on each generated or hand-made 
 
 ## What the prototype does not answer
 
+- **Castaway content.** The items are fantasy adventurers, not shipwreck survivors. Theme items (torn shirts, straw hats, spears, fishing rods) still have to be made or generated.
+- **Hand-pixelled quality.** Rendered pixel art has no hand-placed pixel clusters. Whether it meets your bar for pixel art is a judgement to make by looking at it in motion.
 - **Generated content.** All items here are hand-made (KayKit). Whether AI-generated items hold one consistent style is the main open risk in the research and is untested.
 - **Performance on phones.** Frame statistics were only checked in a desktop browser with software rendering. Triangle, bone and draw-call counts are inside common mobile budgets, but nothing was measured on a device.
 - **Skin-weight transfer.** The source items were already skinned. Automatic weighting of new garments is described in the research and not implemented.

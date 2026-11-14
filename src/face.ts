@@ -223,21 +223,147 @@ export function drawFace(ctx: CanvasRenderingContext2D, style: FaceStyle, expres
   drawMouth(ctx, mouth);
 }
 
+/** Side of the pixel-art face in pixels. It covers about one world unit, so it lands near 1:1 on screen. */
+export const PIXEL_FACE_SIZE = 24;
+const P_CX = PIXEL_FACE_SIZE / 2;
+const P_EYE_DX = 5;
+const P_EYE_Y = 10;
+const P_MOUTH_Y = 16;
+
+/**
+ * The same face, drawn by hand-placed pixels for the pixel look. At this size a feature is two
+ * or three pixels, so each style is a small fixed pattern instead of a scaled-down drawing.
+ */
+export function drawPixelFace(ctx: CanvasRenderingContext2D, style: FaceStyle, expression: Expression): void {
+  ctx.clearRect(0, 0, PIXEL_FACE_SIZE, PIXEL_FACE_SIZE);
+  const dot = (x: number, y: number, color: string, w = 1, h = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), w, h);
+  };
+
+  let eyes: EyeStyle | 'closed' | 'squeeze' = style.eyes;
+  let mouth: MouthStyle | 'shout' = style.mouth;
+  if (expression === 'blink' && eyes !== 'happy') eyes = 'closed';
+  if (expression === 'happy') {
+    eyes = 'happy';
+    mouth = 'grin';
+  }
+  if (expression === 'effort') mouth = 'shout';
+  if (expression === 'hurt') {
+    eyes = 'squeeze';
+    mouth = 'open';
+  }
+
+  if (style.blush) {
+    for (const side of [-1, 1]) dot(P_CX + side * 8 - 1, P_EYE_Y + 3, 'rgba(236, 92, 110, 0.55)', 2, 1);
+  }
+  for (const side of [-1, 1]) {
+    // x is the left column of a two-pixel-wide eye; y its middle row.
+    const x = P_CX + side * P_EYE_DX - 1;
+    const y = P_EYE_Y;
+    // The column nearer the nose, and the one nearer the ear.
+    const inner = side < 0 ? x + 1 : x;
+    const outer = side < 0 ? x : x + 1;
+    switch (eyes) {
+      case 'dot':
+        dot(x, y - 1, INK, 2, 3);
+        break;
+      case 'shine':
+        dot(x, y - 1, INK, 2, 3);
+        dot(x, y - 1, '#ffffff');
+        break;
+      case 'big':
+        dot(x - (side < 0 ? 1 : 0), y - 2, INK, 3, 1);
+        dot(x - (side < 0 ? 1 : 0), y - 1, '#ffffff', 3, 3);
+        dot(inner, y - 1, style.eyeColor, 1, 3);
+        dot(inner, y, INK);
+        break;
+      case 'sleepy':
+        dot(x - (side < 0 ? 1 : 0), y - 1, INK, 3, 1);
+        dot(x, y, INK, 2, 2);
+        break;
+      case 'narrow':
+        dot(x - (side < 0 ? 1 : 0), y, INK, 3, 2);
+        dot(outer, y, '#ffffff');
+        break;
+      case 'happy':
+        dot(x - (side < 0 ? 1 : 0), y, INK);
+        dot(x - (side < 0 ? 1 : 0) + 1, y - 1, INK);
+        dot(x - (side < 0 ? 1 : 0) + 2, y, INK);
+        break;
+      case 'closed':
+        dot(x - (side < 0 ? 1 : 0), y + 1, INK, 3, 1);
+        break;
+      case 'squeeze':
+        dot(outer, y - 1, INK);
+        dot(inner, y, INK);
+        dot(outer, y + 1, INK);
+        break;
+    }
+  }
+  const mx = P_CX;
+  const my = P_MOUTH_Y;
+  switch (mouth) {
+    case 'none':
+      break;
+    case 'smile':
+      dot(mx - 2, my - 1, INK);
+      dot(mx - 1, my, INK, 2, 1);
+      dot(mx + 1, my - 1, INK);
+      break;
+    case 'grin':
+      dot(mx - 2, my - 1, '#ffffff', 4, 1);
+      dot(mx - 2, my, '#5a1f2b', 4, 1);
+      dot(mx - 1, my + 1, '#5a1f2b', 2, 1);
+      break;
+    case 'open':
+      dot(mx - 1, my - 1, '#5a1f2b', 2, 2);
+      break;
+    case 'shout':
+      dot(mx - 2, my - 1, '#ffffff', 4, 1);
+      dot(mx - 2, my, '#5a1f2b', 4, 2);
+      break;
+    case 'flat':
+      dot(mx - 2, my, INK, 4, 1);
+      break;
+    case 'smirk':
+      dot(mx - 2, my, INK, 3, 1);
+      dot(mx + 1, my - 1, INK);
+      break;
+    case 'cat':
+      dot(mx - 2, my - 1, INK);
+      dot(mx - 1, my, INK);
+      dot(mx, my - 1, INK);
+      dot(mx + 1, my, INK);
+      dot(mx + 2, my - 1, INK);
+      break;
+  }
+}
+
 /** A per-character canvas texture holding the composed face. */
 export class FaceTexture {
-  readonly canvas = document.createElement('canvas');
-  readonly texture: THREE.CanvasTexture;
   readonly material: THREE.MeshToonMaterial;
-  private readonly ctx: CanvasRenderingContext2D;
+  /** Draw with hand-placed pixels (pixel look) or as a scaled drawing (smooth look). */
+  pixel = false;
+  private readonly smooth = FaceTexture.layer(FACE_SIZE, false);
+  private readonly pixelated = FaceTexture.layer(PIXEL_FACE_SIZE, true);
   private drawn = '';
 
+  private static layer(size: number, nearest: boolean) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    if (nearest) {
+      texture.generateMipmaps = false;
+      texture.minFilter = texture.magFilter = THREE.NearestFilter;
+    }
+    return { canvas, texture, ctx: canvas.getContext('2d')! };
+  }
+
   constructor() {
-    this.canvas.width = this.canvas.height = FACE_SIZE;
-    this.ctx = this.canvas.getContext('2d')!;
-    this.texture = new THREE.CanvasTexture(this.canvas);
-    this.texture.colorSpace = THREE.SRGBColorSpace;
     this.material = new THREE.MeshToonMaterial({
-      map: this.texture,
+      map: this.smooth.texture,
       gradientMap: toonRamp,
       transparent: true,
       depthWrite: false,
@@ -248,15 +374,19 @@ export class FaceTexture {
   }
 
   draw(style: FaceStyle, expression: Expression): void {
-    const key = JSON.stringify([style, expression]);
+    const key = JSON.stringify([style, expression, this.pixel]);
     if (key === this.drawn) return;
     this.drawn = key;
-    drawFace(this.ctx, style, expression);
-    this.texture.needsUpdate = true;
+    const layer = this.pixel ? this.pixelated : this.smooth;
+    if (this.pixel) drawPixelFace(layer.ctx, style, expression);
+    else drawFace(layer.ctx, style, expression);
+    layer.texture.needsUpdate = true;
+    this.material.map = layer.texture;
   }
 
   dispose(): void {
-    this.texture.dispose();
+    this.smooth.texture.dispose();
+    this.pixelated.texture.dispose();
     this.material.dispose();
   }
 }

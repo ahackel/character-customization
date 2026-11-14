@@ -1,11 +1,11 @@
 import type { Assets, ItemDef, SlotId } from './assets';
 import { ACTIONS, type ActionId } from './actor';
 import type { Look } from './character';
-import { drawFace, EYE_STYLES, FACE_SIZE, MOUTH_STYLES, type FaceStyle } from './face';
+import { drawFace, drawPixelFace, EYE_STYLES, FACE_SIZE, MOUTH_STYLES, PIXEL_FACE_SIZE, type FaceStyle } from './face';
 import { EYE_COLORS, HAIR_COLORS, ITEM_COLORS, SKIN_TONES } from './looks';
 import type { Thumbnails } from './thumbnails';
 
-export type Toggle = 'outline' | 'juice' | 'shadows';
+export type Toggle = 'pixel' | 'outline' | 'juice' | 'shadows';
 export type Gait = 'stand' | 'walk' | 'run';
 
 export interface UiHost {
@@ -75,7 +75,6 @@ export class Ui {
     this.root = root;
     root.replaceChildren();
     root.className = 'app';
-    this.facePreview.width = this.facePreview.height = FACE_SIZE;
 
     // ---- stage with heads-up display
     this.canvasHost = el('div', { class: 'stage__canvas' });
@@ -89,7 +88,7 @@ export class Ui {
         sceneButton.setAttribute('aria-expanded', String(!this.scenePanel.hidden));
       },
     });
-    this.hint = el('p', { class: 'hint', text: 'Tap the ground to walk' });
+    this.hint = el('p', { class: 'hint', text: 'Tap the island to walk' });
 
     const actions = el('div', { class: 'actions', role: 'group', 'aria-label': 'Actions' });
     for (const gait of ['walk', 'run'] as const) {
@@ -148,6 +147,7 @@ export class Ui {
 
     root.append(stage, sheet);
     root.dataset.mode = this.mode;
+    root.dataset.style = 'pixel';
     this.buildTabs();
   }
 
@@ -157,10 +157,16 @@ export class Ui {
     this.mode = mode;
     this.root.dataset.mode = mode;
     this.setGait('stand');
-    this.hint.textContent = mode === 'play' ? 'Tap the ground to walk' : 'Drag to turn';
+    this.hint.textContent = mode === 'play' ? 'Tap the island to walk' : 'Drag to turn';
     this.hint.classList.remove('hint--gone');
     this.host.setMode(mode);
     if (mode === 'dress') this.refresh();
+  }
+
+  /** Switches the interface between the pixel and the smooth look. */
+  setStyle(style: 'pixel' | 'smooth'): void {
+    this.root.dataset.style = style;
+    if (this.mode === 'dress') this.refresh();
   }
 
   dismissHint(): void {
@@ -196,6 +202,7 @@ export class Ui {
     return el('section', { class: 'popover', id: 'scene-panel', hidden: true, 'aria-label': 'Scene settings' },
       el('label', { class: 'field', for: 'crowd' }, el('span', { text: 'Characters on screen' }), crowdValue),
       crowd,
+      toggle('pixel', 'Pixel art'),
       toggle('outline', 'Outlines'),
       toggle('juice', 'Squash, lean and springs'),
       toggle('shadows', 'Shadows'),
@@ -357,6 +364,19 @@ export class Ui {
 
   /** A small preview drawn with the same function that paints the real face texture. */
   private faceTile(style: FaceStyle, skin: string): HTMLCanvasElement {
+    if (this.root.dataset.style === 'pixel') {
+      // The real pixel face, shown one to one and enlarged by the browser without smoothing.
+      const size = 16;
+      const tile = el('canvas', { width: size, height: size, class: 'card__face card__face--pixel' });
+      const ctx = tile.getContext('2d')!;
+      ctx.fillStyle = skin;
+      ctx.fillRect(0, 0, size, size);
+      this.facePreview.width = this.facePreview.height = PIXEL_FACE_SIZE;
+      drawPixelFace(this.facePreview.getContext('2d')!, style, 'neutral');
+      ctx.drawImage(this.facePreview, (PIXEL_FACE_SIZE - size) / 2, style.mouth === 'none' ? 2 : 5, size, size, 0, 0, size, size);
+      return tile;
+    }
+    this.facePreview.width = this.facePreview.height = FACE_SIZE;
     drawFace(this.facePreview.getContext('2d')!, style, 'neutral');
     const tile = el('canvas', { width: 128, height: 128, class: 'card__face' });
     const ctx = tile.getContext('2d')!;

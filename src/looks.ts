@@ -16,21 +16,25 @@ export const ITEM_COLORS: (string | null)[] = [
 ];
 export const EYE_COLORS = ['#4a7bd0', '#3f9a5a', '#8a5a3c', '#7a52c4', '#d0802e', '#3a3a44'];
 
+/** The castaway the player starts as: what was left after the wreck, plus a knife. */
 export function defaultLook(): Look {
   return {
     items: {
       head: 'rogue-head',
-      headwear: 'knight-helmet',
-      top: 'knight-body',
-      arms: 'rogue-arms',
-      legs: 'knight-legs',
-      back: 'knight-cape',
-      handR: '1h-sword',
-      handL: 'round-shield',
+      headwear: null,
+      top: 'rogue-body',
+      arms: 'mage-arms',
+      legs: 'rogue-legs',
+      back: null,
+      handR: 'knife',
+      handL: null,
     },
-    skin: SKIN_TONES[1],
+    skin: SKIN_TONES[2],
     hair: null,
-    colors: { top: { primary: '#3f7fd0' }, back: { primary: '#f2c230' } },
+    colors: {
+      top: { primary: '#f1ece2', secondary: '#d64348' },
+      arms: { primary: '#f1ece2' },
+    },
     face: { eyes: 'shine', mouth: 'smile', blush: true, eyeColor: EYE_COLORS[0] },
   };
 }

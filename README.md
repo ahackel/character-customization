@@ -37,7 +37,7 @@ builds only the published site (start page, wardrobe, flora) into `dist-site/`.
 
 ## Publishing
 
-`.github/workflows/pages.yml` builds the site and publishes it with GitHub Pages on every push to the default branch. With the repository named `pixel-art`, it appears at `andreashackel.de/pixel-art/`. It needs one setting: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+`.github/workflows/pages.yml` builds the site and publishes it with GitHub Pages on every push to `main`. With the repository named `pixel-art`, it appears at `andreashackel.de/pixel-art/`. It needs one setting: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## The 2D wardrobe
 

@@ -225,6 +225,17 @@ The same approach, extended to plants (`lab/flora.ts`, page `flora/`).
 
 `lab/tools/flora-sheet.mjs` renders plants to sheets (variants, wind frames, drying stages, sizes).
 
+#### Rocks, driftwood, terrain (second foliage pass)
+
+- **Rocks** are a new part type: a low mesh of three rings and a top, wobbled by the seed, each facet lit once by its direction and painted flat in one of the three tones, nearest facet in front. Textures: cracks, speckles, moss on the upward facets. **Driftwood** needs no new part: a stem on the ground leaning 60° or more lies down and rests on its side, with a `grain` texture and `cut` ends that show pale end grain. Both are rigid. Four colours were added (stone, basalt, sandstone, driftwood). One model call each gave six rocks and four pieces of driftwood, all valid as returned.
+- **Smallest size.** Nothing is smaller than half a person (20 pixels): plants by height, rocks and driftwood across. A plant that comes out smaller is grown again, larger, with the same seed and shape; that also sets the floor of the size slider. Small detail belongs to the ground. The grass group was regenerated with the new rule in the format description: six tufts of 22 to 39 pixels instead of the 5 to 14 the old description asked for, all valid.
+- **Colour swaps by kind.** A colour can only be swapped within its family: greens (and straw), woods, stones, or bright colours for flowers and fruit.
+- **Shadows** are a separate mask on each plant picture, not see-through pixels. Scenes collect all masks and darken the ground once, so overlapping shadows no longer add up.
+- **Spikes.** Every green part of a cactus gets spikes by rule: staggered light ticks along the edges of stems and around the outline of rounded parts, and areoles down the ribs.
+- **Round shapes** are lit as spheres: a highlight up and to the left, away from the edge, and a shaded crescent on the lower right. Bush clumps are each lit that way, and clumps on the shaded side of the bush stay in shade.
+- **Terrain** (`lab/terrain.ts`): a height map of whole levels per one-metre tile, level 0 the water line, 8 pixels per level. Surface, cliffs, foam, walking (`canStep`) and placement follow from the heights. The flora page's scene is now a 16 × 16 generated island; each group grows on the surfaces it belongs on, and higher ground in front hides what stands behind it.
+- **Export.** `lab/tools/bake.mjs` bakes the catalogue to atlases (trimmed frames, pivots, animations, shadow masks, duplicates stored once): 1,189 frames, 730 different, two 1024² pages, in about a second. `docs/export.md` covers baking at build or load time, composing characters once per look, palette-indexed recolouring, sorting, wind phases, shadow layers and terrain chunks.
+
 ### Recommendation
 
 1. Build on the puppet.

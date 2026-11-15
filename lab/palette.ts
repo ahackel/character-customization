@@ -40,6 +40,11 @@ const BASES = {
   moss: '#8a8f3e',
   sage: '#78a585',
   bark: '#7d5f4c',
+  // Rock and beach colours, for stones and driftwood.
+  stone: '#a39c90',
+  basalt: '#5f5961',
+  sandstone: '#d4a272',
+  driftwood: '#bfae98',
 } as const;
 
 /** Colours with one fixed meaning, used by faces. They do not get derived tones. */
@@ -79,8 +84,8 @@ export const PALETTE = Object.fromEntries([
 export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
-/** Colours meant for plants. They are left out of the clothing colour choices. */
-export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark'];
+/** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices. */
+export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark', 'stone', 'basalt', 'sandstone', 'driftwood'];
 
 /** One pixel of paint: a palette entry in one of its tones. */
 export interface Cell {

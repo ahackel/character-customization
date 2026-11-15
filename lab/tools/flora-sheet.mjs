@@ -2,7 +2,7 @@
 // Usage: node lab/tools/flora-sheet.mjs <out.png> <scale> <plants.json|test> [variants|wind|dry|size] [character]
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { tryPlant, grow, drawPlant, canvasFor, FLORA_ORIGIN, FRAMES, Raster } from '../flora.ts';
+import { tryPlant, grow, drawPlant, canvasFor, FLORA_ORIGIN, FRAMES, Raster, SHADOW } from '../flora.ts';
 import { drawCharacter, BUILDS } from '../puppet.ts';
 import { STAND } from '../poses.ts';
 import { baseLook } from '../base.ts';
@@ -20,7 +20,7 @@ export function writeRasters(file, rows, scale = 3, background = [233, 217, 160]
   rows.forEach((row, r) => row.forEach((raster, c) => {
     if (!raster) return;
     for (let y = 0; y < raster.h; y++) for (let x = 0; x < raster.w; x++) {
-      const hex = raster.get(x, y);
+      const hex = raster.get(x, y) ?? (raster.shaded?.(x, y) ? SHADOW : null);
       if (!hex) continue;
       const rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
       const alpha = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;
@@ -40,7 +40,9 @@ function withPerson(raster, origin = FLORA_ORIGIN) {
   const dy = origin.y - 52;
   for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
     const hex = sprite.get(x, y);
-    if (hex && !raster.get(x + dx, y + dy)) raster.set(x + dx, y + dy, hex);
+    if (!hex || raster.get(x + dx, y + dy)) continue;
+    if (hex === SHADOW) raster.shade(x + dx, y + dy);
+    else raster.set(x + dx, y + dy, hex);
   }
   return raster;
 }

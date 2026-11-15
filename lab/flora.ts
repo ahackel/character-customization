@@ -7,13 +7,18 @@ import { hexOf, PALETTE, type Cell, type PaletteKey } from './palette.ts';
 
 // ------------------------------------------------------------------ format
 
-export const CATEGORIES = ['palm', 'grass', 'cactus', 'jungle'] as const;
+export const CATEGORIES = ['palm', 'grass', 'cactus', 'jungle', 'rock', 'driftwood'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
-export const STEM_TEXTURES = ['plain', 'rings', 'ribs', 'spines', 'bark'] as const;
+export const STEM_TEXTURES = ['plain', 'rings', 'ribs', 'spines', 'bark', 'grain'] as const;
 export const LEAF_SHAPES = ['frond', 'blade', 'broad', 'needle'] as const;
 export const LEAF_TEXTURES = ['plain', 'holes', 'split', 'striped'] as const;
 export const BLOB_TEXTURES = ['smooth', 'clumps', 'ribs', 'spines', 'dots'] as const;
+export const ROCK_TEXTURES = ['smooth', 'cracks', 'speckles', 'moss'] as const;
+/** Things that lie rather than stand: their smallest size is measured across, not up. */
+const LYING: readonly Category[] = ['rock', 'driftwood'];
+/** Nothing is smaller than half a person (40 pixels): smaller detail belongs to the ground. */
+export const MIN_EXTENT = 20;
 
 interface Common {
   count: number;
@@ -42,7 +47,8 @@ export interface Stem extends Common {
   /** Degrees added to the lean over the length: positive bends further over, negative back up. */
   curve: number;
   texture: (typeof STEM_TEXTURES)[number];
-  cap: 'flat' | 'round' | 'point';
+  /** `cut` shows the light end grain of sawn or broken wood. */
+  cap: 'flat' | 'round' | 'point' | 'cut';
   children: Part[];
 }
 
@@ -73,7 +79,18 @@ export interface StampPart extends Common {
   anchor: [number, number];
 }
 
-export type Part = Stem | Leaf | Blob | StampPart;
+/** A stone: a low, faceted mass, shaded facet by facet. */
+export interface RockPart extends Common {
+  type: 'rock';
+  /** Width and height on screen, in pixels. */
+  size: [number, number];
+  /** Sides round it, 4 to 10: few makes a blocky boulder, many a rounded pebble. */
+  facets: number;
+  texture: (typeof ROCK_TEXTURES)[number];
+  children: Part[];
+}
+
+export type Part = Stem | Leaf | Blob | StampPart | RockPart;
 
 export interface Plant {
   name: string;
@@ -87,7 +104,7 @@ export interface CompiledPlant {
   repairs: string[];
 }
 
-const DEFAULT_SWAY = { stem: 0.3, leaf: 1, blob: 0.2, stamp: 0.6 } as const;
+const DEFAULT_SWAY = { stem: 0.3, leaf: 1, blob: 0.2, stamp: 0.6, rock: 0 } as const;
 const MAX_DEPTH = 4;
 const MAX_ELEMENTS = 600;
 
@@ -123,7 +140,7 @@ export function compilePlant(input: any): CompiledPlant {
   const part = (raw: any, path: string, depth: number, copies: number): Part => {
     if (!raw || typeof raw !== 'object') throw new Error(`${path} must be an object`);
     const type = raw.type;
-    if (!['stem', 'leaf', 'blob', 'stamp'].includes(type)) throw new Error(`${path}: unknown type "${type}"`);
+    if (!['stem', 'leaf', 'blob', 'stamp', 'rock'].includes(type)) throw new Error(`${path}: unknown type "${type}"`);
     const count = Math.round(num(raw.count, 1, 40, 1, `${path}.count`));
     const total = copies * count;
     elements += total;
@@ -160,7 +177,7 @@ export function compilePlant(input: any): CompiledPlant {
         lean: num(raw.lean, 0, 110, 0, `${path}.lean`),
         curve: num(raw.curve, -150, 150, 0, `${path}.curve`),
         texture: oneOf(raw.texture, STEM_TEXTURES, 'plain', `${path}.texture`),
-        cap: oneOf(raw.cap, ['flat', 'round', 'point'] as const, 'flat', `${path}.cap`),
+        cap: oneOf(raw.cap, ['flat', 'round', 'point', 'cut'] as const, 'flat', `${path}.cap`),
         children: children(raw.children),
       };
     }
@@ -182,6 +199,19 @@ export function compilePlant(input: any): CompiledPlant {
         ? [num(s[0], 2, 48, 8, `${path}.size`), num(s[1], 2, 48, 8, `${path}.size`)]
         : [num(s, 2, 48, 8, `${path}.size`), num(s, 2, 48, 8, `${path}.size`)];
       return { ...common, type, size, texture: oneOf(raw.texture, BLOB_TEXTURES, 'smooth', `${path}.texture`), children: children(raw.children) };
+    }
+    if (type === 'rock') {
+      const s = raw.size;
+      const size: [number, number] = Array.isArray(s)
+        ? [num(s[0], 3, 64, 16, `${path}.size`), num(s[1], 2, 64, 10, `${path}.size`)]
+        : [num(s, 3, 64, 16, `${path}.size`), num(s, 2, 64, 16, `${path}.size`)];
+      return {
+        ...common, type, size,
+        facets: Math.round(num(raw.facets, 4, 10, 7, `${path}.facets`)),
+        texture: oneOf(raw.texture, ROCK_TEXTURES, 'smooth', `${path}.texture`),
+        accent: common.accent ?? (raw.texture === 'moss' ? 'moss' : null),
+        children: children(raw.children),
+      };
     }
     // A stamp: a small grid written as text, like the head and tool stamps of the characters.
     const legend: Record<string, PaletteKey> = {};
@@ -234,11 +264,14 @@ interface Base {
   /** Wind phase, so neighbouring leaves do not move in step. */
   phase: number;
 }
-interface StemEl extends Base { kind: 'stem'; points: V3[]; widths: number[]; color: PaletteKey; accent: PaletteKey | null; texture: Stem['texture']; cap: Stem['cap'] }
+interface StemEl extends Base { kind: 'stem'; points: V3[]; widths: number[]; color: PaletteKey; accent: PaletteKey | null; texture: Stem['texture']; cap: Stem['cap']; spiky: boolean; lying: boolean }
 interface LeafEl extends Base { kind: 'leaf'; points: V3[]; shape: Leaf['shape']; width: number; color: PaletteKey; accent: PaletteKey | null; texture: Leaf['texture']; back: boolean; hang: number; tears: Set<number> }
-interface BlobEl extends Base { kind: 'blob'; center: V3; size: [number, number]; color: PaletteKey; accent: PaletteKey | null; texture: Blob['texture']; clumps: { dx: number; dy: number; r: number; color: PaletteKey }[]; seed: number }
+interface BlobEl extends Base { kind: 'blob'; center: V3; size: [number, number]; color: PaletteKey; accent: PaletteKey | null; texture: Blob['texture']; clumps: { dx: number; dy: number; r: number; color: PaletteKey }[]; seed: number; spiky: boolean }
 interface StampEl extends Base { kind: 'stamp'; at: V3; cells: (Cell | null)[][]; anchor: [number, number] }
-type El = StemEl | LeafEl | BlobEl | StampEl;
+/** A rock is a small mesh: each facet is lit once, by its direction, and painted flat. */
+interface Facet { p: [V3, V3, V3]; key: PaletteKey; tone: 'base' | 'shade' | 'light' }
+interface RockEl extends Base { kind: 'rock'; facets: Facet[]; cracks: [V3, V3][]; color: PaletteKey; speckle: PaletteKey | null; seed: number }
+type El = StemEl | LeafEl | BlobEl | StampEl | RockEl;
 
 export interface Grown {
   /** The size it was grown at; see `canvasFor`. */
@@ -294,11 +327,47 @@ export interface GrowOptions {
 export const SIZE_MIN = 0.5;
 export const SIZE_MAX = 2;
 
-/** Turns the description into concrete geometry. Wind is applied later, when drawing. */
+/** Light comes from the upper left and a little from the front, as on the characters. Plant space. */
+const LIGHT: V3 = (() => { const l = Math.hypot(-0.55, 0.75, 0.35); return [-0.55 / l, 0.75 / l, 0.35 / l]; })();
+/** Towards the viewer, in plant space: what the 2:1 view looks along. */
+const CAMERA: V3 = [0, 1 / Math.sqrt(5), 2 / Math.sqrt(5)];
+
+/**
+ * Turns the description into concrete geometry. Wind is applied later, when drawing.
+ * Nothing comes out smaller than `MIN_EXTENT`: a plant that would is grown again, larger.
+ */
 export function grow(plant: Plant, options: GrowOptions = {}): Grown {
+  const k = Math.max(SIZE_MIN, Math.min(SIZE_MAX, options.size ?? 1));
+  const grown = growAt(plant, options, k);
+  const lying = LYING.includes(plant.category);
+  const e = extentOf(grown, lying);
+  if (e > 0 && e < MIN_EXTENT) return growAt(plant, options, Math.min(3, (k * MIN_EXTENT) / e + 0.02));
+  return grown;
+}
+
+/** Height on screen, or for lying things the width, in pixels. */
+export function extentOf(grown: Grown, across = false): number {
+  let top = 0;
+  let left = 0;
+  let right = 0;
+  const span = (u: number, half: number, y: number) => {
+    left = Math.min(left, u - half);
+    right = Math.max(right, u + half);
+    top = Math.max(top, y);
+  };
+  for (const el of grown.elements) {
+    if (el.kind === 'stem') el.points.forEach((p, i) => span(p[0], el.widths[i] / 2, p[1] + el.widths[i] / 2));
+    else if (el.kind === 'leaf') el.points.forEach((p) => span(p[0], 0, p[1]));
+    else if (el.kind === 'blob') span(el.center[0], el.size[0] / 2, el.center[1] + el.size[1] / 2);
+    else if (el.kind === 'stamp') span(el.at[0], el.cells[0].length / 2, el.at[1] + el.anchor[1]);
+    else for (const f of el.facets) for (const p of f.p) span(p[0], 0, p[1]);
+  }
+  return across ? right - left : top;
+}
+
+function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
   const seed = options.seed ?? 0;
   const dry = Math.max(0, Math.min(1, options.dryness ?? 0));
-  const k = Math.max(SIZE_MIN, Math.min(SIZE_MAX, options.size ?? 1));
   const random = rng(hashOf(plant.name) ^ Math.imul(seed + 1, 2654435761));
   const mirror = seed % 2 === 1;
   const elements: El[] = [];
@@ -317,7 +386,9 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   type Chain = { bend: number | null; rigid: boolean };
   // Hard plants do not move in the wind at all, whatever the description says: cacti, and any
   // ribbed or spiny part together with everything that grows on it.
-  const hard = (part: Part) => (part.type === 'stem' || part.type === 'blob') && (part.texture === 'ribs' || part.texture === 'spines');
+  const hard = (part: Part) => part.type === 'rock' || ((part.type === 'stem' || part.type === 'blob') && (part.texture === 'ribs' || part.texture === 'spines'));
+  // Cacti carry spikes on every green part, whatever the description says; flowers and fruit do not.
+  const spiky = (part: Stem | Blob) => part.texture === 'spines' || (plant.category === 'cactus' && !!DRYING[part.color]);
   const motion = (part: Part, chain: Chain) => {
     const rigid = chain.rigid || hard(part);
     return { rigid, bend: rigid ? 0 : chain.bend ?? part.sway, flex: rigid ? 0 : part.sway };
@@ -338,6 +409,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
       if (part.type === 'stem') growStem(part, origin, az, phase, m);
       else if (part.type === 'leaf') growLeaf(part, origin, az, phase, m);
       else if (part.type === 'blob') growBlob(part, origin, az, phase, m);
+      else if (part.type === 'rock') growRock(part, origin, az, phase, m);
       else growStamp(part, origin, phase, m);
     }
   };
@@ -345,6 +417,10 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   const growStem = (part: Stem, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     const length = Math.max(2, Math.round(vary(part.length, part, 0.4) * k));
     const lean = part.lean + (random() - 0.5) * part.jitter * 16;
+    // A log or a fallen branch rests on the ground instead of sinking half into it.
+    const onGround = origin[1] < 1;
+    const lying = onGround && part.lean >= 60;
+    if (lying) origin = [origin[0], origin[1] + Math.max(1, part.width[0] * k) / 2, origin[2]];
     const curve = part.curve * (1 + (random() - 0.5) * part.jitter * 0.6);
     const points: V3[] = [origin];
     for (let i = 1; i <= length; i++) {
@@ -355,9 +431,11 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     const widths = points.map((_, i) => Math.max(1, (part.width[0] + ((part.width[1] - part.width[0]) * i) / length) * k));
     elements.push({
       kind: 'stem', points, widths, color: dried(part.color), accent: part.accent, texture: part.texture, cap: part.cap,
-      depth: points[points.length - 1][2], bend: m.bend, flex: m.flex, phase,
+      spiky: spiky(part), lying,
+      depth: lying ? (points[0][2] + points[length][2]) / 2 : points[length][2], bend: m.bend, flex: m.flex, phase,
     });
-    if (origin[1] < 1) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, widths[0] * 0.8), canopy: false });
+    if (lying) for (let i = 0; i <= length; i += 2) shadow.push({ u: points[i][0], v: points[i][2], r: Math.max(2, widths[i] * 0.75), canopy: false });
+    else if (onGround) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, widths[0] * 0.8), canopy: false });
     const at = (t: number): V3 => points[Math.round(t * length)];
     for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
   };
@@ -410,10 +488,64 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     if (!isGreen && part.texture !== 'clumps' && random() < dry * 0.5 && part.size[0] < 8) return; // fruit and flowers drop
     elements.push({
       kind: 'blob', center, size, color: dried(part.color), accent: part.accent, texture: part.texture, clumps, seed: Math.floor(random() * 1e9),
-      depth: center[2] + 0.2, bend: m.bend, flex: m.flex, phase,
+      spiky: spiky(part), depth: center[2] + 0.2, bend: m.bend, flex: m.flex, phase,
     });
     shadow.push({ u: center[0], v: center[2], r: size[0] * 0.55, canopy: true });
     const at = (t: number): V3 => [center[0], center[1] + (t - 0.5) * size[1], center[2]];
+    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
+  };
+
+  const growRock = (part: RockPart, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
+    const w = Math.max(3, vary(part.size[0], part, 0.3) * k);
+    const hgt = Math.max(2, vary(part.size[1], part, 0.3) * k);
+    // As deep as it is wide, give or take: a stone seen from above is not a disc on edge.
+    const d = w * (0.7 + random() * 0.3);
+    const n = part.facets;
+    const spin = random() * 360;
+    const ring = (y: number, r: number, wobble: number): V3[] => Array.from({ length: n }, (_, i) => {
+      const a = rad(spin + (360 * (i + (random() - 0.5) * 0.5 * part.jitter + 0.25 * (y > 0 ? 1 : 0))) / n);
+      const rr = r * (1 + (random() - 0.5) * wobble * (0.4 + part.jitter));
+      return [origin[0] + Math.cos(a) * rr * (w / 2), origin[1] + y, origin[2] + Math.sin(a) * rr * (d / 2)];
+    });
+    const rings = [ring(0, 0.92, 0.25), ring(hgt * (0.38 + random() * 0.14), 1, 0.3), ring(hgt * (0.78 + random() * 0.1), 0.62, 0.4)];
+    const apex: V3 = [origin[0] + (random() - 0.5) * w * 0.25, origin[1] + hgt, origin[2] + (random() - 0.5) * d * 0.25];
+    const centre: V3 = [origin[0], origin[1] + hgt * 0.4, origin[2]];
+    const tris: [V3, V3, V3][] = [];
+    for (let r = 0; r < 2; r++) for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const [lo, hi] = [rings[r], rings[r + 1]];
+      tris.push([lo[i], lo[j], hi[j]], [lo[i], hi[j], hi[i]]);
+    }
+    for (let i = 0; i < n; i++) tris.push([rings[2][i], rings[2][(i + 1) % n], apex]);
+    const color = part.color;
+    const facets: Facet[] = [];
+    for (const t of tris) {
+      let nrm = norm(cross(sub(t[1], t[0]), sub(t[2], t[0])));
+      const mid: V3 = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3];
+      if (dot(nrm, sub(mid, centre)) < 0) { nrm = [-nrm[0], -nrm[1], -nrm[2]]; t.reverse(); }
+      if (dot(nrm, CAMERA) <= 0) continue; // facing away: hidden behind the front
+      const lit = dot(nrm, LIGHT);
+      const tone = lit > 0.72 ? 'light' : lit < 0.28 ? 'shade' : 'base';
+      // Moss and lichen grow where rain and light fall: on the facets that face upwards.
+      const key = part.texture === 'moss' && part.accent && nrm[1] > 0.55 ? dried(part.accent) : color;
+      facets.push({ p: t, key, tone });
+    }
+    const cracks: [V3, V3][] = [];
+    if (part.texture === 'cracks') {
+      for (let c = 0; c < 1 + Math.floor(w / 14); c++) {
+        const i = Math.floor(random() * n);
+        const from = rings[2][i];
+        const to = rings[0][(i + (random() < 0.5 ? 0 : 1)) % n];
+        const bend: V3 = [(from[0] + to[0]) / 2 + (random() - 0.5) * 3, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2];
+        cracks.push([from, bend], [bend, to]);
+      }
+    }
+    elements.push({
+      kind: 'rock', facets, cracks, color, speckle: part.texture === 'speckles' ? part.accent ?? color : null, seed: Math.floor(random() * 1e9),
+      depth: origin[2] + d / 4, bend: m.bend, flex: m.flex, phase,
+    });
+    shadow.push({ u: origin[0], v: origin[2], r: w * 0.58, canopy: false });
+    const at = (t: number): V3 => [apex[0] * t + origin[0] * (1 - t), origin[1] + hgt * t, apex[2] * t + origin[2] * (1 - t)];
     for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
   };
 
@@ -426,7 +558,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   };
 
   const ground: Anchor = { at: () => [0, 0, 0], heading: 0 };
-  const root: Chain = { bend: null, rigid: plant.category === 'cactus' };
+  const root: Chain = { bend: null, rigid: plant.category === 'cactus' || LYING.includes(plant.category) };
   for (const part of plant.parts) place(part, ground, root);
   return { size: k, elements, shadow };
 }
@@ -439,7 +571,8 @@ export const FLORA_H = 144;
 export const FLORA_ORIGIN = { x: 64, y: 126 };
 /** Frames in one wind loop. */
 export const FRAMES = 8;
-const SHADOW = '#2a1c3a38';
+/** The ground shadow colour, laid over the ground once wherever any shadow falls. */
+export const SHADOW = '#2a1c3a38';
 
 /** The canvas a plant of this size needs, and where its root sits on it. Size 1 and below fit the standard one. */
 export function canvasFor(size = 1): { w: number; h: number; origin: { x: number; y: number } } {
@@ -449,8 +582,15 @@ export function canvasFor(size = 1): { w: number; h: number; origin: { x: number
   return { w, h, origin: { x: w / 2, y: h - Math.ceil((FLORA_H - FLORA_ORIGIN.y) * k) } };
 }
 
+/**
+ * A plant picture. Ground shadows are kept apart from the pixels, as a mask: where shadows of
+ * several things overlap they darken the ground once, not once per thing.
+ */
 export class Raster {
   readonly pixels: (string | null)[];
+  readonly shadow: Uint8Array;
+  /** Where the plant's root sits. */
+  origin = { x: FLORA_ORIGIN.x, y: FLORA_ORIGIN.y };
   /** Pixels that fell outside the canvas. */
   lost = 0;
   lastLost: [number, number] | null = null;
@@ -460,18 +600,24 @@ export class Raster {
     this.w = w;
     this.h = h;
     this.pixels = new Array(w * h).fill(null);
+    this.shadow = new Uint8Array(w * h);
   }
   set(x: number, y: number, color: string): void {
     x = Math.round(x);
     y = Math.round(y);
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) {
-      if (!color.endsWith('38')) {
-        this.lost++;
-        this.lastLost = [x, y];
-      }
+      this.lost++;
+      this.lastLost = [x, y];
       return;
     }
     this.pixels[y * this.w + x] = color;
+  }
+  /** Marks ground shadow. */
+  shade(x: number, y: number): void {
+    if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.shadow[y * this.w + x] = 1;
+  }
+  shaded(x: number, y: number): boolean {
+    return this.shadow[y * this.w + x] === 1;
   }
   clear(x: number, y: number): void {
     x = Math.round(x);
@@ -499,6 +645,7 @@ export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster =
   const ox = options.origin?.x ?? canvasFor(grown.size).origin.x;
   const oy = options.origin?.y ?? canvasFor(grown.size).origin.y;
   const phi = (2 * Math.PI * frame) / FRAMES;
+  raster.origin = { x: ox, y: oy };
 
   // The whole plant bends with height, by the amount of the part it grows from, so everything
   // attached moves together. Leaves, fruit and flowers also flutter on their own; stems do not,
@@ -529,7 +676,7 @@ export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster =
     const r = Math.min(40, Math.max(2, s.r));
     for (let y = Math.floor(cy - r / 2); y <= Math.ceil(cy + r / 2); y++) {
       for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        if (((x - cx) / r) ** 2 + ((y - cy) / (r / 2)) ** 2 <= 1) raster.set(x, y, SHADOW);
+        if (((x - cx) / r) ** 2 + ((y - cy) / (r / 2)) ** 2 <= 1) raster.shade(x, y);
       }
     }
   }
@@ -539,6 +686,7 @@ export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster =
     if (el.kind === 'stem') drawStem(raster, el, (p, t) => project(p, sway(p, t, el)));
     else if (el.kind === 'leaf') drawLeaf(raster, el, (p, t) => project(p, sway(p, t, el)));
     else if (el.kind === 'blob') drawBlob(raster, el, project(el.center, sway(el.center, 0.3, el)));
+    else if (el.kind === 'rock') drawRock(raster, el, (p) => project(p));
     else drawStampEl(raster, el, project(el.at, sway(el.at, 0.5, el)));
   }
   return raster;
@@ -573,7 +721,7 @@ function line(a: { x: number; y: number }, b: { x: number; y: number }, visit: (
 function drawStem(r: Raster, el: StemEl, at: Projector): void {
   const n = el.points.length - 1;
   const screen = el.points.map((p, i) => at(p, i / n));
-  const accent = el.accent ?? (el.texture === 'spines' ? 'cream' : el.color);
+  const accent = el.spiky ? (el.texture === 'spines' && el.accent ? el.accent : 'cream') : el.accent ?? el.color;
   const hash = (a: number, b: number) => ((Math.imul(a + 17, 73856093) ^ Math.imul(b + 5, 19349663)) >>> 0) % 100 / 100;
   for (let i = 0; i < n; i++) {
     const a = screen[i];
@@ -586,6 +734,8 @@ function drawStem(r: Raster, el: StemEl, at: Projector): void {
       if (el.cap === 'round' && fromTip < w / 2) w = Math.max(1, Math.round(w * Math.sqrt(Math.max(0, 1 - ((w / 2 - fromTip) / (w / 2)) ** 2)) + 0.4));
       if (el.cap === 'point' && fromTip < w) w = Math.max(1, Math.round(fromTip));
       const ring = el.texture === 'rings' && Math.round(step) % 3 === 0 && step > 0.5;
+      // Sawn or broken ends show the pale wood inside; a log lying on the ground shows both.
+      const endGrain = el.cap === 'cut' && (fromTip < 1 || (el.lying && step < 1));
       for (let k = 0; k < w; k++) {
         const px = tall ? Math.floor(x - (w - 1) / 2) + k : x;
         const py = tall ? y : Math.floor(y - (w - 1) / 2) + k;
@@ -596,11 +746,22 @@ function drawStem(r: Raster, el: StemEl, at: Projector): void {
         if (ring && !near) { t = 'shade'; if (el.accent) key = el.accent; }
         if (el.texture === 'ribs' && w >= 4 && k > 0 && k < w - 1 && k % 2 === 0) t = 'shade';
         if (el.texture === 'bark' && hash(k, Math.round(step)) < 0.18) t = 'shade';
+        if (el.texture === 'grain' && k > 0 && k < w - 1 && hash(k, Math.floor(step / 4)) < 0.3) t = 'shade';
+        if (endGrain) { key = el.accent ?? el.color; t = k === w - 1 && w > 2 ? 'base' : 'light'; }
         r.set(px, py, tone(key, t));
-        if (el.texture === 'spines' && (k === 0 || k === w - 1) && Math.round(step) % 3 === 1 && w >= 3) {
-          const ox = tall ? (k === 0 ? -1 : 1) : 0;
-          const oy = tall ? 0 : k === 0 ? -1 : 1;
-          r.set(px + ox, py + oy, tone(accent, 'light'));
+        // Spikes: short light ticks along both edges, staggered, pointing out and a little up.
+        if (el.spiky && (k === 0 || k === w - 1) && w >= 2 && fromTip > 1.5) {
+          const s = Math.round(step) + (k === 0 ? 0 : 2);
+          if (s % 4 === 1) {
+            const ox = tall ? (k === 0 ? -1 : 1) : 0;
+            const oy = tall ? 0 : k === 0 ? -1 : 1;
+            r.set(px + ox, py + oy, tone(accent, 'light'));
+            if (w >= 5) r.set(px + ox * 2, py + oy * 2 - (tall ? 1 : 0), tone(accent, 'base'));
+          }
+        }
+        // Areoles, the felt spots spikes grow from, in a line down each rib.
+        if (el.spiky && el.texture === 'ribs' && w >= 4 && k > 0 && k < w - 1 && k % 2 === 1 && (Math.round(step) + k * 2) % 6 === 0 && fromTip > 1) {
+          r.set(px, py, tone(accent, near ? 'light' : 'base'));
         }
       }
     });
@@ -679,11 +840,26 @@ function drawLeaf(r: Raster, el: LeafEl, at: Projector): void {
   }
 }
 
-/** Rounded masses: lit at the top left, shaded at the bottom right. A bush is built from clumps. */
+/**
+ * How a point on a rounded mass is lit. `nx` and `ny` run from -1 to 1 across its outline, `ny`
+ * down the screen. The surface is treated as a sphere facing the viewer: a highlight sits up and to
+ * the left, away from the edge, and the shade is a crescent along the lower right, so the mass reads
+ * as round rather than as two flat halves.
+ */
+function sphereTone(nx: number, ny: number): 'base' | 'shade' | 'light' {
+  const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+  const lit = -0.5 * nx - 0.6 * ny + 0.62 * nz;
+  if (lit > 0.9) return 'light';
+  if (lit < 0.3 || ny > 0.82) return 'shade';
+  return 'base';
+}
+
+/** Rounded masses, lit like spheres. A bush is built from clumps. */
 function drawBlob(r: Raster, el: BlobEl, c: { x: number; y: number }): void {
   const rx = el.size[0] / 2;
   const ry = el.size[1] / 2;
-  const accent = el.accent ?? (el.texture === 'spines' ? 'cream' : 'yellow');
+  const accent = el.accent ?? 'yellow';
+  const spike = el.texture === 'spines' && el.accent ? el.accent : 'cream';
   const hash = (x: number, y: number) => ((Math.imul(x + 31, 73856093) ^ Math.imul(y + 7, 19349663) ^ el.seed) >>> 0) % 1000 / 1000;
   const ellipse = (cx: number, cy: number, ax: number, ay: number, key: PaletteKey, shadeOnly = false) => {
     for (let y = Math.floor(cy - ay); y <= Math.ceil(cy + ay); y++) {
@@ -691,20 +867,22 @@ function drawBlob(r: Raster, el: BlobEl, c: { x: number; y: number }): void {
         const nx = (x + 0.5 - cx) / ax;
         const ny = (y + 0.5 - cy) / ay;
         if (nx * nx + ny * ny > 1) continue;
-        let t: 'base' | 'shade' | 'light' = 'base';
-        if (shadeOnly || 0.55 * nx + 0.8 * ny > 0.45) t = 'shade';
-        else if (0.6 * nx + 0.8 * ny < -0.55) t = 'light';
-        r.set(x, y, tone(key, t));
+        r.set(x, y, tone(key, shadeOnly ? 'shade' : sphereTone(nx, ny)));
       }
     }
   };
   if (el.texture === 'clumps') {
-    // The gaps between clumps read as shade, so the inside is filled dark first.
+    // The gaps between clumps read as shade, so the inside is filled dark first. Each clump is lit
+    // as a small sphere, and clumps on the lower right of the bush are in its shade as a whole.
     ellipse(c.x, c.y, rx * 0.85, ry * 0.85, el.color, true);
-    for (const k of el.clumps) ellipse(c.x + k.dx, c.y + k.dy, k.r, k.r * 0.9, k.color);
+    for (const k of el.clumps) {
+      const whole = sphereTone(k.dx / rx, k.dy / ry);
+      ellipse(c.x + k.dx, c.y + k.dy, k.r, k.r * 0.9, k.color, whole === 'shade' && Math.hypot(k.dx / rx, k.dy / ry) > 0.45);
+    }
     return;
   }
   ellipse(c.x, c.y, rx, ry, el.color);
+  const inside = (x: number, y: number) => ((x + 0.5 - c.x) / rx) ** 2 + ((y + 0.5 - c.y) / ry) ** 2 <= 1;
   for (let y = Math.floor(c.y - ry); y <= Math.ceil(c.y + ry); y++) {
     for (let x = Math.floor(c.x - rx); x <= Math.ceil(c.x + rx); x++) {
       const nx = (x + 0.5 - c.x) / rx;
@@ -712,11 +890,59 @@ function drawBlob(r: Raster, el: BlobEl, c: { x: number; y: number }): void {
       const d = nx * nx + ny * ny;
       if (d > 1) continue;
       const col = Math.round(x - c.x + rx);
-      if (el.texture === 'ribs' && rx >= 3 && col % 3 === 1 && Math.abs(nx) < 0.85 && 0.6 * nx + 0.8 * ny > -0.55) r.set(x, y, tone(el.color, 'shade'));
+      const t = sphereTone(nx, ny);
+      if (el.texture === 'ribs' && rx >= 3 && col % 3 === 1 && Math.abs(nx) < 0.85 && t !== 'shade') r.set(x, y, tone(el.color, 'shade'));
       if (el.texture === 'dots' && d < 0.75 && hash(x, y) < 0.09) r.set(x, y, tone(accent, 'base'));
-      if (el.texture === 'spines' && d > 0.6 && hash(x, y) < 0.16) {
-        r.set(x + Math.sign(nx), y + Math.sign(ny), tone(accent, 'light'));
+      if (!el.spiky) continue;
+      // Areoles along the ridges, and spikes standing out of the outline.
+      if (el.texture === 'ribs' && rx >= 3 && col % 3 === 0 && (y + col) % 4 === 0 && d < 0.8) r.set(x, y, tone(spike, t === 'shade' ? 'base' : 'light'));
+      const edge = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1);
+      if (edge && ny < 0.55 && hash(x, y) < 0.35) {
+        const ox = Math.round(nx * 1.3);
+        const oy = Math.round(ny * 1.3);
+        if (ox || oy) r.set(x + ox, y + oy, tone(spike, 'light'));
       }
+      if (el.texture !== 'ribs' && d < 0.7 && hash(y, x) < 0.06) r.set(x, y, tone(spike, 'light'));
+    }
+  }
+}
+
+/** Facets painted flat, nearest in front, with cracks and speckles on top. */
+function drawRock(r: Raster, el: RockEl, at: (p: V3) => { x: number; y: number }): void {
+  const near = new Map<number, number>();
+  const depthOf = (p: V3) => dot(p, CAMERA);
+  for (const f of el.facets) {
+    const s = f.p.map(at);
+    const z = f.p.map(depthOf);
+    const x0 = Math.floor(Math.min(s[0].x, s[1].x, s[2].x));
+    const x1 = Math.ceil(Math.max(s[0].x, s[1].x, s[2].x));
+    const y0 = Math.floor(Math.min(s[0].y, s[1].y, s[2].y));
+    const y1 = Math.ceil(Math.max(s[0].y, s[1].y, s[2].y));
+    const area = (s[1].x - s[0].x) * (s[2].y - s[0].y) - (s[2].x - s[0].x) * (s[1].y - s[0].y);
+    if (Math.abs(area) < 1e-6) continue;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      const w0 = ((s[1].x - px) * (s[2].y - py) - (s[2].x - px) * (s[1].y - py)) / area;
+      const w1 = ((s[2].x - px) * (s[0].y - py) - (s[0].x - px) * (s[2].y - py)) / area;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -0.02 || w1 < -0.02 || w2 < -0.02) continue;
+      const depth = w0 * z[0] + w1 * z[1] + w2 * z[2];
+      const key = (y + 2048) * 8192 + x + 2048;
+      if ((near.get(key) ?? -Infinity) >= depth) continue;
+      near.set(key, depth);
+      r.set(x, y, tone(f.key, f.tone));
+    }
+  }
+  for (const [a, b] of el.cracks) line(at(a), at(b), (x, y) => { if (near.has((y + 2048) * 8192 + x + 2048)) r.set(x, y, tone(el.color, 'shade')); });
+  if (el.speckle) {
+    const hash = (x: number, y: number) => ((Math.imul(x + 31, 73856093) ^ Math.imul(y + 7, 19349663) ^ el.seed) >>> 0) % 1000 / 1000;
+    for (const key of near.keys()) {
+      const x = (key % 8192) - 2048;
+      const y = Math.floor(key / 8192) - 2048;
+      const h = hash(x, y);
+      if (h < 0.05) r.set(x, y, tone(el.speckle, 'shade'));
+      else if (h > 0.96) r.set(x, y, tone(el.speckle, 'light'));
     }
   }
 }
@@ -730,12 +956,34 @@ function drawStampEl(r: Raster, el: StampEl, c: { x: number; y: number }): void 
 }
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const norm = (a: V3): V3 => {
   const l = Math.hypot(a[0], a[1], a[2]) || 1;
   return [a[0] / l, a[1] / l, a[2] / l];
 };
 
 // ------------------------------------------------------------------ colours
+
+/**
+ * The colours a plant's colour may be swapped for: only its own kind. Leaves can turn another
+ * green or dry to straw, wood another wood, stone another stone; only flowers and fruit take
+ * bright colours. Nobody needs pink grass.
+ */
+export const COLOR_FAMILIES: readonly (readonly PaletteKey[])[] = [
+  ['lime', 'leaf', 'green', 'jungle', 'moss', 'sage', 'teal', 'straw'],
+  ['wood', 'bark', 'brown', 'tan', 'driftwood', 'grey'],
+  ['stone', 'basalt', 'sandstone', 'grey', 'tan'],
+  ['red', 'orange', 'yellow', 'pink', 'purple', 'white', 'blue', 'cream'],
+];
+
+/** The swaps offered for one colour, the colour itself first. */
+export function colorChoices(key: PaletteKey, category?: Category): PaletteKey[] {
+  // Grey and tan belong to two families; rocks take the stone one.
+  const families = category === 'rock' ? [COLOR_FAMILIES[2], ...COLOR_FAMILIES] : COLOR_FAMILIES;
+  const family = families.find((f) => f.includes(key)) ?? COLOR_FAMILIES[3];
+  return [key, ...family.filter((k) => k !== key)];
+}
 
 /** The plant's own colours, most used first, for colour swaps. */
 export function plantColors(plant: Plant): PaletteKey[] {
@@ -745,6 +993,7 @@ export function plantColors(plant: Plant): PaletteKey[] {
       const w = weight * p.count;
       if (p.type !== 'stamp') {
         const area = p.type === 'stem' ? p.length * (p.width[0] + p.width[1]) / 2 : p.type === 'leaf' ? p.length * p.width : p.size[0] * p.size[1];
+        if (p.type === 'rock' && p.texture === 'moss' && p.accent) tally.set(p.accent, (tally.get(p.accent) ?? 0) + area * w * 0.3);
         tally.set(p.color, (tally.get(p.color) ?? 0) + area * w);
         if (p.type !== 'leaf') visit(p.children, w);
       }
@@ -762,7 +1011,7 @@ export function recolorPlant(plant: Plant, swap: Partial<Record<PaletteKey, Pale
     const base = { ...p, color: k(p.color), accent: p.accent && k(p.accent) };
     if (p.type === 'stamp') return { ...base, cells: p.cells.map((row) => row.map((c) => c && { ...c, key: k(c.key) })) } as StampPart;
     if (p.type === 'leaf') return base as Leaf;
-    return { ...base, children: p.children.map(part) } as Stem | Blob;
+    return { ...base, children: p.children.map(part) } as Stem | Blob | RockPart;
   };
   return { ...plant, parts: plant.parts.map(part) };
 }

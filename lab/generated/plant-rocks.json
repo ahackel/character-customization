@@ -1,0 +1,42 @@
+[
+  { "name": "Large grey boulder", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "grey", "size": [52, 36], "facets": 6, "texture": "cracks" },
+      { "type": "rock", "color": "grey", "size": [16, 10], "facets": 6, "texture": "smooth", "turn": 30, "out": 24 }
+    ] },
+  { "name": "Mossy stone", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "stone", "size": [32, 22], "facets": 8, "texture": "moss", "accent": "moss",
+        "children": [
+          { "type": "leaf", "shape": "blade", "color": "leaf", "count": 5, "out": 1, "length": 6, "width": 1,
+            "rise": 70, "droop": 25, "jitter": 0.5, "turn": 200, "around": 90, "at": 1 }
+        ] }
+    ] },
+  { "name": "Beach stone pile", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "stone", "size": [10, 7], "facets": 9, "texture": "smooth",
+        "count": 5, "around": 360, "out": 8, "jitter": 0.5 },
+      { "type": "rock", "color": "grey", "size": [13, 9], "facets": 9, "texture": "smooth",
+        "children": [
+          { "type": "rock", "color": "sandstone", "size": [7, 5], "facets": 9, "texture": "smooth", "at": 1 }
+        ] }
+    ] },
+  { "name": "Dark volcanic rock", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "basalt", "size": [40, 30], "facets": 5, "texture": "speckles", "accent": "grey" },
+      { "type": "rock", "color": "basalt", "size": [14, 9], "facets": 5, "texture": "cracks", "turn": 160, "out": 20 }
+    ] },
+  { "name": "Sandstone outcrop", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "sandstone", "size": [56, 38], "facets": 5, "texture": "speckles", "accent": "tan",
+        "children": [
+          { "type": "rock", "color": "sandstone", "size": [28, 16], "facets": 5, "texture": "speckles", "accent": "tan",
+            "at": 1, "turn": 180, "out": 6 }
+        ] },
+      { "type": "rock", "color": "sandstone", "size": [18, 12], "facets": 6, "texture": "cracks", "turn": 20, "out": 28 }
+    ] },
+  { "name": "Flat stepping stone", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "stone", "size": [34, 10], "facets": 9, "texture": "smooth" }
+    ] }
+]

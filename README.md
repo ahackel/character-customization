@@ -32,7 +32,11 @@ With the dev server running, open `/wardrobe/` to dress a pixel person: gender, 
 
 ## Island flora
 
-Open `/flora/` for plants in the same style: palms, grass, cacti and jungle plants. A language model describes each plant as a few parts (`lab/generated/spec-plant.md`); `lab/flora.ts` grows them by rule, adds variants, sizes, wind and drying out, and draws them in the characters' view and palette. The page shows them on the ground and in a small island scene with a survivor, and lets you edit a plant's recipe and watch it regrow.
+Open `/flora/` for plants, rocks and driftwood in the same style: palms, grass, cacti, jungle plants, stones and washed-up wood. A language model describes each one as a few parts (`lab/generated/spec-plant.md`); `lab/flora.ts` grows them by rule, adds variants, sizes, wind, drying out and cactus spikes, and draws them in the characters' view and palette. The page shows them on the ground and on a generated island with a survivor, and lets you edit a recipe and watch it regrow.
+
+The island's ground is a height map (`lab/terrain.ts`): one whole level per one-metre tile, level 0 at the water line. Surfaces, cliffs, foam, where one can walk and what grows where all follow from the heights.
+
+`node lab/tools/bake.mjs` bakes everything into texture atlases with pivots and animations for a game engine. How to export and draw it efficiently is in `docs/export.md`.
 
 ## The 2D experiments
 

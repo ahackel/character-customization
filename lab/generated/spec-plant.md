@@ -1,6 +1,6 @@
-# Item format: plants
+# Item format: plants, rocks and driftwood
 
-Plants for a small island survival game, seen from above at an angle (2:1 isometric), in the same
+Plants, rocks and driftwood for a small island survival game, seen from above at an angle (2:1 isometric), in the same
 pixel-art style as the characters. You do not draw pixels. You describe a plant as a few parts —
 stems, leaves, rounded masses and tiny stamps — and the game grows them by fixed rules, shades them,
 makes them sway in the wind and varies them. Choose parts and numbers so the plant reads clearly at
@@ -11,20 +11,25 @@ a small size.
 - Pixel art, no outlines, flat colour. The game adds one darker shade for undersides and the far
   side, and one lighter tone where light catches.
 - Simple, readable silhouettes. A few large, well-chosen parts beat many small ones.
-- Scale: a person is 40 pixels tall. A ground tile is 32 pixels wide and 16 tall.
-  Typical heights: grass 5 to 14, bushes 12 to 25, small cacti 10 to 20, a saguaro 40 to 60,
-  a palm tree 60 to 95. Nothing taller than 110 or wider than 120.
+- Scale: a person is 40 pixels tall. A ground tile is 32 pixels wide and 16 tall (one metre).
+- Nothing smaller than half a person: plants at least 20 pixels tall, rocks and driftwood at
+  least 20 pixels across. Smaller detail (pebbles, clover, single blades) belongs to the ground,
+  not here; the game enlarges anything smaller.
+  Typical heights: grass tufts 20 to 35, bushes 20 to 35, small cacti 20 to 30, a saguaro 40 to 60,
+  a palm tree 60 to 95. Rocks 20 to 60 across; driftwood 25 to 70 long. Nothing taller than 110
+  or wider than 120.
 
 ## Colours
 
 Only these palette names may be used:
 
-hairBlack, hairBrown, hairBlond, hairRed, hairGrey, white, cream, red, orange, yellow, leaf, green,
-teal, blue, navy, purple, pink, brown, tan, straw, wood, grey, steel, black, jungle, lime, moss,
-sage, bark
+white, cream, red, orange, yellow, leaf, green, teal, blue, purple, pink, brown, tan, straw, wood,
+grey, jungle, lime, moss, sage, bark, stone, basalt, sandstone, driftwood
 
 Greens for plants: lime (yellow-green), leaf (fresh green), green (blue-green), jungle (deep green),
-moss (olive), sage (grey-green, cacti). Wood: tan, wood, bark, brown.
+moss (olive), sage (grey-green, cacti). Wood: tan, wood, bark, brown, driftwood (sun-bleached
+grey-tan). Stone: stone (warm grey), basalt (dark), sandstone (orange-tan), grey.
+Bright colours are for flowers and fruit only.
 
 ## Directions
 
@@ -35,7 +40,7 @@ moss (olive), sage (grey-green, cacti). Wood: tan, wood, bark, brown.
 ## Output
 
 ```json
-{ "name": "short name", "category": "palm | grass | cactus | jungle", "parts": [ ... ] }
+{ "name": "short name", "category": "palm | grass | cactus | jungle | rock | driftwood", "parts": [ ... ] }
 ```
 
 Return a JSON array with exactly the number of plants the request asks for. Nothing else: no
@@ -57,9 +62,10 @@ Every part has a `type` and these optional settings:
   spread blades over a clump or to set fruit beside a trunk.
 - `jitter`: 0 to 1, how much copies and variants differ in size and angle (default 0.3).
 - `sway`: 0 to 2, how much the wind moves it (defaults: stem 0.3, leaf 1, blob 0.2, stamp 0.6).
-  Everything attached to a part bends with it. Cacti, and any part with ribs or spines together
-  with what grows on it, never move in the wind.
-- `children`: a list of parts that grow from this one. Only stems and blobs have children.
+  Everything attached to a part bends with it. Cacti, rocks, driftwood, and any part with ribs or
+  spines together with what grows on it, never move in the wind.
+- The green parts of cacti get spikes by rule; you do not need to add them.
+- `children`: a list of parts that grow from this one. Only stems, blobs and rocks have children.
   At most 4 levels deep, at most 600 parts once copies are counted.
 
 ### stem
@@ -74,8 +80,13 @@ A trunk, stalk, cactus column or branch.
   `"lean": 90, "curve": -95`.
 - `texture`: `plain`, `rings` (bands every three pixels in the shade of `accent` or of the colour:
   palm trunks, bamboo), `ribs` (vertical grooves: cacti), `spines` (light pixels sticking out along
-  the edges, in `accent`, default cream), `bark` (speckled shade).
-- `cap`: how the tip ends: `flat`, `round` (cacti), `point`.
+  the edges, in `accent`, default cream), `bark` (speckled shade), `grain` (streaks along the
+  length: weathered or bleached wood).
+- `cap`: how the tip ends: `flat`, `round` (cacti), `point`, `cut` (pale end grain in `accent`:
+  sawn or broken wood).
+- A stem on the ground with a `lean` of 60 or more lies on the ground: a log, a fallen branch,
+  driftwood. A lying stem with `cap: "cut"` shows end grain at both ends. Give a log its
+  thickness with `width` (4 to 9) and branches as children with a smaller lean.
 
 ### leaf
 
@@ -103,6 +114,18 @@ rock. It sits on its attachment point.
   `ribs` (vertical grooves), `spines` (light pixels around the edge, in `accent`), `dots` (small
   spots inside, in `accent`: berries, seeds, speckles).
 - Children of a blob grow from it: `at` 0 is its bottom, 1 its top; `out` moves them outwards.
+
+### rock
+
+A stone or a boulder: a low faceted mass, shaded facet by facet. Rocks never move.
+
+- `size`: `[width, height]` on screen, 3 to 64 pixels each. Most rocks are wider than tall.
+- `facets`: 4 to 10 sides round it (default 7). Few makes a blocky, angular boulder; many a
+  rounded, water-worn stone.
+- `texture`: `smooth`, `cracks` (a few dark cracks), `speckles` (light and dark grains in
+  `accent`: granite, sandstone), `moss` (moss on the upward facets, in `accent`, default moss).
+- Several stones together: `count` with `out`, as for any part. Children grow from the top:
+  a tuft of grass in a crack, a smaller stone on a larger one.
 
 ### stamp
 

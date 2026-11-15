@@ -55,8 +55,15 @@ notice (cut, length, pattern, wear, colour choice). Nothing else: no comments, n
 ## Shoes
 
 ```json
-{ "name": "short name", "slot": "shoes", "color": "brown" }
+{ "name": "short name", "slot": "shoes", "color": "brown",
+  "sole": null, "height": 0, "cuff": null, "open": false }
 ```
+
+- `color`: the upper.
+- `sole`: null, or a palette colour for the bottom row of the foot.
+- `height`: 0 (a low shoe) to 5 (a boot to just below the knee): how many pixels of the lower leg the shaft covers.
+- `cuff`: null, or a palette colour for the top pixel of the shaft: a turned-down top, fur trim, or a sock showing.
+- `open`: true for sandals and flip-flops: the top of the foot stays bare apart from one strap.
 
 ## Head items: hair, beard, hat
 
@@ -147,6 +154,10 @@ Back:
 - A hat usually covers the default hair (rows 4 to 9) and may rise to row 0 and spread to columns 0 and 20.
 - A beard covers the jaw around and below the mouth and may hang to row 25.
 - Long hair may fall to row 28 behind the shoulders.
+- Hair only, optional: `"behind"`, a third stamp of the same size for the front view, drawn behind
+  the head and the body. Use it for hair that hangs down the back (a ponytail, a braid, long loose
+  hair), so that it shows beside the neck and below the head and not on top of the shoulders. In
+  the front view the back of the head is on the left.
 
 ## Tools
 

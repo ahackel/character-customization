@@ -201,7 +201,7 @@ canvas {
   gap: 6px 12px;
 }
 .row h3 {
-  min-width: 4.5em;
+  min-width: 6.5em;
 }
 .chips {
   display: flex;
@@ -311,6 +311,7 @@ canvas {
   line-height: 1.2;
   text-align: center;
   overflow-wrap: anywhere;
+  hyphens: auto;
 }
 .card__note {
   font-size: 0.66rem;
@@ -364,6 +365,9 @@ canvas {
 }
 
 @media (min-width: 820px) {
+  .tabs {
+    flex-wrap: wrap;
+  }
   .app {
     grid-template-columns: 320px minmax(0, 1fr);
     align-items: start;
@@ -392,4 +396,26 @@ canvas {
     display: inline;
   }
   .sprite--hero { width: 264px; height: 324px; }
+}
+
+/* Language switch: two small joined buttons beside the main actions. */
+.langs {
+  display: flex;
+  align-self: center;
+  border: 2px solid var(--fg);
+}
+.lang {
+  padding: 6px 10px;
+  border: 0;
+  background: var(--panel);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.lang[aria-pressed='true'] {
+  background: var(--fg);
+  color: var(--bg);
+}
+.top__actions {
+  flex-wrap: wrap;
 }

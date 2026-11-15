@@ -265,6 +265,13 @@ export function compileRecipe(input: any): Compiled {
       back: embed(grid(input.back, HEAD_STAMP.w, HEAD_STAMP.h, legend, 'back', repairs), HEAD_STAMP, HEAD_FRAME),
     };
     if (count(item.head.front) === 0) throw new Error('front stamp is empty');
+    // Hair may add a layer that hangs behind the head and body in the front view.
+    if (slot === 'hair' && input.behind != null) {
+      item.headBehind = {
+        front: embed(grid(input.behind, HEAD_STAMP.w, HEAD_STAMP.h, legend, 'behind', repairs), HEAD_STAMP, HEAD_FRAME),
+        back: blank(HEAD_FRAME.w, HEAD_FRAME.h),
+      };
+    }
   } else if (slot === 'tool') {
     const legend = legendOf(input.legend);
     item.tool = {
@@ -276,6 +283,23 @@ export function compileRecipe(input: any): Compiled {
     item.gripDx = gripOf(item.tool);
   } else if (slot === 'shoes') {
     item.foot = cell(need(input.color, 'color'));
+    if (input.sole != null) item.sole = cell(need(input.sole, 'sole'));
+    if (input.open === true) {
+      item.footOpen = 'strap';
+      item.sole = item.sole ?? item.foot;
+    }
+    // A boot's shaft is paint on the lower leg, topped by the cuff.
+    const height = num(input.height, 0, 5, 0);
+    if (height > 0) {
+      const cuff = input.cuff != null ? need(input.cuff, 'cuff') : null;
+      item.leg = Array.from({ length: LIMB_CELLS }, (_, i) => {
+        if (i < LIMB_CELLS - height) return null;
+        return i === LIMB_CELLS - height && cuff ? cell(cuff) : cell(item.foot!.key);
+      });
+    } else if (input.cuff != null) {
+      // A sock showing above a low shoe.
+      item.leg = Array.from({ length: LIMB_CELLS }, (_, i) => (i === LIMB_CELLS - 1 ? cell(need(input.cuff, 'cuff')) : null));
+    }
   } else {
     const color = need(input.color, 'color');
     const pattern = patternOf(input.pattern, 'pattern');

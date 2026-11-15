@@ -1,3 +1,4 @@
+import { beardFromBehind } from './base.ts';
 import { compile } from './items.ts';
 import { PALETTE, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
@@ -9,8 +10,8 @@ export interface Entry {
   slot: Slot;
   /** Which format the model wrote it in. */
   format: 'paint' | 'recipe';
-  /** Who would wear it: a survivor on the island, or a passenger or crew member before the wreck. */
-  theme: 'castaway' | 'everyday';
+  /** Made or found on the island, so nobody had it before the wreck. */
+  island: boolean;
   item: Item;
   /** The item's own colours, most used first. These are the ones a player may swap. */
   colors: PaletteKey[];
@@ -24,8 +25,23 @@ const EXCLUDED: Record<string, string> = {
   'recipe-shorts': 'came out as briefs because of the length scale in the first format description',
 };
 
-// Request sets that describe people before the wreck. Everything else is castaway gear.
-const EVERYDAY = ['formal', 'casual', 'dresses', 'everyday-bottoms', 'carried', 'everyday-hats', 'hairstyles', 'everyday'];
+// Items left out one by one. Wear is now a value of the character and is applied to any item
+// by rule (lab/wear.ts), so the candidates that were drawn ragged are no longer needed.
+const WORN = 'drawn ragged; the wear level now does this to any item';
+const SAME = 'the same garment as another item';
+const SUPERSEDED: Record<string, string> = {
+  'sprite-shirt-0': WORN, 'sprite-shirt-1': WORN, 'sprite-shirt-2': WORN,
+  'recipe-shirt-0': WORN, 'recipe-shirt-1': WORN, 'recipe-shirt-2': WORN,
+  'sprite-shorts-0': WORN, 'sprite-shorts-1': WORN, 'sprite-shorts-2': WORN,
+  'recipe-bottoms-2': WORN, 'recipe-bottoms-4': WORN, 'recipe-tops-5': WORN, 'sprite-vest-2': WORN,
+  'recipe-everyday-3': SAME, 'recipe-everyday-2': SAME,
+  'recipe-shoes-0': 'colour only; replaced by the sandals of the footwear set',
+  'recipe-shoes-1': 'colour only; replaced by the boots of the footwear set',
+};
+
+// Things made or found on the island. Everything else could have been in a passenger's luggage.
+const ISLAND_SETS = ['leafskirt', 'vest', 'spear', 'axe', 'rod', 'bandana'];
+const ISLAND_IDS = ['recipe-shoes-2', 'sprite-hat-1'];
 
 const FIXED: PaletteKey[] = ['ink', 'mouth', 'tooth', 'blush'];
 /** Sentence case, so names from different model calls read alike. Words such as "T-shirt" keep their capital. */
@@ -85,17 +101,19 @@ function build(): Entry[] {
     const [, format, set] = path.match(/(sprite|recipe)-([\w-]+)\.json$/)!;
     if (EXCLUDED[`${format}-${set}`]) continue;
     list.forEach((raw, index) => {
+      if (SUPERSEDED[`${format}-${set}-${index}`]) return;
       const result = compile(format as 'sprite' | 'recipe', raw);
       if (!result.ok) return;
       const item = result.compiled.item;
-      // Rule: a beard is not visible from behind. Both formats drew a tuft at the neck there.
-      if (item.slot === 'beard' && item.head) item.head = { front: item.head.front, back: item.head.back.map((row) => row.map(() => null)) };
+      // Rule: the back view of a beard is worked out from its front view. Both formats drew a
+      // tuft at the neck there instead.
+      if (item.slot === 'beard' && item.head) item.head = { front: item.head.front, back: beardFromBehind(item.head.front) };
       entries.push({
         id: `${format}-${set}-${index}`,
         label: sentence(item.name),
         slot: item.slot,
         format: format === 'sprite' ? 'paint' : 'recipe',
-        theme: EVERYDAY.includes(set) ? 'everyday' : 'castaway',
+        island: ISLAND_SETS.includes(set) || ISLAND_IDS.includes(`${format}-${set}-${index}`),
         item,
         colors: colorsOf(item),
       });

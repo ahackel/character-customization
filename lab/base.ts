@@ -74,8 +74,12 @@ export interface FaceOptions {
   blush: boolean;
   freckles: boolean;
   glasses: boolean;
+  /** Frame colour. Defaults to black. */
+  glassesColor?: PaletteKey;
   lashes: boolean;
 }
+
+export const GLASSES_COLORS: PaletteKey[] = ['black', 'brown', 'steel', 'straw', 'red', 'blue', 'green', 'pink', 'white'];
 
 export const DEFAULT_FACE: FaceOptions = {
   eyes: 'round', eyeColor: null, mouth: 'grin', brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
@@ -164,7 +168,7 @@ export function headFor(skin: PaletteKey): StampPair {
 
 /** Builds the neutral, blinking and laughing faces for one set of options. Brows take the hair colour. */
 export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown'): Record<string, Stamp> {
-  const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: 'black' } as const;
+  const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   const make = (expression: Expression) => parseStamp(pad(faceRows(options, expression), 0), legend, skin);
   return { neutral: make('neutral'), blink: make('blink'), happy: make('happy') };
 }
@@ -264,6 +268,17 @@ const LONG_HAIR_BACK = pad([
   '....hhHh.hHHh.hHh....',
   '.....hh...hh...h.....',
 ], 3);
+
+/**
+ * A beard seen from behind. Only what is wider than the head shows: the part that stands out
+ * past the jaw on the side the face points to, above the shoulders. A small beard shows nothing.
+ */
+export function beardFromBehind(front: Stamp): Stamp {
+  const head = parseStamp(HEAD_BACK, {}, 'skinB');
+  return front.map((row, y) =>
+    row.map((cell, x) => (cell && x >= HEAD_FRAME.ax && y <= HEAD_FRAME.ay && !head[y][x] ? { ...cell, shade: true, light: false } : null)),
+  );
+}
 
 export interface HairStyle {
   id: string;

@@ -27,7 +27,7 @@ builds a static site into `dist/`.
 
 ## The 2D wardrobe
 
-With the dev server running, open `/wardrobe/` to dress a pixel person, as a survivor or as a passenger before the wreck: gender, skin, three builds, face options, hair, beard, hat, top, bottom, shoes and a held item, with colour swaps, five actions and four facings. Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`.
+With the dev server running, open `/wardrobe/` to dress a pixel person: gender, skin, three builds, face options, hair, beard, hat, top, bottom, shoes and a held item, with colour swaps, five actions and four facings. A condition from neat to tattered is a value of the character and ages everything worn, and the hair, by rule (`lab/wear.ts`). Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`. The text is in English and German (`wardrobe/i18n.ts`).
 
 ## The 2D experiments
 

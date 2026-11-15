@@ -98,7 +98,12 @@ export interface Item {
   arm?: (Cell | null)[];
   /** Trouser colours from hip to ankle. */
   leg?: (Cell | null)[];
+  /** The upper of a shoe. A boot's shaft is paint on the lower end of `leg`. */
   foot?: Cell | null;
+  /** The sole, where it differs from the upper. */
+  sole?: Cell | null;
+  /** 'strap' is a sandal: the foot is bare apart from one strap. 'toe' is a shoe worn through at the toes. */
+  footOpen?: 'strap' | 'toe';
   /** A carried object. Its grip is pinned to the nearer hand in every frame. */
   tool?: StampPair;
   /**
@@ -121,12 +126,14 @@ export interface Build {
   torso: 7 | 9 | 11;
   arm: number;
   leg: number;
+  /** Pixels the belly stands out in front of the torso. */
+  belly?: number;
 }
 
 export const BUILDS: Build[] = [
   { id: 'thin', label: 'Very slim', torso: 7, arm: 2, leg: 3 },
   { id: 'slim', label: 'Slim', torso: 9, arm: 3, leg: 4 },
-  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5 },
+  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5, belly: 3 },
 ];
 
 export interface Look {
@@ -379,14 +386,17 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       depth: knee.depth - 20,
       draw: () => {
         drawLimb(sprite, [hip, knee, foot], build.leg, (t) => tone(limbPaint('leg', t), far));
-        let shoe: Cell = skin;
-        for (const item of ordered) if (item.foot) shoe = item.foot;
+        const shoes = [...ordered].reverse().find((item) => item.foot);
+        const upper = shoes?.foot ?? skin;
+        const sole = shoes?.sole ?? upper;
         // Feet are wider than the legs and point the way the character faces.
         const left = Math.round(foot.x - build.leg / 2);
         const top = Math.round(foot.y);
         for (let dx = 0; dx <= build.leg; dx++) {
-          sprite.set(left + dx, top, tone(shoe, far));
-          sprite.set(left + dx, top + 1, tone(shoe, far || dx === 0));
+          // A sandal leaves the foot bare apart from one strap; a worn-out shoe shows the toes.
+          const bare = shoes?.footOpen === 'strap' ? dx !== Math.floor(build.leg / 2) : shoes?.footOpen === 'toe' && dx === build.leg;
+          sprite.set(left + dx, top, tone(bare ? skin : upper, far));
+          sprite.set(left + dx, top + 1, tone(sole, far || dx === 0));
         }
       },
     });
@@ -394,6 +404,8 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
 
   // ---- torso: a block from shoulders to hips with a shaded far side, then rigid clothing stamps
   const farSide = Math.sign(P(pose.shoulderL).x - chest.x) || 1;
+  // Which way on screen the character faces.
+  const ahead = Math.sign(P([0, 0, 1]).x - P([0, 0, 0]).x) || 1;
   layers.push({
     depth: chest.depth,
     draw: () => {
@@ -409,14 +421,33 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         if (row >= 5 && row <= 7) return deep;
         return row === 4 || row === 8 ? deep - 1 : 0;
       };
+      // A sturdy build carries a belly: the lower torso stands out on the side the character faces.
+      const bulge = (row: number): number => {
+        const most = build.belly ?? 0;
+        // Fullest at rows 7 to 9, one pixel less for each row away from them: it hangs a little.
+        return row > 11 ? 0 : Math.max(0, most - Math.max(0, 7 - row, row - 9));
+      };
+      /** True for a belly pixel with nothing below it: the underside, which is in shade. */
+      const underBelly = (row: number, n: number) => bulge(row + 1) < n;
+      /** First and last body column drawn in a torso row. Column 0 is the left edge of the block. */
+      const span = (row: number): [number, number] => {
+        let lo = inset(row);
+        let hi = width - 1 - inset(row);
+        if (bulge(row) && ahead > 0) hi = width - 1 + bulge(row);
+        if (bulge(row) && ahead < 0) lo = -bulge(row);
+        return [lo, hi];
+      };
+      const shaped = feminine || !!build.belly;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
-        const cut = inset(y - top);
-        for (let i = cut; i < width - cut; i++) {
-          const edge = farSide > 0 ? i === width - 1 - cut : i === cut;
-          // A shadow under the chin, and the far side in shade.
-          const under = y === top && i >= 2 && i <= width - 3;
+        const [lo, hi] = span(y - top);
+        for (let i = lo; i <= hi; i++) {
+          // The far side is in shade, except where the belly stands out into the light.
+          const edge = (farSide > 0 ? i === hi : i === lo) && !(bulge(y - top) && farSide === ahead);
+          // A shadow under the chin and under the belly.
+          const beyond = i < 0 ? -i : i - (width - 1);
+          const under = (y === top && i >= 2 && i <= width - 3) || (beyond > 0 && underBelly(y - top, beyond));
           sprite.set(left + i, y, tone(skin, edge || under));
         }
       }
@@ -425,7 +456,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         // A hint of the spine, so the back is not an empty block.
         for (let dy = 2; dy <= 5; dy++) sprite.set(mid, top + dy, tone(skin, true));
       } else {
-        sprite.set(mid + 1, top + 8, tone(skin, true));
+        sprite.set(mid + 1 + (build.belly ? 1 : 0), top + 8, tone(skin, true));
       }
       const half = (width - 1) / 2;
       const hipRow = TORSO_FRAME.ay + 11;
@@ -433,18 +464,34 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         if (!item.torso) continue;
         const fit = fitted(side(item.torso), width);
         let stamp = fit.stamp;
-        if (feminine) {
-          // Clothing follows the waist, and gets a soft shadow under the chest.
-          stamp = stamp.map((row, r) => row.map((cell, c) => {
+        if (shaped) {
+          // Clothing follows the waist and the belly, and gets a soft shadow under the chest.
+          const first = fit.ax - half;
+          stamp = stamp.map((row, r) => {
             const bodyRow = r - TORSO_FRAME.ay;
-            const cut = bodyRow <= 11 ? inset(bodyRow) : 0;
-            const i = c - (fit.ax - half);
-            if (!cell) return cell;
-            if (cut && (i < cut || i > width - 1 - cut)) return null;
-            if (cut && i === (farSide > 0 ? width - 1 - cut : cut)) return { ...cell, shade: true, light: false };
-            if (!back && bodyRow === 3 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
-            return cell;
-          }));
+            if (bodyRow < 0 || bodyRow > 11) return row;
+            const [lo, hi] = span(bodyRow);
+            const out = row.map((cell, c) => {
+              const i = c - first;
+              if (!cell) return cell;
+              if (inset(bodyRow) && (i < lo || i > hi)) return null;
+              if (!back && feminine && bodyRow === 3 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
+              return cell;
+            });
+            // Cloth that reaches the edge of the body is carried out over the belly.
+            const rim = first + (ahead > 0 ? width - 1 : 0);
+            if (bulge(bodyRow) && out[rim]) {
+              // The edge of the garment is no longer the far edge of the body there.
+              if (farSide === ahead) out[rim] = { ...out[rim]!, shade: false };
+              for (let n = 1; n <= bulge(bodyRow); n++) {
+                if (!out[rim + ahead * n]) out[rim + ahead * n] = { ...out[rim]!, shade: underBelly(bodyRow, n), light: false };
+              }
+            } else if (inset(bodyRow)) {
+              const c = first + (farSide > 0 ? hi : lo);
+              if (out[c]) out[c] = { ...out[c]!, shade: true, light: false };
+            }
+            return out;
+          });
         }
         stampInto(sprite, stamp.slice(0, hipRow + 1), { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
         // Anything below the hips is a skirt. Each of its rows is stretched towards whichever

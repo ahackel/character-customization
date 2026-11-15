@@ -188,15 +188,31 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
 `lab/tools/pass5.mjs` renders the check sheet for these three.
 
+### Sixth pass
+
+- **Condition is a value of the character.** Items are drawn once, neat. A level from 0 to 3 (neat, worn, ragged, tattered) ages them by rule (`lab/wear.ts`): hems fray, stains appear in small blocks, holes open, a patch appears from "ragged" on, sleeves and trouser legs shorten from the free end, a skirt frays at the hem, boots slump and lose their cuff, shoes scuff and finally open at the toe, and hat brims fray. Damage is decided per pixel from the item's name, and each level keeps the damage of the one before, so a character can move up the levels during play without the damage jumping around. Tools do not age.
+- **Hair follows the condition.** Stray pixels break the outline, the gloss goes, the ends grow down in clumps and the fringe creeps over the forehead, never past the brows. Beards grow longer.
+- **A smaller list.** The 15 candidates that were drawn ragged (torn shirts, cut-offs, patched trousers, the cropped rag, the ragged vest) are left out of the wardrobe, along with two duplicates and the two colour-only shoes that the new footwear replaces. Jeans at "tattered" are cut-offs; nobody has to draw them.
+- **Hair.** Three further model calls produced nine hairstyles: high ponytail, pigtails, long braid, mohawk, side parting, buzz cut, long wavy, tight curls, shoulder-length with a centre parting. All nine were valid as returned. The format gained an optional third stamp for hair that hangs behind the head and body in the front view; five of the nine used it.
+- **Footwear.** The shoe recipe gained a sole colour, a shaft height, a cuff and an open form for sandals. One model call produced eight: tall boots, ankle boots, rubber boots, hiking boots with socks, trainers, sandals, flip-flops, fur-trimmed winter boots. All eight were valid as returned. A boot's shaft is paint on the lower leg, so it bends with the knee like trousers do.
+- **Belly.** The sturdy build carries a belly: the lower torso stands out up to three pixels on the side the character faces, lit on top and shaded underneath. Clothing that reaches the edge of the body is carried out over it.
+- **Beards from behind.** The back view of a beard is now worked out from its front view: whatever stands out past the jaw on the side the face points to, above the shoulders. Big beards show; small ones do not.
+- **Glasses** take one of nine frame colours.
+- **Languages.** The wardrobe's text lives in `wardrobe/i18n.ts`, English and German, with a switch in the header. The compiler checks that a language has every key. Item names come from the model in English; other languages carry a name per catalogue id and fall back to English, and the development build reports ids without one.
+
+`lab/tools/pass6.mjs` renders the check sheets (wear, belly, shoes, hair).
+
 ### Recommendation
 
 1. Build on the puppet.
 2. Use both formats by item type: recipes for plain clothing and wear states, whole-sprite paint for anything with a distinctive shape. Both compile to the same item data.
 3. Write the everyday poses (idle, walk) by hand and sample the rest from the 3D clips.
-4. Expect curation. By my count about 18 of the 30 candidates are usable as returned. The six beards need their back view fixed, and the recipe shorts and stamp spears need a retry.
+4. Expect curation. By my count about 18 of the first 30 candidates are usable as returned. The recipe shorts and stamp spears need a retry.
+5. Ask the model for neat items only. Wear, fit to the build and the back of a beard are rules, and they apply to everything already in the catalogue.
 
 ### Not tested
 
 - Consistency across a large catalogue. Fifteen candidates per format is a small sample.
-- Regenerating with a note, pixel touch-up, wear over time, beard growth.
+- Regenerating with a note, pixel touch-up.
+- Wear is shown at four fixed levels in still frames and short loops. Whether it reads well as gradual change during play is untested.
 - Hair falling behind the shoulders, backpacks. Skirt motion is a horizontal stretch only; the hem does not lift or lag.

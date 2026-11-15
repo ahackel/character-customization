@@ -1,6 +1,6 @@
 import './style.css';
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, HAIR_STYLES, headFor, MOUTHS, UNDERSHORTS, UNDERTOP,
+  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, headFor, MOUTHS, UNDERSHORTS, UNDERTOP,
   type FaceOptions,
 } from '../lab/base.ts';
 import { CATALOG, CLOTH_KEYS, entryById, recolor, type Entry } from '../lab/catalog.ts';
@@ -9,35 +9,23 @@ import { AUTHORED, STAND, clipsFromSamples, type Clip, type SampledFrame } from 
 import {
   BODY_WINDOW, BUILDS, drawCharacter, FACING_NAMES, type Facing, type Item, type Look, type Slot, type Sprite, type Stamp,
 } from '../lab/puppet.ts';
+import { WEAR_LEVELS, weathered, type Wear } from '../lab/wear.ts';
 import sampledData from '../lab/generated/poses3d.json';
+import { currentLang, itemName, LANGS, missingItemNames, setLang, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ state
 
 type WornSlot = Exclude<Slot, 'hair'>;
 const WORN_SLOTS: WornSlot[] = ['top', 'bottom', 'shoes', 'hat', 'beard', 'tool'];
 type TabId = 'body' | 'face' | 'hair' | WornSlot;
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'body', label: 'Body' },
-  { id: 'face', label: 'Face' },
-  { id: 'hair', label: 'Hair' },
-  { id: 'beard', label: 'Beard' },
-  { id: 'hat', label: 'Hat' },
-  { id: 'top', label: 'Top' },
-  { id: 'bottom', label: 'Bottom' },
-  { id: 'shoes', label: 'Shoes' },
-  { id: 'tool', label: 'In hand' },
-];
-type Theme = 'all' | 'castaway' | 'everyday';
-const THEMES: { id: Theme; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'castaway', label: 'Castaway' },
-  { id: 'everyday', label: 'Before the wreck' },
-];
+const TABS: TabId[] = ['body', 'face', 'hair', 'beard', 'hat', 'top', 'bottom', 'shoes', 'tool'];
 
 interface State {
   skin: PaletteKey;
   build: string;
   frame: 'm' | 'f';
+  /** How long on the island: 0 is neat, 3 is tattered. It ages everything worn, and the hair. */
+  wear: Wear;
   face: FaceOptions;
   /** A built-in style id, a catalogue id, or null for bald. */
   hair: string | null;
@@ -50,11 +38,11 @@ interface State {
 
 const HAIR_COLORS: PaletteKey[] = [...HAIR_KEYS, 'white', 'pink', 'teal', 'purple'];
 const GROUNDS = [
-  { id: 'sand', label: 'Sand', color: '#e9d9a0' },
-  { id: 'grass', label: 'Grass', color: '#8fcf78' },
-  { id: 'deck', label: 'Deck', color: '#c39a6b' },
-  { id: 'shallows', label: 'Shallows', color: '#7fd6d0' },
-];
+  { id: 'sand', color: '#e9d9a0' },
+  { id: 'grass', color: '#8fcf78' },
+  { id: 'deck', color: '#c39a6b' },
+  { id: 'shallows', color: '#7fd6d0' },
+] as const;
 
 const firstOf = (slot: Slot, match: RegExp) => CATALOG.find((e) => e.slot === slot && match.test(e.id))?.id ?? null;
 
@@ -63,12 +51,14 @@ function defaultState(): State {
     skin: 'skinB',
     build: 'slim',
     frame: 'm',
+    // The default is a survivor: ordinary clothes, some weeks on the island.
+    wear: 2,
     face: { ...DEFAULT_FACE },
     hair: 'short',
     hairColor: 'hairBrown',
     worn: {
-      top: firstOf('top', /recipe-shirt-0/) ?? firstOf('top', /./),
-      bottom: firstOf('bottom', /sprite-shorts-0/) ?? firstOf('bottom', /./),
+      top: firstOf('top', /recipe-everyday-0/) ?? firstOf('top', /./),
+      bottom: firstOf('bottom', /sprite-everyday-bottoms-0/) ?? firstOf('bottom', /./),
       shoes: null,
       hat: firstOf('hat', /sprite-hat-2/),
       beard: null,
@@ -90,6 +80,7 @@ function loadState(): State {
     if (saved.skin && SKIN_KEYS.includes(saved.skin)) state.skin = saved.skin;
     if (BUILDS.some((b) => b.id === saved.build)) state.build = saved.build!;
     if (saved.frame === 'm' || saved.frame === 'f') state.frame = saved.frame;
+    if (WEAR_LEVELS.some((w) => w.id === saved.wear)) state.wear = saved.wear!;
     if (saved.hair === null || hairExists(saved.hair)) state.hair = saved.hair ?? null;
     if (saved.hairColor && saved.hairColor in PALETTE) state.hairColor = saved.hairColor;
     const face = saved.face;
@@ -99,6 +90,7 @@ function loadState(): State {
       if ((MOUTHS as readonly string[]).includes(face.mouth)) state.face.mouth = face.mouth;
       if ((BROWS as readonly string[]).includes(face.brows)) state.face.brows = face.brows;
       for (const key of ['blush', 'freckles', 'glasses', 'lashes'] as const) state.face[key] = !!face[key];
+      if (face.glassesColor && GLASSES_COLORS.includes(face.glassesColor)) state.face.glassesColor = face.glassesColor;
     }
     for (const slot of WORN_SLOTS) {
       const id = saved.worn?.[slot];
@@ -124,18 +116,17 @@ function saveState(): void {
 
 let state = loadState();
 let tab: TabId = 'body';
-let theme: Theme = 'all';
 let facing: Facing = 0;
 let clipKey = 'idle';
 let version = 0;
 
 const SAMPLED = clipsFromSamples(sampledData as unknown as Record<string, { name: string; rate: number; frames: SampledFrame[] }>);
-const CLIPS: Record<string, { label: string; clip: Clip }> = {
-  idle: { label: 'Idle', clip: AUTHORED.idle },
-  walk: { label: 'Walk', clip: AUTHORED.walk },
-  run: { label: 'Run', clip: SAMPLED.run },
-  wave: { label: 'Wave', clip: AUTHORED.wave },
-  chop: { label: 'Chop', clip: SAMPLED.chop },
+const CLIPS: Record<string, Clip> = {
+  idle: AUTHORED.idle,
+  walk: AUTHORED.walk,
+  run: SAMPLED.run,
+  wave: AUTHORED.wave,
+  chop: SAMPLED.chop,
 };
 const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
 
@@ -162,11 +153,12 @@ function wornItem(source: State, slot: WornSlot): Item | null {
 /** `underwear` is off for the mannequin that item pictures are cut from. */
 function lookOf(source: State, underwear = true): Look {
   const items: Item[] = [];
+  // Everything is drawn neat and aged here, by the one value the character carries.
   const hair = hairItem(source);
-  if (hair) items.push(hair);
+  if (hair) items.push(weathered(hair, source.wear));
   for (const slot of WORN_SLOTS) {
     const item = wornItem(source, slot);
-    if (item) items.push(item);
+    if (item) items.push(weathered(item, source.wear));
   }
   // The body is never bare.
   if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);
@@ -309,10 +301,11 @@ function regionPicture(change: (draft: State) => void, crop: Rect, underwear = t
 
 const root = document.getElementById('wardrobe')!;
 const stage = h('div', { class: 'stage__ground' });
-const facingRow = h('div', { class: 'facings', role: 'group', 'aria-label': 'Facing' });
-const actionRow = h('div', { class: 'chips', role: 'group', 'aria-label': 'Action' });
-const groundRow = h('div', { class: 'chips', role: 'group', 'aria-label': 'Ground' });
-const tabRow = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Wardrobe sections' });
+const facingRow = h('div', { class: 'facings', role: 'group' });
+const actionRow = h('div', { class: 'chips', role: 'group' });
+const groundRow = h('div', { class: 'chips', role: 'group' });
+const wearRow = h('div', { class: 'chips', role: 'group' });
+const tabRow = h('nav', { class: 'tabs', role: 'tablist' });
 const panel = h('div', { class: 'panel__body', role: 'tabpanel' });
 
 function chip(label: string, pressed: boolean, onClick: () => void): HTMLButtonElement {
@@ -329,15 +322,16 @@ function changed(): void {
 
 const section = (title: string, ...children: Child[]) => h('section', { class: 'group' }, h('h3', {}, title), ...children);
 
-function swatches(title: string, keys: (PaletteKey | null)[], selected: PaletteKey | null, pick: (key: PaletteKey | null) => void, ownLabel = 'Original'): HTMLElement {
+function swatches(title: string, keys: (PaletteKey | null)[], selected: PaletteKey | null, pick: (key: PaletteKey | null) => void, ownLabel = t('color.original')): HTMLElement {
   const row = h('div', { class: 'swatches' });
   for (const key of keys) {
+    const name = key ? t(`palette.${key}` as Key) : ownLabel;
     const button = h('button', {
       type: 'button',
       class: key === null ? 'swatch swatch--own' : 'swatch',
       'aria-pressed': String(key === selected),
-      'aria-label': `${title}: ${key ?? ownLabel}`,
-      title: key ?? ownLabel,
+      'aria-label': `${title}: ${name}`,
+      title: name,
       style: key ? `--swatch: ${PALETTE[key].base}; --swatch-shade: ${PALETTE[key].shade}` : '',
     }, key === null ? ownLabel : null);
     button.addEventListener('click', () => pick(key));
@@ -355,22 +349,11 @@ function card(label: string, selected: boolean, picture: HTMLCanvasElement | nul
   return button;
 }
 
-function themeFilter(): HTMLElement {
-  return h('div', { class: 'chips', role: 'group', 'aria-label': 'Show items for' },
-    ...THEMES.map((t) => chip(t.label, t.id === theme, () => {
-      theme = t.id;
-      render();
-    })),
-  );
-}
-
-const inTheme = (entry: Entry) => theme === 'all' || entry.theme === theme;
-
 function slotPanel(slot: WornSlot): HTMLElement[] {
   const current = entryById(state.worn[slot]);
-  const entries = CATALOG.filter((e) => e.slot === slot && (inTheme(e) || e.id === current?.id));
+  const entries = CATALOG.filter((e) => e.slot === slot);
   const grid = h('div', { class: 'grid' });
-  grid.append(card(slot === 'bottom' ? 'Undershorts' : 'None', !current, null, () => {
+  grid.append(card(slot === 'bottom' ? t('undershorts') : t('none'), !current, null, () => {
     state.worn[slot] = null;
     changed();
   }));
@@ -378,18 +361,18 @@ function slotPanel(slot: WornSlot): HTMLElement[] {
     const picture = slot === 'tool' ? stampPicture(entry.item.tool!.front) : itemPicture((d) => {
       d.worn[slot] = entry.id;
     });
-    grid.append(card(entry.label, entry.id === current?.id, picture, () => {
+    grid.append(card(itemName(entry.id, entry.label), entry.id === current?.id, picture, () => {
       if (state.worn[slot] !== entry.id) delete state.colors[slot];
       state.worn[slot] = entry.id;
       changed();
     }));
   }
-  const out: HTMLElement[] = [themeFilter(), grid];
+  const out: HTMLElement[] = [grid];
   if (current && slot === 'beard') {
-    out.push(h('p', { class: 'note' }, 'A beard takes the hair colour. Change it under Hair.'));
+    out.push(h('p', { class: 'note' }, t('beard.note')));
   } else if (current) {
     current.colors.forEach((own, i) => {
-      out.push(swatches(i === 0 ? 'Main colour' : 'Second colour', [null, ...CLOTH_KEYS], state.colors[slot]?.[own] ?? null, (key) => {
+      out.push(swatches(i === 0 ? t('color.main') : t('color.second'), [null, ...CLOTH_KEYS], state.colors[slot]?.[own] ?? null, (key) => {
         const next = { ...state.colors[slot] };
         if (key) next[own] = key;
         else delete next[own];
@@ -404,32 +387,32 @@ function slotPanel(slot: WornSlot): HTMLElement[] {
 function bodyPanel(): HTMLElement[] {
   const builds = h('div', { class: 'grid grid--tall' });
   for (const build of BUILDS) {
-    builds.append(card(build.label, state.build === build.id, regionPicture((d) => {
+    builds.append(card(t(`build.${build.id}` as Key), state.build === build.id, regionPicture((d) => {
       Object.assign(d, mannequin(), { build: build.id });
     }, BODY_WINDOW), () => {
       state.build = build.id;
       changed();
     }));
   }
-  const gender = h('div', { class: 'chips', role: 'group', 'aria-label': 'Gender' },
-    chip('Male', state.frame === 'm', () => {
+  const gender = h('div', { class: 'chips', role: 'group', 'aria-label': t('gender') },
+    chip(t('gender.m'), state.frame === 'm', () => {
       state.frame = 'm';
       state.face.lashes = false;
       changed();
     }),
-    chip('Female', state.frame === 'f', () => {
+    chip(t('gender.f'), state.frame === 'f', () => {
       state.frame = 'f';
       state.face.lashes = true;
       changed();
     }),
   );
   return [
-    section('Gender', gender),
-    swatches('Skin', SKIN_KEYS, state.skin, (key) => {
+    section(t('gender'), gender),
+    swatches(t('skin'), SKIN_KEYS, state.skin, (key) => {
       state.skin = key ?? 'skinB';
       changed();
     }),
-    section('Build', builds),
+    section(t('build'), builds),
   ];
 }
 
@@ -439,7 +422,7 @@ function facePanel(): HTMLElement[] {
   const options = <K extends 'eyes' | 'mouth' | 'brows'>(title: string, key: K, values: readonly FaceOptions[K][]) => {
     const grid = h('div', { class: 'grid grid--small' });
     for (const value of values) {
-      grid.append(card(String(value), face[key] === value, regionPicture((d) => {
+      grid.append(card(t(`${key}.${value}` as Key), face[key] === value, regionPicture((d) => {
         bald(d);
         d.face = { ...d.face, [key]: value };
       }, FACE), () => {
@@ -454,15 +437,20 @@ function facePanel(): HTMLElement[] {
     changed();
   });
   return [
-    options('Eyes', 'eyes', EYE_SHAPES),
-    swatches('Eye colour', EYE_COLORS, face.eyeColor, (key) => {
+    options(t('eyes'), 'eyes', EYE_SHAPES),
+    swatches(t('eyeColor'), EYE_COLORS, face.eyeColor, (key) => {
       face.eyeColor = key;
       changed();
-    }, 'Dark'),
-    options('Mouth', 'mouth', MOUTHS),
-    options('Brows', 'brows', BROWS),
-    section('Details', h('div', { class: 'chips' }, toggle('Blush', 'blush'), toggle('Freckles', 'freckles'), toggle('Lashes', 'lashes'), toggle('Glasses', 'glasses'))),
-  ];
+    }, t('eyeColor.dark')),
+    options(t('mouth'), 'mouth', MOUTHS),
+    options(t('brows'), 'brows', BROWS),
+    section(t('details'), h('div', { class: 'chips' }, toggle(t('blush'), 'blush'), toggle(t('freckles'), 'freckles'), toggle(t('lashes'), 'lashes'), toggle(t('glasses'), 'glasses'))),
+    // The frame colour only matters while glasses are worn.
+    face.glasses && swatches(t('glassesColor'), GLASSES_COLORS, face.glassesColor ?? 'black', (key) => {
+      face.glassesColor = key ?? 'black';
+      changed();
+    }),
+  ].filter((node): node is HTMLElement => !!node);
 }
 
 function hairPanel(): HTMLElement[] {
@@ -471,10 +459,10 @@ function hairPanel(): HTMLElement[] {
     state.hair = id;
     changed();
   };
-  styles.append(card('Bald', state.hair === null, null, choose(null)));
+  styles.append(card(t('hair.bald'), state.hair === null, null, choose(null)));
   const all = [
-    ...HAIR_STYLES.map((s) => ({ id: s.id, label: s.label })),
-    ...CATALOG.filter((e) => e.slot === 'hair').map((e) => ({ id: e.id, label: e.label })),
+    ...HAIR_STYLES.map((s) => ({ id: s.id, label: t(`hair.${s.id}` as Key) })),
+    ...CATALOG.filter((e) => e.slot === 'hair').map((e) => ({ id: e.id, label: itemName(e.id, e.label) })),
   ];
   for (const style of all) {
     styles.append(card(style.label, state.hair === style.id, itemPicture((d) => {
@@ -483,11 +471,11 @@ function hairPanel(): HTMLElement[] {
   }
   return [
     styles,
-    swatches('Hair colour', HAIR_COLORS, state.hairColor, (key) => {
+    swatches(t('hairColor'), HAIR_COLORS, state.hairColor, (key) => {
       state.hairColor = key ?? 'hairBrown';
       changed();
     }),
-    h('p', { class: 'note' }, 'Under a hat that covers the crown, hair is tucked in automatically.'),
+    h('p', { class: 'note' }, t('hair.note')),
   ];
 }
 
@@ -497,16 +485,21 @@ function shuffle(): void {
   next.skin = pick(SKIN_KEYS);
   next.build = pick(BUILDS).id;
   next.frame = pick(['m', 'f'] as const);
+  // The condition is kept, so one can shuffle through neat passengers or through castaways.
+  next.wear = state.wear;
   next.face = {
     eyes: pick(EYE_SHAPES), eyeColor: pick(EYE_COLORS), mouth: pick(MOUTHS), brows: pick(BROWS),
-    blush: Math.random() < 0.6, freckles: Math.random() < 0.25, glasses: Math.random() < 0.15, lashes: next.frame === 'f',
+    blush: Math.random() < 0.6, freckles: Math.random() < 0.25, glasses: Math.random() < 0.15, glassesColor: pick(GLASSES_COLORS), lashes: next.frame === 'f',
   };
   const hairs = [...HAIR_STYLES.map((s) => s.id), ...CATALOG.filter((e) => e.slot === 'hair').map((e) => e.id)];
   next.hair = Math.random() < 0.08 ? null : pick(hairs);
   next.hairColor = pick(HAIR_COLORS.slice(0, 6));
-  const chance: Record<WornSlot, number> = { top: 0.92, bottom: 0.92, shoes: theme === 'everyday' ? 0.9 : 0.4, hat: 0.45, beard: next.frame === 'm' ? 0.3 : 0, tool: 0.5 };
+  const shod = [0.95, 0.8, 0.5, 0.3][next.wear];
+  const bearded = next.frame === 'm' ? [0.15, 0.3, 0.5, 0.65][next.wear] : 0;
+  const chance: Record<WornSlot, number> = { top: 0.92, bottom: 0.92, shoes: shod, hat: 0.45, beard: bearded, tool: 0.5 };
   for (const slot of WORN_SLOTS) {
-    const options = CATALOG.filter((e) => e.slot === slot && (inTheme(e) || slot === 'beard'));
+    // Nobody had a leaf skirt or a spear before the wreck.
+    const options = CATALOG.filter((e) => e.slot === slot && (next.wear > 0 || !e.island));
     const entry: Entry | null = options.length && Math.random() < chance[slot] ? pick(options) : null;
     next.worn[slot] = entry?.id ?? null;
     if (entry && slot !== 'beard' && entry.colors.length && Math.random() < 0.35) next.colors[slot] = { [entry.colors[0]]: pick(CLOTH_KEYS) };
@@ -519,10 +512,10 @@ function shuffle(): void {
 function render(): void {
   stage.style.setProperty('--ground', GROUNDS.find((g) => g.id === state.ground)!.color);
 
-  tabRow.replaceChildren(...TABS.map((t) => {
-    const button = h('button', { type: 'button', class: 'tab', role: 'tab', 'aria-selected': String(t.id === tab) }, t.label);
+  tabRow.replaceChildren(...TABS.map((id) => {
+    const button = h('button', { type: 'button', class: 'tab', role: 'tab', 'aria-selected': String(id === tab) }, t(`tab.${id}` as Key));
     button.addEventListener('click', () => {
-      tab = t.id;
+      tab = id;
       render();
     });
     return button;
@@ -531,11 +524,15 @@ function render(): void {
   panel.replaceChildren(...(tab === 'body' ? bodyPanel() : tab === 'face' ? facePanel() : tab === 'hair' ? hairPanel() : slotPanel(tab)));
   panel.scrollTop = scroll;
 
-  actionRow.replaceChildren(...Object.entries(CLIPS).map(([key, { label }]) => chip(label, key === clipKey, () => {
+  wearRow.replaceChildren(...WEAR_LEVELS.map((level) => chip(t(`wear.${level.id}` as Key), level.id === state.wear, () => {
+    state.wear = level.id;
+    changed();
+  })));
+  actionRow.replaceChildren(...Object.keys(CLIPS).map((key) => chip(t(`clip.${key}` as Key), key === clipKey, () => {
     clipKey = key;
     render();
   })));
-  groundRow.replaceChildren(...GROUNDS.map((g) => chip(g.label, g.id === state.ground, () => {
+  groundRow.replaceChildren(...GROUNDS.map((g) => chip(t(`ground.${g.id}` as Key), g.id === state.ground, () => {
     state.ground = g.id;
     saveState();
     render();
@@ -543,9 +540,23 @@ function render(): void {
   [...facingRow.children].forEach((button, i) => button.setAttribute('aria-pressed', String(i === facing)));
 }
 
+/** Builds the page. Called again when the language changes, since every label is rebuilt. */
 function mount(): void {
-  FACING_NAMES.forEach((name, i) => {
-    const button = h('button', { type: 'button', class: 'facing', 'aria-pressed': 'false', 'aria-label': `Face ${name}` },
+  document.documentElement.lang = currentLang();
+  document.title = t('title');
+  live.length = 0;
+  facingRow.replaceChildren();
+  stage.replaceChildren();
+  root.replaceChildren();
+  facingRow.setAttribute('aria-label', t('facing'));
+  actionRow.setAttribute('aria-label', t('action'));
+  groundRow.setAttribute('aria-label', t('ground'));
+  wearRow.setAttribute('aria-label', t('wear'));
+  tabRow.setAttribute('aria-label', t('sections'));
+
+  FACING_NAMES.forEach((_, i) => {
+    const name = t(`facing.${i}` as Key);
+    const button = h('button', { type: 'button', class: 'facing', 'aria-pressed': 'false', 'aria-label': t('facing.to', { name }) },
       liveView('sprite sprite--small', () => i as Facing, BODY_WINDOW),
       h('span', {}, name),
     );
@@ -557,45 +568,66 @@ function mount(): void {
   });
   stage.append(liveView('sprite sprite--hero', () => facing, HERO));
 
-  const shuffleButton = h('button', { type: 'button', class: 'button button--primary', id: 'shuffle' }, 'Shuffle');
+  const shuffleButton = h('button', { type: 'button', class: 'button button--primary', id: 'shuffle' }, t('shuffle'));
   shuffleButton.addEventListener('click', shuffle);
-  const resetButton = h('button', { type: 'button', class: 'button', id: 'reset' }, 'Start over');
+  const resetButton = h('button', { type: 'button', class: 'button', id: 'reset' }, t('reset'));
   resetButton.addEventListener('click', () => {
     state = defaultState();
     changed();
   });
+  const languages = h('div', { class: 'langs', role: 'group', 'aria-label': t('language') },
+    ...LANGS.map((l) => {
+      const button = h('button', { type: 'button', class: 'lang', 'aria-pressed': String(l.id === currentLang()), lang: l.id, title: l.name }, l.label);
+      button.addEventListener('click', () => {
+        if (l.id === currentLang()) return;
+        setLang(l.id);
+        mount();
+        render();
+      });
+      return button;
+    }),
+  );
 
   const paintCount = CATALOG.filter((e) => e.format === 'paint').length;
-  const everyday = CATALOG.filter((e) => e.theme === 'everyday').length;
   root.append(
     h('main', { class: 'app' },
       h('header', { class: 'top' },
         h('div', { class: 'top__text' },
-          h('h1', {}, 'Castaway Wardrobe'),
-          h('p', { class: 'lede' }, 'Dress a small pixel person: a survivor on the island, or a passenger before the wreck. Everything is drawn once and follows the body in every action and facing.'),
+          h('h1', {}, t('title')),
+          h('p', { class: 'lede' }, t('lede')),
         ),
-        h('div', { class: 'top__actions' }, shuffleButton, resetButton),
+        h('div', { class: 'top__actions' }, languages, shuffleButton, resetButton),
       ),
-      h('section', { class: 'stage', 'aria-label': 'Preview' },
+      h('section', { class: 'stage', 'aria-label': t('preview') },
         h('div', { class: 'stage__view' }, stage, facingRow),
-        h('div', { class: 'row' }, h('h3', {}, 'Action'), actionRow),
-        h('div', { class: 'row' }, h('h3', {}, 'Ground'), groundRow),
+        h('div', { class: 'row' }, h('h3', {}, t('wear')), wearRow),
+        h('div', { class: 'row' }, h('h3', {}, t('action')), actionRow),
+        h('div', { class: 'row' }, h('h3', {}, t('ground')), groundRow),
       ),
-      h('section', { class: 'panel', 'aria-label': 'Wardrobe' }, tabRow, panel),
+      h('section', { class: 'panel', 'aria-label': t('wardrobe') }, tabRow, panel),
       h('footer', { class: 'foot' },
-        h('p', {}, `The ${CATALOG.length} items here were written by a language model from one-line requests and are shown as returned: ${paintCount} painted over the whole sprite, ${CATALOG.length - paintCount} as recipes or small stamps. ${everyday} of them are everyday clothes from before the wreck. Rules applied on top: beards are hidden from behind, hair and beards take the hair colour, hair tucks under hats, and colours can be swapped.`),
-        h('p', {}, 'The body, faces, builds and the first two hairstyles are drawn by rule from parts written by the model and corrected by looking at the result.'),
+        h('p', {}, t('foot.items', { count: CATALOG.length, paint: paintCount, recipe: CATALOG.length - paintCount })),
+        h('p', {}, t('foot.rules')),
+        h('p', {}, t('foot.base')),
       ),
     ),
   );
+}
 
-  window.addEventListener('keydown', (event) => {
-    if (event.target instanceof HTMLInputElement) return;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      facing = ((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing;
-      render();
-    }
-  });
+window.addEventListener('keydown', (event) => {
+  if (event.target instanceof HTMLInputElement) return;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    facing = ((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing;
+    render();
+  }
+});
+
+if (import.meta.env.DEV) {
+  // A new item without a translated name still works; this only points it out while developing.
+  for (const l of LANGS) {
+    const missing = missingItemNames(CATALOG.map((e) => e.id), l.id);
+    if (missing.length) console.error(`No ${l.name} name for: ${missing.join(', ')}`);
+  }
 }
 
 mount();
@@ -611,7 +643,7 @@ const tick = (ms: number) => {
     lookVersion = version;
     frames.clear();
   }
-  const { clip } = CLIPS[clipKey];
+  const clip = CLIPS[clipKey];
   const frame = still ? 0 : Math.floor((ms / 1000) * clip.rate) % clip.frames.length;
   for (const view of live) {
     const at = view.facing();

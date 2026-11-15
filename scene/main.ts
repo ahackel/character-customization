@@ -390,9 +390,22 @@ canvas.addEventListener('pointerup', release);
 canvas.addEventListener('pointercancel', release);
 canvas.addEventListener('pointerleave', () => (hover = null));
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// A trackpad sends a two-finger move as scrolling, which pans, and a pinch as scrolling with Ctrl
+// held, which zooms. A pinch sends many small steps, so they add up to whole zoom steps.
+let pinched = 0;
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  setZoom(zoom + (e.deltaY < 0 ? 1 : -1));
+  const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+  if (e.ctrlKey) {
+    pinched -= e.deltaY * scale * 0.02;
+    if (Math.abs(pinched) >= 1) {
+      setZoom(zoom + Math.trunc(pinched));
+      pinched = 0;
+    }
+    return;
+  }
+  cam.x += (e.deltaX * scale) / zoom;
+  cam.y += (e.deltaY * scale) / zoom;
 }, { passive: false });
 
 // ------------------------------------------------------------------ the loop
@@ -443,7 +456,7 @@ function frame(ms: number): void {
       things.push({ spot: { i: s.i, j: s.j, level: Math.max(SEA_LEVEL, levelAt(world.map, Math.floor(s.i), Math.floor(s.j))) }, picture: FLAG, w: 6, h: 13, foot: { x: 0, y: 12 } });
     }
     const highlight = prefs.mode === 'edit' && hover ? new Set(brushCells(hover)) : undefined;
-    const image = world.compose(view, things, highlight);
+    const image = world.compose(view, things, highlight, prefs.mode === 'edit');
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
   requestAnimationFrame(frame);

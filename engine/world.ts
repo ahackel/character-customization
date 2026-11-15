@@ -15,6 +15,7 @@ export interface Rect { x: number; y: number; w: number; h: number }
 export interface Thing { spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number } }
 
 const SEA = [0x4f, 0xae, 0xc4];
+const EDGE = '#e0332e';
 /** Everything blocks a walker except grass. Radius in metres per unit of plant size. */
 const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, rock: 0.4, driftwood: 0.35, grass: 0 };
 
@@ -210,7 +211,7 @@ export class World {
    * Paints the camera window: the ground, every shadow at once, then things back to front with
    * higher ground in front hiding them. `highlight` lightens some tiles (the brush in the editor).
    */
-  compose(view: Rect, things: Thing[], highlight?: Set<number>): Pixels {
+  compose(view: Rect, things: Thing[], highlight?: Set<number>, outline = false): Pixels {
     const { w, h } = view;
     const g = this.ground;
     const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
@@ -242,7 +243,48 @@ export class World {
     for (const t of placed) {
       stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, t.spot.level));
     }
+    if (outline) this.drawEdge(image, view);
     return image;
+  }
+
+  private edge: { x: number; y: number; spot: Spot }[] = [];
+  private edgeOf: TerrainImage | null = null;
+
+  /**
+   * A red line round the map, on the ground (or the water) along its four edges, hidden where
+   * nearer high ground covers it. Recomputed when the ground is redrawn.
+   */
+  private drawEdge(image: Pixels, view: Rect): void {
+    if (this.edgeOf !== this.ground) {
+      this.edgeOf = this.ground;
+      const { w, h } = this.map;
+      const e = 1e-3;
+      const corners = [[e, e], [w - e, e], [w - e, h - e], [e, h - e], [e, e]];
+      this.edge = [];
+      for (let k = 0; k < 4; k++) {
+        const [i0, j0] = corners[k];
+        const [i1, j1] = corners[k + 1];
+        const steps = Math.ceil(Math.hypot(i1 - i0, j1 - j0) * 16);
+        for (let s = 0; s <= steps; s++) {
+          const i = i0 + ((i1 - i0) * s) / steps;
+          const j = j0 + ((j1 - j0) * s) / steps;
+          const spot = { i, j, level: standingHeight(this.map, i, j) };
+          this.edge.push({ ...footOf(this.ground, spot), spot });
+        }
+      }
+    }
+    // Consecutive points are joined, so a cliff at the edge is a vertical line, not a gap.
+    for (let k = 1; k < this.edge.length; k++) {
+      const a = this.edge[k - 1];
+      const b = this.edge[k];
+      const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y), 1);
+      for (let s = 0; s <= n; s++) {
+        const x = Math.round(a.x + ((b.x - a.x) * s) / n);
+        const y = Math.round(a.y + ((b.y - a.y) * s) / n);
+        if (hiddenByGround(this.map, this.ground, x, y, a.spot.i, a.spot.j, a.spot.level)) continue;
+        blend(image, x - view.x, y - view.y, EDGE);
+      }
+    }
   }
 
   /** Whether a walker can stand at a point: dry land, reached without a cliff, clear of big plants. */

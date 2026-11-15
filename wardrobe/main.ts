@@ -1,111 +1,30 @@
 import './style.css';
+import { BROWS, EYE_COLORS, EYE_SHAPES, GLASSES_COLORS, HAIR_STYLES, MOODS, type FaceOptions } from '../lab/base.ts';
+import { CATALOG, CLOTH_KEYS, entryById, type Entry } from '../lab/catalog.ts';
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
-  type FaceOptions, type Mood,
-} from '../lab/base.ts';
-import { CATALOG, CLOTH_KEYS, entryById, recolor, type Entry } from '../lab/catalog.ts';
-import { HAIR_KEYS, hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
+  characterFile, cleanState, defaultState, download, GROUNDS, HAIR_COLORS, loadRoster, lookOf, newId, pickFile, readCharacterFile, saveRoster,
+  WORN_SLOTS, type Saved, type State, type WornSlot,
+} from '../lab/character.ts';
+import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import {
-  BODY_WINDOW, BUILDS, drawCharacter, FACING_NAMES, type Facing, type Item, type Look, type Slot, type Sprite, type Stamp,
-} from '../lab/puppet.ts';
-import { WEAR_MAX, weathered, type Wear } from '../lab/wear.ts';
+import { BODY_WINDOW, BUILDS, drawCharacter, FACING_NAMES, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
+import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { currentLang, itemName, LANGS, missingItemNames, setLang, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ state
 
-type WornSlot = Exclude<Slot, 'hair'>;
-const WORN_SLOTS: WornSlot[] = ['top', 'bottom', 'shoes', 'hat', 'beard', 'tool'];
 type TabId = 'body' | 'face' | 'hair' | WornSlot;
 const TABS: TabId[] = ['body', 'face', 'hair', 'beard', 'hat', 'top', 'bottom', 'shoes', 'tool'];
 
-interface State {
-  skin: PaletteKey;
-  build: string;
-  frame: 'm' | 'f';
-  /** How long on the island: 0 is neat, 3 is tattered, any value in between. It ages everything worn, and the hair. */
-  wear: Wear;
-  /** Decides the facial expression. The features under Face stay the same. */
-  mood: Mood;
-  face: FaceOptions;
-  /** A built-in style id, a catalogue id, or null for bald. */
-  hair: string | null;
-  hairColor: PaletteKey;
-  worn: Record<WornSlot, string | null>;
-  /** Per slot: which of the item's own colours is replaced by which palette colour. */
-  colors: Partial<Record<WornSlot, Partial<Record<PaletteKey, PaletteKey>>>>;
-  ground: string;
-}
-
-const HAIR_COLORS: PaletteKey[] = [...HAIR_KEYS, 'white', 'pink', 'teal', 'purple'];
-const GROUNDS = [
-  { id: 'sand', color: '#e9d9a0' },
-  { id: 'grass', color: '#8fcf78' },
-  { id: 'deck', color: '#c39a6b' },
-  { id: 'shallows', color: '#7fd6d0' },
-] as const;
-
-const firstOf = (slot: Slot, match: RegExp) => CATALOG.find((e) => e.slot === slot && match.test(e.id))?.id ?? null;
-
-function defaultState(): State {
-  return {
-    skin: 'skinB',
-    build: 'slim',
-    frame: 'm',
-    // The default is a survivor: ordinary clothes, some weeks on the island.
-    wear: 2,
-    mood: 'happy',
-    face: { ...DEFAULT_FACE },
-    hair: 'short',
-    hairColor: 'hairBrown',
-    worn: {
-      top: firstOf('top', /recipe-everyday-0/) ?? firstOf('top', /./),
-      bottom: firstOf('bottom', /sprite-everyday-bottoms-0/) ?? firstOf('bottom', /./),
-      shoes: null,
-      hat: firstOf('hat', /sprite-hat-2/),
-      beard: null,
-      tool: firstOf('tool', /sprite-spear-0/),
-    },
-    colors: {},
-    ground: 'sand',
-  };
-}
-
-const hairExists = (id: unknown) => HAIR_STYLES.some((s) => s.id === id) || entryById(id as string)?.slot === 'hair';
 const STORAGE_KEY = 'castaway-wardrobe';
 
 function loadState(): State {
-  const state = defaultState();
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<State> | null;
-    if (!saved) return state;
-    if (saved.skin && SKIN_KEYS.includes(saved.skin)) state.skin = saved.skin;
-    if (BUILDS.some((b) => b.id === saved.build)) state.build = saved.build!;
-    if (saved.frame === 'm' || saved.frame === 'f') state.frame = saved.frame;
-    if (typeof saved.wear === 'number' && saved.wear >= 0 && saved.wear <= WEAR_MAX) state.wear = saved.wear;
-    if ((MOODS as readonly string[]).includes(saved.mood as string)) state.mood = saved.mood!;
-    if (saved.hair === null || hairExists(saved.hair)) state.hair = saved.hair ?? null;
-    if (saved.hairColor && saved.hairColor in PALETTE) state.hairColor = saved.hairColor;
-    const face = saved.face;
-    if (face) {
-      if ((EYE_SHAPES as readonly string[]).includes(face.eyes)) state.face.eyes = face.eyes;
-      if (EYE_COLORS.includes(face.eyeColor)) state.face.eyeColor = face.eyeColor;
-      if ((BROWS as readonly string[]).includes(face.brows)) state.face.brows = face.brows;
-      for (const key of ['blush', 'freckles', 'glasses', 'lashes'] as const) state.face[key] = !!face[key];
-      if (face.glassesColor && GLASSES_COLORS.includes(face.glassesColor)) state.face.glassesColor = face.glassesColor;
-    }
-    for (const slot of WORN_SLOTS) {
-      const id = saved.worn?.[slot];
-      if (id === null || entryById(id)?.slot === slot) state.worn[slot] = id ?? null;
-      const swap = saved.colors?.[slot];
-      const clean = Object.entries(swap ?? {}).filter(([from, to]) => from in PALETTE && to && to in PALETTE);
-      if (clean.length) state.colors[slot] = Object.fromEntries(clean);
-    }
-    if (GROUNDS.some((g) => g.id === saved.ground)) state.ground = saved.ground!;
+    return cleanState(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'));
   } catch {
     // Saved looks are a convenience. Without storage the wardrobe starts from the default.
+    return defaultState();
   }
-  return state;
 }
 
 function saveState(): void {
@@ -133,48 +52,6 @@ const CLIPS: Record<string, Clip> = {
 const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
 
 // ------------------------------------------------------------------ look
-
-/** Hair and beards are drawn in one colour and take the hair colour the player picked. */
-const inHairColor = (entry: Entry, color: PaletteKey): Item =>
-  entry.colors.length ? recolor(entry.item, { [entry.colors[0]]: color }) : entry.item;
-
-function hairItem(source: State): Item | null {
-  if (!source.hair) return null;
-  const style = HAIR_STYLES.find((s) => s.id === source.hair);
-  if (style) return style.make(source.hairColor);
-  const entry = entryById(source.hair);
-  return entry ? inHairColor(entry, source.hairColor) : null;
-}
-
-function wornItem(source: State, slot: WornSlot): Item | null {
-  const entry = entryById(source.worn[slot]);
-  if (!entry) return null;
-  return slot === 'beard' ? inHairColor(entry, source.hairColor) : recolor(entry.item, source.colors[slot] ?? {});
-}
-
-/** `underwear` is off for the mannequin that item pictures are cut from. */
-function lookOf(source: State, underwear = true): Look {
-  const items: Item[] = [];
-  // Everything is drawn neat and aged here, by the one value the character carries.
-  const hair = hairItem(source);
-  if (hair) items.push(weathered(hair, source.wear));
-  for (const slot of WORN_SLOTS) {
-    const item = wornItem(source, slot);
-    if (item) items.push(weathered(item, source.wear));
-  }
-  // The body is never bare.
-  if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);
-  if (underwear && !source.worn.top && source.frame === 'f') items.push(UNDERTOP);
-  return {
-    skin: source.skin,
-    build: BUILDS.find((b) => b.id === source.build),
-    frame: source.frame,
-    head: headFor(source.skin),
-    faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
-    items,
-  };
-}
-
 // ------------------------------------------------------------------ drawing
 
 type Child = Node | string | null | undefined | false;
@@ -313,6 +190,105 @@ const wearName = (level: Wear) => t(`wear.${Math.round(level)}` as Key);
 const moodRow = h('div', { class: 'chips', role: 'group' });
 const tabRow = h('nav', { class: 'tabs', role: 'tablist' });
 const panel = h('div', { class: 'panel__body', role: 'tabpanel' });
+
+// Saved characters: a list on this device, shared with the scene editor. The working character
+// above is saved on every change as before; the list keeps named copies of it.
+const rosterRow = h('div', { class: 'chips', role: 'group' });
+const rosterStatus = h('p', { class: 'note', 'aria-live': 'polite' });
+const CURRENT_KEY = 'castaway-characters-current';
+let roster = loadRoster();
+let currentId: string | null = null;
+try {
+  currentId = localStorage.getItem(CURRENT_KEY);
+} catch {
+  // Without storage nothing is selected.
+}
+if (!roster.some((c) => c.id === currentId)) currentId = roster.length === 1 ? roster[0].id : null;
+
+function setCurrent(id: string | null): void {
+  currentId = id;
+  try {
+    if (id) localStorage.setItem(CURRENT_KEY, id);
+    else localStorage.removeItem(CURRENT_KEY);
+  } catch {
+    // The selection then lasts for this visit only.
+  }
+}
+
+function storeRoster(message: string): void {
+  rosterStatus.textContent = saveRoster(roster) ? message : t('saved.fail');
+  render();
+}
+
+function saveAs(): void {
+  const name = prompt(t('saved.name'), roster.find((c) => c.id === currentId)?.name ?? t('saved.default'))?.trim().slice(0, 40);
+  if (!name) return;
+  const saved: Saved = { id: newId(), name, state: structuredClone(state) };
+  roster.push(saved);
+  setCurrent(saved.id);
+  storeRoster(t('saved.ok', { name }));
+}
+
+function saveCurrent(): void {
+  const saved = roster.find((c) => c.id === currentId);
+  if (!saved) return saveAs();
+  saved.state = structuredClone(state);
+  storeRoster(t('saved.ok', { name: saved.name }));
+}
+
+function deleteCurrent(): void {
+  const saved = roster.find((c) => c.id === currentId);
+  if (!saved || !confirm(t('saved.confirmDelete', { name: saved.name }))) return;
+  roster = roster.filter((c) => c !== saved);
+  setCurrent(null);
+  storeRoster('');
+}
+
+async function importCharacter(): Promise<void> {
+  let saved: Saved;
+  try {
+    saved = readCharacterFile(await pickFile());
+  } catch {
+    rosterStatus.textContent = t('saved.badFile');
+    return;
+  }
+  roster.push(saved);
+  setCurrent(saved.id);
+  state = structuredClone(saved.state);
+  saveState();
+  version++;
+  storeRoster(t('saved.imported', { name: saved.name }));
+}
+
+function rosterControls(): Node[] {
+  const select = h('select', { class: 'chip', 'aria-label': t('saved.pick') },
+    h('option', { value: '' }, t('saved.none')),
+    ...roster.map((c) => h('option', { value: c.id }, c.name)),
+  );
+  select.value = currentId ?? '';
+  select.addEventListener('change', () => {
+    const saved = roster.find((c) => c.id === select.value);
+    setCurrent(saved?.id ?? null);
+    if (saved) state = structuredClone(saved.state);
+    rosterStatus.textContent = '';
+    changed();
+  });
+  const button = (label: string, onClick: () => void, disabled = false) => {
+    const b = h('button', { type: 'button', class: 'chip' }, label);
+    b.disabled = disabled;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const current = roster.find((c) => c.id === currentId);
+  return [
+    select,
+    button(t('saved.save'), saveCurrent),
+    button(t('saved.saveAs'), saveAs),
+    button(t('saved.delete'), deleteCurrent, !current),
+    button(t('saved.export'), () => download(`${current?.name ?? t('saved.default')}.json`, characterFile({ id: '', name: current?.name ?? t('saved.default'), state }))),
+    button(t('saved.import'), () => void importCharacter()),
+  ];
+}
 
 function chip(label: string, pressed: boolean, onClick: () => void): HTMLButtonElement {
   const button = h('button', { type: 'button', class: 'chip', 'aria-pressed': String(pressed) }, label);
@@ -548,6 +524,7 @@ function render(): void {
     render();
   })));
   [...facingRow.children].forEach((button, i) => button.setAttribute('aria-pressed', String(i === facing)));
+  rosterRow.replaceChildren(...rosterControls());
 }
 
 /** Builds the page. Called again when the language changes, since every label is rebuilt. */
@@ -616,6 +593,8 @@ function mount(): void {
         h('div', { class: 'row' }, h('h3', {}, t('mood')), moodRow),
         h('div', { class: 'row' }, h('h3', {}, t('action')), actionRow),
         h('div', { class: 'row' }, h('h3', {}, t('ground')), groundRow),
+        h('div', { class: 'row' }, h('h3', {}, t('saved')), rosterRow),
+        rosterStatus,
       ),
       h('section', { class: 'panel', 'aria-label': t('wardrobe') }, tabRow, panel),
       h('footer', { class: 'foot' },

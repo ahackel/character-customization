@@ -19,6 +19,8 @@ export interface HeightMap {
   readonly h: number;
   /** Level per cell, row by row: `levels[j * w + i]`. */
   readonly levels: Int8Array;
+  /** Optional painted ground per cell: 0 follows the height rule, otherwise `PAINTS[n - 1]`. Under water it is ignored. */
+  readonly paint?: Uint8Array;
 }
 
 export function createHeightMap(w: number, h: number, fill = MIN_LEVEL): HeightMap {
@@ -51,12 +53,18 @@ export function steepness(map: HeightMap, i: number, j: number): number {
 
 export const SURFACES = ['deep', 'shallow', 'beach', 'sand', 'grass', 'rock'] as const;
 export type Surface = (typeof SURFACES)[number];
+/** What can be painted on land. */
+export const PAINTS = ['sand', 'grass', 'rock'] as const;
+
+const paintAt = (map: HeightMap, i: number, j: number) => (map.paint && inside(map, i, j) ? map.paint[j * map.w + i] : 0);
 
 /** What a cell is, by rule from its height and its neighbours. */
 export function surfaceAt(map: HeightMap, i: number, j: number): Surface {
   const level = levelAt(map, i, j);
   if (level < -1) return 'deep';
   if (level < SEA_LEVEL) return 'shallow';
+  const painted = paintAt(map, i, j);
+  if (painted) return PAINTS[painted - 1];
   if (level === SEA_LEVEL) return 'beach';
   if (level >= 6 || steepness(map, i, j) >= 3) return 'rock';
   if (level === 1) return 'sand';
@@ -209,9 +217,10 @@ const DIM = '#5a4060';
 
 type Ground = keyof typeof SIDES;
 /** What the ground is at a height, inside a cell of some surface: low ground is sand whatever the cell. */
-function groundAt(surface: Surface, h: number): Ground {
+function groundAt(surface: Surface, h: number, painted = false): Ground {
   if (h < 0.15) return 'wet';
   if (surface === 'rock') return 'rock';
+  if (painted) return surface === 'grass' ? 'grass' : 'sand';
   if (h < 1.3 || surface !== 'grass') return 'sand';
   return 'grass';
 }
@@ -227,7 +236,13 @@ const LIGHT = (() => {
 })();
 const LEVEL_M = 0.354;
 
-const rgbOf = (hex: string) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
+// Colours are worked out per pixel from a handful of strings, so both helpers remember their answers.
+const rgbCache = new Map<string, number[]>();
+const rgbOf = (hex: string) => {
+  let rgb = rgbCache.get(hex);
+  if (!rgb) rgbCache.set(hex, (rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16))));
+  return rgb;
+};
 
 /** Paints the whole map, back to front, over open sea, then lays the water over what lies below it. */
 export function renderTerrain(map: HeightMap, size?: { w: number; h: number; origin: { x: number; y: number } }): TerrainImage {
@@ -258,6 +273,7 @@ export function renderTerrain(map: HeightMap, size?: { w: number; h: number; ori
   for (const [i, j] of order) {
     const index = j * map.w + i;
     const surface = surfaceAt(map, i, j);
+    const painted = paintAt(map, i, j) > 0;
     const c = cornersOf(map, i, j);
     const at: [number, number, number][] = [[i, j, c[0]], [i + 1, j, c[1]], [i + 1, j + 1, c[2]], [i, j + 1, c[3]]];
     const tris = foldsNorthSouth(c) ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 3], [1, 2, 3]];
@@ -285,12 +301,12 @@ export function renderTerrain(map: HeightMap, size?: { w: number; h: number; ori
         const w2 = 1 - w0 - w1;
         if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
         const level = w0 * p[0][2] + w1 * p[1][2] + w2 * p[2][2];
-        let color: string = COLORS[groundAt(surface, level)];
+        let color: string = COLORS[groundAt(surface, level, painted)];
         if (lit > 0.06) color = mixHex(color, LIT, Math.min(0.22, lit * 0.9));
         else if (lit < -0.06) color = mixHex(color, DIM, Math.min(0.22, -lit * 0.9));
         // Tiles alternate faintly so the one-metre grid reads; the ground gets a few grains.
         if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
-        if (hash(x, y) < 0.035) color = mixHex(color, SIDES[groundAt(surface, level)][1], 0.5);
+        if (hash(x, y) < 0.035) color = mixHex(color, SIDES[groundAt(surface, level, painted)][1], 0.5);
         put(x, y, color, index, level);
       }
     }
@@ -315,7 +331,7 @@ export function renderTerrain(map: HeightMap, size?: { w: number; h: number; ori
         const yBottom = ground - bottom * LEVEL_PX;
         for (let y = Math.ceil(yTop - 0.5); y < yBottom; y++) {
           const level = (ground - (y + 0.5)) / LEVEL_PX;
-          const kind = groundAt(surface, level);
+          const kind = groundAt(surface, level, painted);
           let color: string = SIDES[kind][face.side];
           if (surface === 'grass' && kind === 'grass' && y - yTop < 2) color = GRASS_LIP;
           else if (hash(x, y) < 0.06) color = mixHex(color, '#000000', 0.08);
@@ -343,10 +359,18 @@ export function renderTerrain(map: HeightMap, size?: { w: number; h: number; ori
   return { w, h, rgba, cell, height, origin };
 }
 
+const mixCache = new Map<string, string>();
 function mixHex(a: string, b: string, t: number): string {
+  const key = `${a}${b}${t}`;
+  let mixed = mixCache.get(key);
+  if (mixed) return mixed;
   const x = rgbOf(a);
   const y = rgbOf(b);
-  return '#' + x.map((v, k) => Math.round(v + (y[k] - v) * t).toString(16).padStart(2, '0')).join('');
+  mixed = '#' + x.map((v, k) => Math.round(v + (y[k] - v) * t).toString(16).padStart(2, '0')).join('');
+  // shortcut: the light term is continuous, so the cache is capped rather than exact; raise if redraws slow down again.
+  if (mixCache.size > 20000) mixCache.clear();
+  mixCache.set(key, mixed);
+  return mixed;
 }
 
 /**

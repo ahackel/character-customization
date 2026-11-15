@@ -400,7 +400,11 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         else if (lit < -0.06) color = mixHex(color, DIM, Math.min(0.22, -lit * 0.9));
         // Tiles alternate faintly so the one-metre grid reads; the ground gets a few grains.
         if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
-        if (hash(x, y) < 0.035) color = mixHex(color, SIDES[groundAt(surface, level, painted)][1], 0.5);
+        // Grains: darker green on grass, the side colour elsewhere; sand gets fewer, fainter ones.
+        const kind = groundAt(surface, level, painted);
+        const sandy = kind === 'sand' || kind === 'wet';
+        const grain = kind === 'grass' ? GRASS_LIP : SIDES[kind][1];
+        if (hash(x, y) < (sandy ? 0.01 : 0.035)) color = mixHex(color, grain, sandy ? 0.3 : 0.5);
         put(x, y, color, index, level);
       }
     }

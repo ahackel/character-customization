@@ -351,7 +351,10 @@ function slotPanel(slot: WornSlot): HTMLElement[] {
   }
   const out: HTMLElement[] = [grid];
   if (current && slot === 'beard') {
-    out.push(h('p', { class: 'note' }, t('beard.note')));
+    out.push(swatches(t('beardColor'), [null, ...HAIR_COLORS], state.beardColor, (key) => {
+      state.beardColor = key;
+      changed();
+    }, t('beardColor.hair')));
   } else if (current) {
     current.colors.forEach((own, i) => {
       out.push(swatches(i === 0 ? t('color.main') : t('color.second'), [null, ...CLOTH_KEYS], state.colors[slot]?.[own] ?? null, (key) => {

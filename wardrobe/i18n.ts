@@ -117,10 +117,11 @@ const en = {
   'color.main': 'Main colour',
   'color.second': 'Second colour',
   'color.original': 'Original',
-  'beard.note': 'A beard takes the hair colour. Change it under Hair.',
+  'beardColor': 'Beard colour',
+  'beardColor.hair': 'As hair',
 
   'foot.items': 'The {count} items here were written by a language model from one-line requests and are shown as returned: {paint} painted over the whole sprite, {recipe} as recipes or small stamps. Each is drawn once, in neat condition.',
-  'foot.rules': 'Rules do the rest. The condition ages clothing, shoes, hats and hair, so no item needs a ragged version. A beard seen from behind is worked out from its front view, hair tucks under hats, clothing follows the build, hair and beards take the hair colour, and colours can be swapped.',
+  'foot.rules': 'Rules do the rest. The condition ages clothing, shoes, hats and hair, so no item needs a ragged version. A beard seen from behind is worked out from its front view, hair tucks under hats, clothing follows the build, beards take the hair colour unless they get their own, and colours can be swapped.',
   'foot.base': 'The body, faces, builds and the first two hairstyles are drawn by rule from parts written by the model and corrected by looking at the result.',
 
   'palette.skinA': 'Fair', 'palette.skinB': 'Light', 'palette.skinC': 'Tan', 'palette.skinD': 'Brown', 'palette.skinE': 'Dark',
@@ -242,10 +243,11 @@ const de: Record<Key, string> = {
   'color.main': 'Hauptfarbe',
   'color.second': 'Zweite Farbe',
   'color.original': 'Original',
-  'beard.note': 'Ein Bart übernimmt die Haarfarbe. Sie lässt sich unter „Haare“ ändern.',
+  'beardColor': 'Bartfarbe',
+  'beardColor.hair': 'Wie Haar',
 
   'foot.items': 'Die {count} Teile hier wurden von einem Sprachmodell aus einzeiligen Beschreibungen geschrieben und werden unverändert gezeigt: {paint} über die ganze Figur gemalt, {recipe} als Rezepte oder kleine Stempel. Jedes ist nur einmal gezeichnet, in gepflegtem Zustand.',
-  'foot.rules': 'Den Rest erledigen Regeln. Der Zustand lässt Kleidung, Schuhe, Hüte und Haare altern, sodass kein Teil eine zerlumpte Fassung braucht. Die Rückansicht eines Bartes wird aus der Vorderansicht abgeleitet, Haare verschwinden unter Hüten, Kleidung passt sich der Statur an, Haare und Bärte übernehmen die Haarfarbe, und Farben lassen sich tauschen.',
+  'foot.rules': 'Den Rest erledigen Regeln. Der Zustand lässt Kleidung, Schuhe, Hüte und Haare altern, sodass kein Teil eine zerlumpte Fassung braucht. Die Rückansicht eines Bartes wird aus der Vorderansicht abgeleitet, Haare verschwinden unter Hüten, Kleidung passt sich der Statur an, Bärte übernehmen die Haarfarbe, wenn sie keine eigene haben, und Farben lassen sich tauschen.',
   'foot.base': 'Körper, Gesichter, Staturen und die ersten beiden Frisuren werden nach Regeln aus Teilen gezeichnet, die das Modell geschrieben hat und die anhand des Ergebnisses korrigiert wurden.',
 
   'palette.skinA': 'Hell', 'palette.skinB': 'Leicht gebräunt', 'palette.skinC': 'Gebräunt', 'palette.skinD': 'Braun', 'palette.skinE': 'Dunkel',

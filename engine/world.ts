@@ -1,7 +1,7 @@
 // The running world of a scene: its ground drawn once per change, its plants drawn per wind
 // frame, and a camera window composed each frame with everything standing on the ground. Also
 // answers where a screen pixel is on the map, and where a walker may go.
-import { drawPlant, grow, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../lab/flora.ts';
+import { drawPlant, FRAMES, grow, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../lab/flora.ts';
 import { plantById, type PlantEntry } from '../lab/flora-catalog.ts';
 import { SHADOW } from '../lab/flora.ts';
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot } from '../lab/island.ts';
@@ -10,14 +10,16 @@ import {
   heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
+import { decorById, decorPixels, type PlacedDecor } from './decor.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
-import { mapOf, type PlacedPlant, type Scene } from './scene.ts';
+import { mapOf, TURNS, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 /** Something drawn standing on the ground: `foot` is the pixel of its picture that touches the spot. */
 export interface Thing { spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number } }
 
 const EDGE = '#e0332e';
+const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
 const SHADE_RGB = [1, 3, 5].map((k) => parseInt(SHADE.slice(k, k + 2), 16));
 const LEVEL_M = 0.354; // metres per level, as in the terrain's light
 // Ripples on the open sea are long level lines in rows that the current carries down the screen,
@@ -112,16 +114,19 @@ export function plantOf(entry: PlantEntry): Plant {
   return plant;
 }
 
+/** Up to how many wind frames a plant runs behind the shared wind. */
+const WIND_LAG = 3;
 const grownCache = new Map<string, Grown>();
 const rasterCache = new Map<string, Raster>();
 const sizeStep = (s: number) => Math.round(s * 10) / 10;
-/** One wind frame of a placed plant. Shared by every plant with the same recipe, variant and size. */
-export function rasterOf(p: Pick<PlacedPlant, 'plant' | 'seed' | 'size'>, frame: number): Raster | null {
+/** One wind frame of a placed plant. Shared by every plant with the same recipe, variant, size and turn. */
+export function rasterOf(p: Pick<PlacedPlant, 'plant' | 'seed' | 'size'> & { turn?: number }, frame: number): Raster | null {
   const entry = plantById(p.plant);
   if (!entry) return null;
-  const key = `${p.plant}|${p.seed}|${sizeStep(p.size)}`;
+  const turn = ((p.turn ?? 0) % TURNS + TURNS) % TURNS;
+  const key = `${p.plant}|${p.seed}|${sizeStep(p.size)}|${turn}`;
   let grown = grownCache.get(key);
-  if (!grown) grownCache.set(key, (grown = grow(plantOf(entry), { seed: p.seed, size: sizeStep(p.size) })));
+  if (!grown) grownCache.set(key, (grown = grow(plantOf(entry), { seed: p.seed, size: sizeStep(p.size), turn: (turn * 360) / TURNS })));
   const full = `${key}|${frame}`;
   let raster = rasterCache.get(full);
   if (!raster) {
@@ -257,6 +262,62 @@ export class World {
     });
   }
 
+  /** The plant whose picture covers a pixel of the ground image, the front-most one, or null. */
+  plantAt(x: number, y: number): PlacedPlant | null {
+    let best: PlacedPlant | null = null;
+    let front = -Infinity;
+    const seen = this.viewPlants();
+    seen.forEach((p, k) => {
+      const raster = rasterOf({ ...p, turn: (p.turn ?? 0) + this.rot * (TURNS / 4) }, 0);
+      if (!raster) return;
+      const at = footOf(this.ground, { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) });
+      const px = Math.floor(x) - (at.x - raster.origin.x);
+      const py = Math.floor(y) - (at.y - raster.origin.y);
+      if (px < 0 || py < 0 || px >= raster.w || py >= raster.h) return;
+      const c = raster.get(px, py);
+      if (!c || c === SHADOW || p.vi + p.vj < front) return;
+      front = p.vi + p.vj;
+      best = this.scene.plants[k];
+    });
+    return best;
+  }
+
+  /** The decorations with their places in view coordinates. */
+  viewDecor(): (PlacedDecor & { vi: number; vj: number })[] {
+    return this.scene.decor.map((d) => {
+      const v = this.toView(d);
+      return { ...d, vi: v.i, vj: v.j };
+    });
+  }
+
+  /**
+   * Lays the decorations on the ground in the window: on the sea floor they show through the
+   * water, and nearer ground that rises in front hides them.
+   */
+  private drawDecor(image: Pixels, view: Rect): void {
+    const g = this.ground;
+    const d = image.data;
+    for (const item of this.viewDecor()) {
+      const kind = decorById(item.decor);
+      if (!kind) continue;
+      const level = heightAt(this.floor, item.vi, item.vj);
+      const at = footOf(g, { i: item.vi, j: item.vj, level });
+      if (at.x < view.x - 8 || at.y < view.y - 8 || at.x > view.x + view.w + 8 || at.y > view.y + view.h + 8) continue;
+      const wet = level < SEA_LEVEL ? 0.5 : 1;
+      for (const px of decorPixels(kind)) {
+        const gx = at.x + px.x;
+        const gy = at.y + px.y;
+        const x = gx - view.x;
+        const y = gy - view.y;
+        if (x < 0 || y < 0 || x >= view.w || y >= view.h || gx < 0 || gy < 0 || gx >= g.w || gy >= g.h) continue;
+        if (Math.abs(g.height[gy * g.w + gx] - level) > 0.6) continue;
+        const c = rgb(px.color);
+        const o = (y * view.w + x) * 4;
+        for (let k = 0; k < 3; k++) d[o + k] += (c[k] - d[o + k]) * wet;
+      }
+    }
+  }
+
   /** Where a map point is on the ground image. */
   screenOf(i: number, j: number): { x: number; y: number } {
     return footOf(this.ground, { i, j, level: standingHeight(this.map, i, j) });
@@ -274,7 +335,9 @@ export class World {
   plantThings(frame: number): Thing[] {
     const out: Thing[] = [];
     for (const p of this.viewPlants()) {
-      const raster = rasterOf(p, frame);
+      // Each plant sways a little behind or ahead of its neighbours, and turns with the view.
+      const lag = ((Math.imul(Math.floor(p.i * 97), 73856093) ^ Math.imul(Math.floor(p.j * 89), 19349663)) >>> 0) % WIND_LAG;
+      const raster = rasterOf({ ...p, turn: (p.turn ?? 0) + this.rot * (TURNS / 4) }, (frame + lag) % FRAMES);
       if (raster) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
     }
     return out;
@@ -284,7 +347,7 @@ export class World {
    * Paints the camera window: the ground, every shadow at once, then things back to front with
    * higher ground in front hiding them. `highlight` tints some tiles (the brush in the editor).
    */
-  compose(view: Rect, things: Thing[], highlight?: { cells: Set<number>; color: string }, outline = false, ms = 0): Pixels {
+  compose(view: Rect, things: Thing[], highlight?: { cells: Set<number>; color: string }, outline = false, ms = 0, grid = false): Pixels {
     const { w, h } = view;
     const SEA = rgb(ocean.deep);
     const FOAM = rgb(ocean.wave);
@@ -316,6 +379,13 @@ export class World {
           if (mark) for (let k = 0; k < 3; k++) d[o + k] += (MARK_COLORS[mark - 1][0][k] - d[o + k]) * MARK_COLORS[mark - 1][1];
         }
         if (depth > 0) for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
+        if (grid) {
+          // A faint line where one tile's pixels meet the next one's, to the right or below.
+          const c = g.cell[p];
+          const right = gx + 1 < g.w ? g.cell[p + 1] : c;
+          const below = gy + 1 < g.h ? g.cell[p + g.w] : c;
+          if (c >= 0 && ((right >= 0 && right !== c) || (below >= 0 && below !== c))) for (let k = 0; k < 3; k++) d[o + k] *= 1 - GRID_SHADE;
+        }
         if (highlight?.cells.has(g.cell[p])) blend(image, x, y, highlight.color);
       }
     }
@@ -325,6 +395,7 @@ export class World {
         return { ...t, dx: at.x - t.foot.x - view.x, dy: at.y - t.foot.y - view.y };
       })
       .filter((t) => t.dx < w && t.dy < h && t.dx + t.w > 0 && t.dy + t.h > 0);
+    this.drawDecor(image, view);
     // Shadows reach past a thing's picture, so things just outside the window cast into it too.
     // Each ground pixel is darkened once, and not where the ground already lies in shadow.
     const mask = new Uint8Array(w * h);

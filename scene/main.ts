@@ -7,9 +7,10 @@ import { castShadow, layShadow, ROOM, stamp, type Picture } from '../lab/island.
 import { inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
 import { Actor, EMOTES, type Emote } from '../engine/actor.ts';
 import {
-  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, type Scene,
+  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPlant, type Scene,
 } from '../engine/scene.ts';
-import { grows, rasterOf, smooth, World, type Rect, type Thing } from '../engine/world.ts';
+import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
+import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
 import { ocean, OCEAN_PRESETS, OCEAN_RANGES, saveOcean, useOcean, WATER_COLORS, type OceanColor, type OceanNumber } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
 import { currentLang, LANGS, setLang, t, type Key } from './i18n.ts';
@@ -19,7 +20,7 @@ import { currentLang, LANGS, setLang, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'erase', 'spawn'] as const;
+const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
@@ -32,14 +33,18 @@ interface Prefs {
   /** Brush size in tiles across: 1, 2 or 3. */
   brush: number;
   plant: string;
+  /** A `DECOR` id: what the Decor tool lays down. */
+  decor: string;
   /** A saved character id, or '' for the default one. */
   character: string;
   /** Which side the scene is seen from: quarter turns, 0 to 3. */
   rot: number;
+  /** Tile lines on the ground while editing. */
+  grid: boolean;
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, character: '', rot: 0 };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, character: '', rot: 0, grid: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -47,8 +52,10 @@ function loadPrefs(): Prefs {
     if (Number.isInteger(saved?.paint) && saved.paint >= 0 && saved.paint <= PAINTS.length) prefs.paint = saved.paint;
     if ([1, 2, 3].includes(saved?.brush)) prefs.brush = saved.brush;
     if (plantById(saved?.plant)) prefs.plant = saved.plant;
+    if (decorById(saved?.decor)) prefs.decor = saved.decor;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
+    prefs.grid = saved?.grid === true;
   } catch {
     // Settings are a convenience; without storage the defaults apply.
   }
@@ -201,6 +208,8 @@ function cannotEdit(at: { i: number; j: number }): boolean {
       return !grows(world.map, prefs.plant, at.i + 0.5, at.j + 0.5);
     case 'spawn':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
+    case 'decor':
+      return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
     case 'raise':
       return brushCells(at).every((c) => world.map.levels[c] >= MAX_LEVEL);
     case 'lower':
@@ -210,17 +219,39 @@ function cannotEdit(at: { i: number; j: number }): boolean {
   }
 }
 
-function placePlant(at: { i: number; j: number }): void {
+/** The ground-image pixel under the pointer when the tool last worked, for picking plants by their picture. */
+let pointerPixel: { x: number; y: number } | null = null;
+
+function placePlant(at: { i: number; j: number }, placed: Set<PlacedPlant>): void {
   const entry = plantById(prefs.plant)!;
-  const i = at.i + 0.2 + Math.random() * 0.6;
-  const j = at.j + 0.2 + Math.random() * 0.6;
+  // Over a plant's picture, the new plant takes its place; otherwise it goes somewhere in the tile.
+  const under = pointerPixel ? world.plantAt(pointerPixel.x, pointerPixel.y) : null;
+  const spot = under && !placed.has(under) ? world.toView(under) : null;
+  const i = spot ? spot.i : at.i + 0.2 + Math.random() * 0.6;
+  const j = spot ? spot.j : at.j + 0.2 + Math.random() * 0.6;
   if (!grows(world.map, entry.id, i, j)) {
-    say(t('plant.cannot', { plant: plantName(entry.id, entry.label), ground: t(`surface.${surfaceAt(world.map, at.i, at.j)}` as Key) }));
+    say(t('plant.cannot', { plant: plantName(entry.id, entry.label), ground: t(`surface.${surfaceAt(world.map, Math.floor(i), Math.floor(j))}` as Key) }));
     return;
   }
-  const crowded = world.viewPlants().some((p) => Math.hypot(p.vi - i, p.vj - j) < (ROOM[plantById(p.plant)!.category] + ROOM[entry.category]) * 0.45);
-  if (crowded) return;
-  world.scene.plants.push({ plant: entry.id, ...world.toData({ i, j }), seed: Math.floor(Math.random() * SEEDS), size: 0.85 + Math.random() * 0.3 });
+  // Planting where plants already stand replaces them, except ones set down earlier in the same drag.
+  const seen = world.viewPlants();
+  const near = new Set(world.scene.plants.filter((p, k) => p === under || Math.hypot(seen[k].vi - i, seen[k].vj - j) < (ROOM[plantById(seen[k].plant)!.category] + ROOM[entry.category]) * 0.45));
+  if ([...near].some((p) => placed.has(p))) return;
+  world.scene.plants = world.scene.plants.filter((p) => !near.has(p));
+  const plant = { plant: entry.id, ...world.toData({ i, j }), seed: Math.floor(Math.random() * SEEDS), size: 0.85 + Math.random() * 0.3, turn: Math.floor(Math.random() * TURNS) };
+  world.scene.plants.push(plant);
+  placed.add(plant);
+}
+
+/** Decorations lie on land and on the sea floor down to this level, where the water still shows them. */
+const DECOR_DEPTH = WADE - 1;
+
+function placeDecor(at: { i: number; j: number }): void {
+  if (levelAt(world.floor, at.i, at.j) < DECOR_DEPTH) return;
+  const i = at.i + 0.15 + Math.random() * 0.7;
+  const j = at.j + 0.15 + Math.random() * 0.7;
+  if (world.viewDecor().some((d) => Math.hypot(d.vi - i, d.vj - j) < 0.2)) return;
+  world.scene.decor.push({ decor: prefs.decor, ...world.toData({ i, j }) });
 }
 
 /**
@@ -228,7 +259,7 @@ function placePlant(at: { i: number; j: number }): void {
  * painting a tile twice; smoothing works again on every tile the drag enters, and levelling
  * keeps to the height of the tile the drag started on.
  */
-function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; level?: number }): void {
+function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; level?: number; placed?: Set<PlacedPlant> }): void {
   const map = world.map;
   const fresh = brushCells(at).filter((c) => !stroke.touched.has(c));
   fresh.forEach((c) => stroke.touched.add(c));
@@ -253,12 +284,17 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       groundDirty ||= fresh.length > 0;
       break;
     case 'plant':
-      if (fresh.length) placePlant(at);
+      if (fresh.length) placePlant(at, (stroke.placed ??= new Set()));
+      break;
+    case 'decor':
+      if (fresh.length) placeDecor(at);
       break;
     case 'erase': {
       const cells = new Set(brushCells(at));
       const seen = world.viewPlants();
       world.scene.plants = world.scene.plants.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
+      const lying = world.viewDecor();
+      world.scene.decor = world.scene.decor.filter((_, k) => !cells.has(Math.floor(lying[k].vj) * map.w + Math.floor(lying[k].vi)));
       break;
     }
     case 'spawn':
@@ -347,7 +383,7 @@ function keyDirection(): [number, number] {
 }
 
 type Gesture =
-  | { kind: 'stroke'; touched: Set<number>; last: string; level?: number; tile?: { i: number; j: number }; at: number }
+  | { kind: 'stroke'; touched: Set<number>; last: string; level?: number; placed?: Set<PlacedPlant>; tile?: { i: number; j: number }; at: number }
   | { kind: 'walk' }
   | { kind: 'pan'; x: number; y: number; cam: { x: number; y: number } }
   | { kind: 'pinch'; dist: number; zoom: number; mid: { x: number; y: number }; cam: { x: number; y: number } };
@@ -371,6 +407,7 @@ function strokeAt(e: { clientX: number; clientY: number }): void {
   gesture.last = key;
   gesture.tile = tile;
   gesture.at = performance.now();
+  pointerPixel = groundPixel(e);
   apply(tile, gesture);
 }
 
@@ -496,7 +533,7 @@ function frame(ms: number): void {
     const blocked = prefs.mode === 'edit' && !!hover && cannotEdit(hover);
     const highlight = prefs.mode === 'edit' && hover ? { cells: new Set(brushCells(hover)), color: blocked ? '#e0332e99' : '#ffffff66' } : undefined;
     canvas.style.cursor = blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';
-    const image = world.compose(view, things, highlight, prefs.mode === 'edit', waves * 100);
+    const image = world.compose(view, things, highlight, prefs.mode === 'edit', waves * 100, prefs.mode === 'edit' && prefs.grid);
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
   requestAnimationFrame(frame);
@@ -532,6 +569,22 @@ function thumb(id: string): HTMLCanvasElement {
   return c;
 }
 
+/** A decoration drawn four times its size on sand, for the picker. */
+function decorThumb(id: string): HTMLCanvasElement {
+  const pixels = decorPixels(decorById(id)!);
+  const c = h('canvas', { class: 'plant__picture', width: '11', height: '9' });
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f6e4b4';
+  g.fillRect(0, 0, 11, 9);
+  for (const p of pixels) {
+    g.fillStyle = p.color;
+    g.fillRect(p.x + 5, p.y + 4, 1, 1);
+  }
+  c.style.width = '44px';
+  c.style.height = '36px';
+  return c;
+}
+
 const sceneSelect = h('select', { class: 'chip' });
 const modeRow = h('div', { class: 'chips', role: 'group' });
 const dock = h('div', { class: 'dock' });
@@ -554,6 +607,17 @@ function editPanel(): HTMLElement[] {
       }),
     ));
   }
+  if (prefs.tool === 'decor') {
+    out.push(h('div', { class: 'plants', role: 'group', 'aria-label': t('decor') },
+      ...DECOR.map((d) => {
+        const name = t(`decor.${d.id}` as Key);
+        const b = h('button', { type: 'button', class: 'plant', 'aria-pressed': String(d.id === prefs.decor), title: name, 'aria-label': name }, decorThumb(d.id));
+        b.addEventListener('click', () => set({ decor: d.id }));
+        return b;
+      }),
+    ));
+  }
+  out.push(row(t('show'), chip(t('show.grid'), prefs.grid, () => set({ grid: !prefs.grid }))));
   out.push(h('p', { class: 'hint' }, t('hint.edit')));
   return out;
 }

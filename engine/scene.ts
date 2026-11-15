@@ -1,8 +1,9 @@
 // A scene as it is saved: the ground (a height per tile and an optional painted surface), the
-// plants placed on it and where the character starts. Scenes live in this browser's storage and
+// plants and decorations placed on it and where the character starts. Scenes live in this browser's storage and
 // can be written to and read from files. Everything read back is checked, since storage and
 // files may hold anything.
 import { plantById } from '../lab/flora-catalog.ts';
+import { decorById, type PlacedDecor } from './decor.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from '../lab/terrain.ts';
 
 export interface PlacedPlant {
@@ -14,6 +15,8 @@ export interface PlacedPlant {
   /** Which variant of the recipe grows, 0 to 3. */
   seed: number;
   size: number;
+  /** Which way it faces, in eighths of a turn, 0 to 7. */
+  turn: number;
 }
 
 export interface Scene {
@@ -26,12 +29,15 @@ export interface Scene {
   /** Painted surface per tile: 0 follows the height, otherwise `PAINTS[n - 1]`. */
   paint: number[];
   plants: PlacedPlant[];
+  /** Starfish, shells and the like, lying on the ground. */
+  decor: PlacedDecor[];
   spawn: { i: number; j: number };
 }
 
 export const MIN_SIZE = 8;
 export const MAX_SIZE = 64;
 export const SEEDS = 4;
+export const TURNS = 8;
 export const SIZE_RANGE = [0.6, 1.6] as const;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -42,7 +48,7 @@ export function createScene(name: string, w: number, h: number, island: boolean,
   w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
   h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
   const map = island ? generateIsland(seed, w, h) : createHeightMap(w, h, -1);
-  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], spawn: { i: w / 2, j: h / 2 } };
+  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], spawn: { i: w / 2, j: h / 2 } };
 }
 
 /** The scene's ground as the terrain code reads it. */
@@ -62,6 +68,7 @@ export function resized(scene: Scene, w: number, h: number): Scene {
   return {
     ...scene, w, h, levels, paint,
     plants: scene.plants.filter((p) => p.i < w && p.j < h),
+    decor: scene.decor.filter((d) => d.i < w && d.j < h),
     spawn: { i: Math.min(scene.spawn.i, w - 0.5), j: Math.min(scene.spawn.j, h - 0.5) },
   };
 }
@@ -87,11 +94,15 @@ export function cleanScene(input: unknown): Scene {
       j: num(p.j, 0, h, h / 2),
       seed: Math.round(num(p.seed, 0, SEEDS - 1, 0)),
       size: num(p.size, SIZE_RANGE[0], SIZE_RANGE[1], 1),
+      turn: Math.round(num(p.turn, 0, TURNS - 1, 0)),
     }));
+  const decor = (Array.isArray(s.decor) ? s.decor : [])
+    .filter((d): d is PlacedDecor => !!d && typeof d === 'object' && !!decorById(d.decor))
+    .map((d) => ({ decor: d.decor, i: num(d.i, 0, w, w / 2), j: num(d.j, 0, h, h / 2) }));
   return {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
     name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : 'Island',
-    w, h, levels, paint, plants,
+    w, h, levels, paint, plants, decor,
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
 }

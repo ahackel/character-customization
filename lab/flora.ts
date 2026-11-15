@@ -322,6 +322,8 @@ export interface GrowOptions {
    * the same shape at every size.
    */
   size?: number;
+  /** Degrees the whole plant is turned about its stem, so copies of one variant face different ways. */
+  turn?: number;
 }
 
 export const SIZE_MIN = 0.5;
@@ -372,7 +374,8 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
   const mirror = seed % 2 === 1;
   const elements: El[] = [];
   const shadow: Grown['shadow'] = [];
-  const azimuth = (a: number) => (mirror ? 180 - a : a);
+  const turn = options.turn ?? 0;
+  const azimuth = (a: number) => (mirror ? 180 - a : a) + turn;
   const dried = (k: PaletteKey): PaletteKey => {
     const chain = DRYING[k];
     if (!chain || !dry) return k;

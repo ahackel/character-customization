@@ -26,6 +26,8 @@ export interface State {
   /** A built-in style id, a catalogue id, or null for bald. */
   hair: string | null;
   hairColor: PaletteKey;
+  /** The beard's own colour, or null to match the hair. */
+  beardColor: PaletteKey | null;
   worn: Record<WornSlot, string | null>;
   /** Per slot: which of the item's own colours is replaced by which palette colour. */
   colors: Partial<Record<WornSlot, Partial<Record<PaletteKey, PaletteKey>>>>;
@@ -53,6 +55,7 @@ export function defaultState(): State {
     face: { ...DEFAULT_FACE },
     hair: 'short',
     hairColor: 'hairBrown',
+    beardColor: null,
     worn: {
       top: firstOf('top', /recipe-everyday-0/) ?? firstOf('top', /./),
       bottom: firstOf('bottom', /sprite-everyday-bottoms-0/) ?? firstOf('bottom', /./),
@@ -81,6 +84,7 @@ export function cleanState(input: unknown): State {
     if ((MOODS as readonly string[]).includes(saved.mood as string)) state.mood = saved.mood!;
     if (saved.hair === null || hairExists(saved.hair)) state.hair = saved.hair ?? null;
     if (saved.hairColor && saved.hairColor in PALETTE) state.hairColor = saved.hairColor;
+    if (saved.beardColor && saved.beardColor in PALETTE) state.beardColor = saved.beardColor;
     const face = saved.face;
     if (face) {
       if ((EYE_SHAPES as readonly string[]).includes(face.eyes)) state.face.eyes = face.eyes;
@@ -105,7 +109,7 @@ export function cleanState(input: unknown): State {
 
 // ------------------------------------------------------------------ look
 
-/** Hair and beards are drawn in one colour and take the hair colour the player picked. */
+/** Hair and beards are drawn in one colour: the hair colour, or the beard's own when it has one. */
 const inHairColor = (entry: Entry, color: PaletteKey): Item =>
   entry.colors.length ? recolor(entry.item, { [entry.colors[0]]: color }) : entry.item;
 
@@ -120,7 +124,7 @@ function hairItem(source: State): Item | null {
 function wornItem(source: State, slot: WornSlot): Item | null {
   const entry = entryById(source.worn[slot]);
   if (!entry) return null;
-  return slot === 'beard' ? inHairColor(entry, source.hairColor) : recolor(entry.item, source.colors[slot] ?? {});
+  return slot === 'beard' ? inHairColor(entry, source.beardColor ?? source.hairColor) : recolor(entry.item, source.colors[slot] ?? {});
 }
 
 /** `underwear` is off for the mannequin that item pictures are cut from. */

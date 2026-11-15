@@ -266,12 +266,21 @@ function turned(stamp: Stamp, pivotX: number, pivotY: number, steps: number): Tu
   return out;
 }
 
-/** True if a hat covers the top of the skull, as opposed to a band around the forehead. */
+/**
+ * True if a hat covers the top of the skull, as opposed to a band around the forehead.
+ * Measured where the top of the hair sits: a headband paints nothing there, so the hair above
+ * it is kept.
+ */
 function coversCrown(hat: Stamp): boolean {
-  for (let row = 0; row <= HEAD_FRAME.ay - 13; row++) {
-    for (let col = HEAD_FRAME.ax - 3; col <= HEAD_FRAME.ax + 3; col++) if (hat[row]?.[col]) return true;
+  let painted = 0;
+  let total = 0;
+  for (let row = HEAD_FRAME.ay - 18; row <= HEAD_FRAME.ay - 15; row++) {
+    for (let col = HEAD_FRAME.ax - 4; col <= HEAD_FRAME.ax + 4; col++) {
+      total++;
+      if (hat[row]?.[col]) painted++;
+    }
   }
-  return false;
+  return painted / total >= 0.4;
 }
 
 const tuckedCache = new WeakMap<Stamp, WeakMap<Stamp, Stamp>>();
@@ -350,6 +359,16 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     },
   });
 
+  // How far the knees have swung out to either side of where the legs hang, for skirts.
+  const legPoints = (['L', 'R'] as const).map((s) => ({
+    hip: P(moved(pose[`hip${s}`], s, legShift)).x,
+    knee: P(moved(pose[`knee${s}`], s, legShift)).x,
+  }));
+  const stride = {
+    left: Math.min(0, Math.min(...legPoints.map((l) => l.knee)) - Math.min(...legPoints.map((l) => l.hip))),
+    right: Math.max(0, Math.max(...legPoints.map((l) => l.knee)) - Math.max(...legPoints.map((l) => l.hip))),
+  };
+
   // ---- legs and feet. The farther leg is drawn in the shade tone, with a gap between the two.
   for (const s of ['L', 'R'] as const) {
     const hip = P(moved(pose[`hip${s}`], s, legShift));
@@ -382,15 +401,20 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       const bottom = Math.round(hips.y) + 1;
       const width = build.torso;
       const feminine = look.frame === 'f';
-      // The feminine shape draws the waist one pixel in on the far side, where it shows.
-      const waisted = (row: number) => feminine && row >= 5 && row <= 8;
-      const farColumn = farSide > 0 ? width - 1 : 0;
+      // The feminine shape is an hourglass. The waist is drawn in on both sides, far enough
+      // that a gap shows between it and the hanging arm.
+      const inset = (row: number): number => {
+        if (!feminine) return 0;
+        const deep = width >= 9 ? 2 : 1;
+        if (row >= 5 && row <= 7) return deep;
+        return row === 4 || row === 8 ? deep - 1 : 0;
+      };
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
-        for (let i = 0; i < width; i++) {
-          if (waisted(y - top) && i === farColumn) continue;
-          const edge = waisted(y - top) ? i === farColumn - farSide : i === farColumn;
+        const cut = inset(y - top);
+        for (let i = cut; i < width - cut; i++) {
+          const edge = farSide > 0 ? i === width - 1 - cut : i === cut;
           // A shadow under the chin, and the far side in shade.
           const under = y === top && i >= 2 && i <= width - 3;
           sprite.set(left + i, y, tone(skin, edge || under));
@@ -404,23 +428,40 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         sprite.set(mid + 1, top + 8, tone(skin, true));
       }
       const half = (width - 1) / 2;
+      const hipRow = TORSO_FRAME.ay + 11;
       for (const item of ordered) {
         if (!item.torso) continue;
         const fit = fitted(side(item.torso), width);
         let stamp = fit.stamp;
         if (feminine) {
           // Clothing follows the waist, and gets a soft shadow under the chest.
-          const edgeCol = fit.ax + farSide * half;
           stamp = stamp.map((row, r) => row.map((cell, c) => {
             const bodyRow = r - TORSO_FRAME.ay;
+            const cut = bodyRow <= 11 ? inset(bodyRow) : 0;
+            const i = c - (fit.ax - half);
             if (!cell) return cell;
-            if (waisted(bodyRow) && c === edgeCol) return null;
-            if (waisted(bodyRow) && c === edgeCol - farSide) return { ...cell, shade: true, light: false };
-            if (!back && bodyRow === 4 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
+            if (cut && (i < cut || i > width - 1 - cut)) return null;
+            if (cut && i === (farSide > 0 ? width - 1 - cut : cut)) return { ...cell, shade: true, light: false };
+            if (!back && bodyRow === 3 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
             return cell;
           }));
         }
-        stampInto(sprite, stamp, { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
+        stampInto(sprite, stamp.slice(0, hipRow + 1), { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
+        // Anything below the hips is a skirt. Each of its rows is stretched towards whichever
+        // knee has swung out, more so further down, so the hem follows the stride.
+        for (let r = hipRow + 1; r < stamp.length; r++) {
+          const cells = stamp[r];
+          const first = cells.findIndex(Boolean);
+          if (first < 0) continue;
+          const last = cells.length - 1 - [...cells].reverse().findIndex(Boolean);
+          const t = Math.min(1, (r - hipRow) / 5);
+          const from = first + Math.round(stride.left * t);
+          const to = last + Math.round(stride.right * t);
+          for (let x = from; x <= to; x++) {
+            const cell = cells[first + Math.round(((x - from) * (last - first)) / Math.max(1, to - from))];
+            if (cell) sprite.set(mid + x - fit.ax, top + r - TORSO_FRAME.ay, hexOf(cell));
+          }
+        }
       }
     },
   });

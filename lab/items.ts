@@ -170,10 +170,22 @@ export function compileSprite(input: any): Compiled {
     extendUnderArms(item.torso);
     item.arm = strip('arms');
   } else if (slot === 'bottom') {
-    item.torso = cut(TORSO_FRAME, (l) => ({ x: l.torso.x, y: l.torso.top }), (_x, y, l) => y <= l.torso.bottom + 1);
-    item.leg = strip('legs');
-    // Paint above the hips on the leg columns belongs to the waist, not the leg.
-    item.leg[0] = item.leg[0] ?? item.leg[1];
+    // A skirt flares past the legs; trousers stay on them. A skirt is kept whole so it can swing
+    // as one piece, while trousers become a waist plus a strip that follows each leg.
+    const layout = REFERENCE.front;
+    const outer = [Math.min(...layout.legs.map((l) => l.x)) - 2, Math.max(...layout.legs.map((l) => l.x)) + 3];
+    let flared = 0;
+    for (let y = layout.torso.bottom + 2; y <= layout.torso.bottom + 8; y++) {
+      if (sheets.front[y]?.some((c, x) => c && (x <= outer[0] || x >= outer[1]))) flared++;
+    }
+    if (flared >= 2) {
+      item.torso = cut(TORSO_FRAME, (l) => ({ x: l.torso.x, y: l.torso.top }), () => true);
+    } else {
+      item.torso = cut(TORSO_FRAME, (l) => ({ x: l.torso.x, y: l.torso.top }), (_x, y, l) => y <= l.torso.bottom + 1);
+      item.leg = strip('legs');
+      // Paint above the hips on the leg columns belongs to the waist, not the leg.
+      item.leg[0] = item.leg[0] ?? item.leg[1];
+    }
   } else if (slot === 'shoes') {
     const leg = REFERENCE.front.legs[0];
     item.foot = sheets.front[leg.y1]?.[leg.x] ?? sheets.front[leg.y1 + 1]?.[leg.x] ?? null;

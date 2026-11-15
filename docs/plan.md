@@ -180,6 +180,14 @@ Requested on 15 November 2026.
 
 A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
+### Fifth pass
+
+- **Waist.** The feminine shape is now an hourglass: the waist is drawn in on both sides (two pixels each on the slim and sturdy builds, one on the very slim build), with a one-pixel step above and below, so a gap shows between waist and arm. Clothing is cut to the same line.
+- **Skirts.** Anything a top or bottom paints below the hips is treated as a skirt. Each of its rows is stretched towards whichever knee has swung out, more so towards the hem, so a dress follows the stride instead of hanging as a fixed block. Painted bottoms that flare past the legs (the pleated skirt, the leaf skirts) are now kept whole for this; trousers and shorts still become a waist plus a strip per leg.
+- **Headbands.** Whether a hat covers the crown is now measured where the top of the hair sits. A headband paints nothing there, so the hair above it stays; caps, straw hats and head-wraps still tuck the hair.
+
+`lab/tools/pass5.mjs` renders the check sheet for these three.
+
 ### Recommendation
 
 1. Build on the puppet.
@@ -191,4 +199,4 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
 - Consistency across a large catalogue. Fifteen candidates per format is a small sample.
 - Regenerating with a note, pixel touch-up, wear over time, beard growth.
-- Hair falling behind the shoulders, skirts, backpacks, rotating tools.
+- Hair falling behind the shoulders, backpacks. Skirt motion is a horizontal stretch only; the hem does not lift or lag.

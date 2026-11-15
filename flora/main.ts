@@ -3,7 +3,7 @@ import './style.css';
 import { baseLook, DEFAULT_FACE, facesFor, wear } from '../lab/base.ts';
 import { entryById } from '../lab/catalog.ts';
 import {
-  CATEGORIES, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, tryPlant,
+  canvasFor, CATEGORIES, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SIZE_MAX, SIZE_MIN, tryPlant,
   type Category, type Grown, type Plant,
 } from '../lab/flora.ts';
 import { FLORA, FLORA_CALLS, FLORA_REJECTED, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
@@ -37,6 +37,8 @@ interface State {
   wind: Wind;
   /** 0 lush to 1 dried out. */
   dryness: number;
+  /** Scales the plants: 1 is the size the recipe describes. */
+  size: number;
   ground: Ground;
   person: boolean;
   density: Density;
@@ -51,7 +53,7 @@ const STORAGE_KEY = 'island-flora';
 function defaultState(): State {
   return {
     selected: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0]?.id ?? '',
-    tab: 'all', seed: 0, wind: 'breeze', dryness: 0, ground: 'sand', person: true, density: 'medium', sceneSeed: 1,
+    tab: 'all', seed: 0, wind: 'breeze', dryness: 0, size: 1, ground: 'sand', person: true, density: 'medium', sceneSeed: 1,
     colors: {}, custom: {},
   };
 }
@@ -66,6 +68,7 @@ function loadState(): State {
     if (Number.isInteger(saved.seed) && saved.seed! >= 0 && saved.seed! < VARIANTS) state.seed = saved.seed!;
     if (saved.wind && saved.wind in WINDS) state.wind = saved.wind;
     if (typeof saved.dryness === 'number' && saved.dryness >= 0 && saved.dryness <= 1) state.dryness = saved.dryness;
+    if (typeof saved.size === 'number' && saved.size >= SIZE_MIN && saved.size <= SIZE_MAX) state.size = saved.size;
     if (GROUNDS.some((g) => g.id === saved.ground)) state.ground = saved.ground!;
     if (typeof saved.person === 'boolean') state.person = saved.person;
     if (saved.density && saved.density in DENSITY) state.density = saved.density;
@@ -145,20 +148,22 @@ function plantOf(entry: PlantEntry): Plant {
 const grownCache = new Map<string, Grown>();
 const rasterCache = new Map<string, Raster>();
 const dryStep = (d: number) => Math.round(d * 20) / 20;
+const sizeStep = (s: number) => Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.round(s * 20) / 20));
 
-function grownOf(entry: PlantEntry, seed: number, dryness = state.dryness): { key: string; grown: Grown } {
-  const key = `${entry.id}|${seed}|${dryStep(dryness)}|${JSON.stringify(state.colors[entry.id] ?? {})}|${state.custom[entry.id] ?? ''}`;
+function grownOf(entry: PlantEntry, seed: number, dryness = state.dryness, size = state.size): { key: string; grown: Grown } {
+  const key = `${entry.id}|${seed}|${dryStep(dryness)}|${sizeStep(size)}|${JSON.stringify(state.colors[entry.id] ?? {})}|${state.custom[entry.id] ?? ''}`;
   let grown = grownCache.get(key);
   if (!grown) {
     if (grownCache.size > 400) grownCache.clear();
-    grown = grow(plantOf(entry), { seed, dryness: dryStep(dryness) });
+    grown = grow(plantOf(entry), { seed, dryness: dryStep(dryness), size: sizeStep(size) });
     grownCache.set(key, grown);
   }
   return { key, grown };
 }
 
-function rasterOf(entry: PlantEntry, seed: number, frame: number, wind: number, dryness = state.dryness): Raster {
-  const { key, grown } = grownOf(entry, seed, dryness);
+/** One frame of a plant, on the canvas its size needs (see `canvasFor`). */
+function rasterOf(entry: PlantEntry, seed: number, frame: number, wind: number, dryness = state.dryness, size = state.size): Raster {
+  const { key, grown } = grownOf(entry, seed, dryness, size);
   const at = wind ? frame : 0;
   const full = `${key}|${wind}|${at}`;
   let raster = rasterCache.get(full);
@@ -289,6 +294,8 @@ const groundRow = h('div', { class: 'chips', role: 'group' });
 const personRow = h('div', { class: 'chips' });
 const drySlider = h('input', { type: 'range', class: 'slider', min: '0', max: '1', step: '0.05' });
 const dryValue = h('output', { class: 'slider__value' });
+const sizeSlider = h('input', { type: 'range', class: 'slider', min: String(SIZE_MIN), max: String(SIZE_MAX), step: '0.05' });
+const sizeValue = h('output', { class: 'slider__value' });
 const tabRow = h('nav', { class: 'tabs', role: 'tablist' });
 const grid = h('div', { class: 'grid' });
 const colorBox = h('div', { class: 'panel__body' });
@@ -300,12 +307,13 @@ const cardPictures = new Map<string, HTMLElement>();
 let editorFor = '';
 
 const dryName = (d: number) => t(`dry.${Math.round(d * 2)}` as Key);
+const sizeName = (s: number) => `${Math.round(sizeStep(s) * 100)}%`;
 
 function renderCards(): void {
   cardPictures.clear();
   const entries = FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
   grid.replaceChildren(...entries.map((entry) => {
-    const picture = h('span', { class: 'card__picture' }, thumb(rasterOf(entry, 0, 0, 0), 60));
+    const picture = h('span', { class: 'card__picture' }, thumb(rasterOf(entry, 0, 0, 0, state.dryness, 1), 60));
     cardPictures.set(entry.id, picture);
     const label = plantName(entry.id, entry.label);
     const button = h('button', { type: 'button', class: 'card', 'aria-pressed': String(entry.id === state.selected) },
@@ -375,7 +383,7 @@ function renderEditor(): void {
       version++;
       saveState();
       // Only the pictures change, so typing is not interrupted.
-      cardPictures.get(entry.id)?.replaceChildren(thumb(rasterOf(entry, 0, 0, 0), 60));
+      cardPictures.get(entry.id)?.replaceChildren(thumb(rasterOf(entry, 0, 0, 0, state.dryness, 1), 60));
     }, 250);
   });
   const reset = h('button', { type: 'button', class: 'chip' }, t('recipe.reset'));
@@ -454,6 +462,9 @@ function render(): void {
   drySlider.value = String(state.dryness);
   drySlider.setAttribute('aria-valuetext', dryName(state.dryness));
   dryValue.textContent = dryName(state.dryness);
+  sizeSlider.value = String(state.size);
+  sizeSlider.setAttribute('aria-valuetext', sizeName(state.size));
+  sizeValue.textContent = sizeName(state.size);
   sceneControls.replaceChildren(
     h('h3', {}, t('density')),
     h('div', { class: 'chips' }, ...(Object.keys(DENSITY) as Density[]).map((d) => chip(t(`density.${d}` as Key), d === state.density, () => {
@@ -473,6 +484,7 @@ function mount(): void {
   windRow.setAttribute('aria-label', t('wind'));
   groundRow.setAttribute('aria-label', t('ground'));
   drySlider.setAttribute('aria-label', t('dryness'));
+  sizeSlider.setAttribute('aria-label', t('size'));
   tabRow.setAttribute('aria-label', t('sections'));
 
   const languages = h('div', { class: 'langs', role: 'group', 'aria-label': t('language') },
@@ -504,6 +516,7 @@ function mount(): void {
       ),
       h('section', { class: 'stage', 'aria-label': t('preview') },
         h('div', { class: 'stage__view flora-view' }, stage, variantRow),
+        h('div', { class: 'row row--slider' }, h('h3', {}, t('size')), sizeSlider, sizeValue),
         h('div', { class: 'row row--slider' }, h('h3', {}, t('dryness')), drySlider, dryValue),
         h('div', { class: 'row' }, h('h3', {}, t('wind')), windRow),
         h('div', { class: 'row' }, h('h3', {}, t('ground')), groundRow),
@@ -533,6 +546,13 @@ drySlider.addEventListener('input', () => {
   version++;
 });
 drySlider.addEventListener('change', changed);
+sizeSlider.addEventListener('input', () => {
+  state.size = sizeStep(Number(sizeSlider.value));
+  sizeSlider.setAttribute('aria-valuetext', sizeName(state.size));
+  sizeValue.textContent = sizeName(state.size);
+  version++;
+});
+sizeSlider.addEventListener('change', changed);
 
 // ------------------------------------------------------------------ the island scene
 
@@ -548,7 +568,8 @@ function rng(seed: number): () => number {
   };
 }
 
-interface Placed { entry: PlantEntry; seed: number; x: number; y: number }
+/** `scale` varies each plant's size around the chosen one, the way plants of one kind differ. */
+interface Placed { entry: PlantEntry; seed: number; scale: number; x: number; y: number }
 let layoutKey = '';
 let placed: Placed[] = [];
 
@@ -571,7 +592,7 @@ function layout(): Placed[] {
     const r = room[entry.category];
     if (Math.hypot(i - n / 2, j - n / 2) < 1.1 + r * 0.5) continue;
     if (out.some((p) => Math.hypot(p.i - i, p.j - j) < (p.r + r) * 0.75)) continue;
-    out.push({ entry, seed: Math.floor(random() * 8), i, j, r, x: Math.round(SCENE.cx + (i - j) * (SCENE.tw / 2)), y: Math.round(SCENE.top + (i + j) * (SCENE.th / 2)) });
+    out.push({ entry, seed: Math.floor(random() * 8), scale: 0.8 + random() * 0.4, i, j, r, x: Math.round(SCENE.cx + (i - j) * (SCENE.tw / 2)), y: Math.round(SCENE.top + (i + j) * (SCENE.th / 2)) });
   }
   placed = out;
   return placed;
@@ -627,7 +648,12 @@ function drawScene(ms: number, frame: number): void {
   const people = { x: SCENE.cx, y: SCENE.top + (SCENE.tiles * SCENE.th) / 2 };
   const things: { y: number; draw: () => void }[] = layout().map((p) => ({
     y: p.y,
-    draw: () => stamp(image, rasterOf(p.entry, p.seed, frame, wind), FLORA_W, FLORA_H, p.x - FLORA_ORIGIN.x, p.y - FLORA_ORIGIN.y),
+    draw: () => {
+      const size = sizeStep(state.size * p.scale);
+      const raster = rasterOf(p.entry, p.seed, frame, wind, state.dryness, size);
+      const { origin } = canvasFor(size);
+      stamp(image, raster, raster.w, raster.h, p.x - origin.x, p.y - origin.y);
+    },
   }));
   things.push({ y: people.y, draw: () => stamp(image, survivorAt(ms), 64, 64, people.x - FEET.x, people.y - FEET.y) });
   things.sort((a, b) => a.y - b.y);
@@ -635,13 +661,49 @@ function drawScene(ms: number, frame: number): void {
   ctx.putImageData(image, 0, 0);
 }
 
+/**
+ * The part of the world the preview shows. It is drawn at twice the size while the plant fits the
+ * standard canvas, and at its own size, showing twice as much, when the plant is grown too large
+ * for that. Whole-number enlargement keeps the pixels square.
+ */
+const fitCache = new Map<string, boolean>();
+function previewWindow(entry: PlantEntry): { w: number; h: number; origin: { x: number; y: number } } {
+  const { key, grown } = grownOf(entry, state.seed);
+  let fits = fitCache.get(key);
+  if (fits === undefined) {
+    const calm = rasterOf(entry, state.seed, 0, 0);
+    const { origin } = canvasFor(grown.size);
+    // Room left for the plant to sway in a storm.
+    const margin = 4;
+    fits = true;
+    for (let y = 0; y < calm.h && fits; y++) for (let x = 0; x < calm.w; x++) {
+      if (!calm.get(x, y)) continue;
+      const dx = x - origin.x;
+      const dy = y - origin.y;
+      if (Math.abs(dx) > FLORA_ORIGIN.x - margin || -dy > FLORA_ORIGIN.y - margin || dy >= FLORA_H - FLORA_ORIGIN.y) { fits = false; break; }
+    }
+    if (fitCache.size > 400) fitCache.clear();
+    fitCache.set(key, fits);
+  }
+  return fits
+    ? { w: FLORA_W, h: FLORA_H, origin: FLORA_ORIGIN }
+    : { w: FLORA_W * 2, h: FLORA_H * 2, origin: { x: FLORA_W, y: FLORA_H * 2 - (FLORA_H - FLORA_ORIGIN.y) } };
+}
+
 function drawPreview(ms: number, frame: number): void {
   const entry = selectedEntry();
+  const view = previewWindow(entry);
+  if (preview.width !== view.w) {
+    preview.width = view.w;
+    preview.height = view.h;
+  }
   const ctx = preview.getContext('2d')!;
-  const image = ctx.createImageData(FLORA_W, FLORA_H);
-  stamp(image, rasterOf(entry, state.seed, frame, WINDS[state.wind]), FLORA_W, FLORA_H, 0, 0);
+  const image = ctx.createImageData(view.w, view.h);
+  const raster = rasterOf(entry, state.seed, frame, WINDS[state.wind]);
+  const { origin } = canvasFor(sizeStep(state.size));
+  stamp(image, raster, raster.w, raster.h, view.origin.x - origin.x, view.origin.y - origin.y);
   // The survivor stands a little in front and to the left, and is never hidden by the plant.
-  if (state.person) stamp(image, survivorAt(ms), 64, 64, FLORA_ORIGIN.x - 30 - FEET.x, FLORA_ORIGIN.y + 4 - FEET.y);
+  if (state.person) stamp(image, survivorAt(ms), 64, 64, view.origin.x - 30 - FEET.x, view.origin.y + 4 - FEET.y);
   ctx.putImageData(image, 0, 0);
 }
 

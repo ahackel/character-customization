@@ -241,6 +241,8 @@ interface StampEl extends Base { kind: 'stamp'; at: V3; cells: (Cell | null)[][]
 type El = StemEl | LeafEl | BlobEl | StampEl;
 
 export interface Grown {
+  /** The size it was grown at; see `canvasFor`. */
+  size: number;
   elements: El[];
   /** Footprint for the ground shadow: stems cast their own, leaves and masses one canopy shadow. */
   shadow: { u: number; v: number; r: number; canopy: boolean }[];
@@ -281,12 +283,22 @@ export interface GrowOptions {
   seed?: number;
   /** 0 lush to 1 dried out. Leaves droop, brown and drop; flowers go first. */
   dryness?: number;
+  /**
+   * 0.5 to 2, scales the plant. Lengths, widths and spacing grow by rule, so pixels stay one
+   * pixel and textures keep their spacing; hand-drawn stamps keep their size. The same seed keeps
+   * the same shape at every size.
+   */
+  size?: number;
 }
+
+export const SIZE_MIN = 0.5;
+export const SIZE_MAX = 2;
 
 /** Turns the description into concrete geometry. Wind is applied later, when drawing. */
 export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   const seed = options.seed ?? 0;
   const dry = Math.max(0, Math.min(1, options.dryness ?? 0));
+  const k = Math.max(SIZE_MIN, Math.min(SIZE_MAX, options.size ?? 1));
   const random = rng(hashOf(plant.name) ^ Math.imul(seed + 1, 2654435761));
   const mirror = seed % 2 === 1;
   const elements: El[] = [];
@@ -319,7 +331,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
       az = azimuth(az);
       const t = part.count > 1 ? part.at[0] + ((part.at[1] - part.at[0]) * i) / (part.count - 1) : (part.at[0] + part.at[1]) / 2;
       const base = anchor.at(Math.max(0, Math.min(1, t + (part.at[0] !== part.at[1] ? (random() - 0.5) * part.jitter * 0.1 : 0))));
-      const out = vary(part.out, part, 0.6);
+      const out = vary(part.out, part, 0.6) * k;
       const origin: V3 = [base[0] + Math.cos(rad(az)) * out, base[1], base[2] + Math.sin(rad(az)) * out];
       const phase = random() * Math.PI * 2;
       const m = motion(part, chain);
@@ -331,7 +343,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   };
 
   const growStem = (part: Stem, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
-    const length = Math.max(2, Math.round(vary(part.length, part, 0.4)));
+    const length = Math.max(2, Math.round(vary(part.length, part, 0.4) * k));
     const lean = part.lean + (random() - 0.5) * part.jitter * 16;
     const curve = part.curve * (1 + (random() - 0.5) * part.jitter * 0.6);
     const points: V3[] = [origin];
@@ -340,12 +352,12 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
       const p = points[i - 1];
       points.push([p[0] + Math.sin(theta) * Math.cos(rad(az)), p[1] + Math.cos(theta), p[2] + Math.sin(theta) * Math.sin(rad(az))]);
     }
-    const widths = points.map((_, i) => part.width[0] + ((part.width[1] - part.width[0]) * i) / length);
+    const widths = points.map((_, i) => Math.max(1, (part.width[0] + ((part.width[1] - part.width[0]) * i) / length) * k));
     elements.push({
       kind: 'stem', points, widths, color: dried(part.color), accent: part.accent, texture: part.texture, cap: part.cap,
       depth: points[points.length - 1][2], bend: m.bend, flex: m.flex, phase,
     });
-    if (origin[1] < 1) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, part.width[0] * 0.8), canopy: false });
+    if (origin[1] < 1) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, widths[0] * 0.8), canopy: false });
     const at = (t: number): V3 => points[Math.round(t * length)];
     for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
   };
@@ -353,7 +365,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   const growLeaf = (part: Leaf, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     // A dry plant sheds leaves, but never all of them.
     if (part.count > 2 && random() < dry * 0.3) return;
-    const length = Math.max(2, vary(part.length, part, 0.4));
+    const length = Math.max(2, vary(part.length, part, 0.4) * k);
     const rise = part.rise + (random() - 0.5) * part.jitter * 24 - dry * 12;
     const droop = Math.max(0, part.droop + (random() - 0.5) * part.jitter * 36 + dry * 30);
     const steps = Math.ceil(length);
@@ -371,7 +383,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     }
     const mid = points[Math.floor(points.length / 2)];
     elements.push({
-      kind: 'leaf', points, shape: part.shape, width: vary(part.width, part, 0.3), color: dried(part.color), accent: part.accent,
+      kind: 'leaf', points, shape: part.shape, width: Math.max(1, vary(part.width, part, 0.3) * k), color: dried(part.color), accent: part.accent,
       texture: part.texture, back: Math.sin(rad(az)) < -0.3, hang: 30 + dry * 30, tears,
       depth: mid[2] + (Math.sin(rad(az)) < -0.3 ? -0.5 : 0.5), bend: m.bend, flex: m.flex, phase,
     });
@@ -379,7 +391,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   };
 
   const growBlob = (part: Blob, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
-    const size: [number, number] = [Math.max(2, vary(part.size[0], part, 0.3)), Math.max(2, vary(part.size[1], part, 0.3))];
+    const size: [number, number] = [Math.max(2, vary(part.size[0], part, 0.3) * k), Math.max(2, vary(part.size[1], part, 0.3) * k)];
     // A blob sits on its attachment point, so a bush rests on the ground and a fruit hangs from its stalk.
     const center: V3 = [origin[0], origin[1] + size[1] / 2, origin[2]];
     const clumps: BlobEl['clumps'] = [];
@@ -416,7 +428,7 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   const ground: Anchor = { at: () => [0, 0, 0], heading: 0 };
   const root: Chain = { bend: null, rigid: plant.category === 'cactus' };
   for (const part of plant.parts) place(part, ground, root);
-  return { elements, shadow };
+  return { size: k, elements, shadow };
 }
 
 // ------------------------------------------------------------------ drawing
@@ -428,6 +440,14 @@ export const FLORA_ORIGIN = { x: 64, y: 126 };
 /** Frames in one wind loop. */
 export const FRAMES = 8;
 const SHADOW = '#2a1c3a38';
+
+/** The canvas a plant of this size needs, and where its root sits on it. Size 1 and below fit the standard one. */
+export function canvasFor(size = 1): { w: number; h: number; origin: { x: number; y: number } } {
+  const k = Math.max(1, size);
+  const w = Math.ceil((FLORA_W * k) / 2) * 2;
+  const h = Math.ceil(FLORA_H * k);
+  return { w, h, origin: { x: w / 2, y: h - Math.ceil((FLORA_H - FLORA_ORIGIN.y) * k) } };
+}
 
 export class Raster {
   readonly pixels: (string | null)[];
@@ -473,11 +493,11 @@ export interface DrawPlantOptions {
 const tone = (key: PaletteKey, t: 'base' | 'shade' | 'light') => PALETTE[key][t];
 
 /** Paints a grown plant for one frame of the wind loop. */
-export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster = new Raster()): Raster {
+export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster = new Raster(canvasFor(grown.size).w, canvasFor(grown.size).h)): Raster {
   const frame = options.frame ?? 0;
   const wind = options.wind ?? 0;
-  const ox = options.origin?.x ?? FLORA_ORIGIN.x;
-  const oy = options.origin?.y ?? FLORA_ORIGIN.y;
+  const ox = options.origin?.x ?? canvasFor(grown.size).origin.x;
+  const oy = options.origin?.y ?? canvasFor(grown.size).origin.y;
   const phi = (2 * Math.PI * frame) / FRAMES;
 
   // The whole plant bends with height, by the amount of the part it grows from, so everything

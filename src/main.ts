@@ -30,7 +30,8 @@ function saveLook(look: Look): void {
 }
 
 async function start(): Promise<void> {
-  const assets = await Assets.load();
+  // The page lives in prototype/; its models and textures are served from the site root.
+  const assets = await Assets.load('../assets/');
   const materials = createCharacterMaterials(assets.atlas);
 
   let world!: World;

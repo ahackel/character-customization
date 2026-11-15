@@ -2,20 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="claude:viewport-fit-sides" content="cover" />
-    <title>Hero Wardrobe</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@600;700;800&family=Pixelify+Sans:wght@500;600;700&display=swap" />
-    <style>
-      /* Standalone only: keep clear of phone system bars. */
-      :root {
-        padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Art</title>
+    <meta name="description" content="Tools for a pixel-art island game: characters and plants written by a language model and drawn by rules." />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@500;600;700&display=swap" />
   </head>
   <body>
-    <div id="app"><p class="loading">Loading characters…</p></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="home"></div>
+    <script type="module" src="./home/main.ts"></script>
   </body>
 </html>

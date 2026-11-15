@@ -10,6 +10,7 @@ export const LANGS: { id: Lang; label: string; name: string }[] = [
 
 const en = {
   'title': 'Castaway Wardrobe',
+  'home': 'All tools',
   'lede': 'Dress a small pixel person, then decide how long they have been on the island and how they feel. Everything is drawn once and follows the body in every action, facing and condition.',
   'shuffle': 'Shuffle',
   'reset': 'Start over',
@@ -119,6 +120,7 @@ export type Key = keyof typeof en;
 
 const de: Record<Key, string> = {
   'title': 'Garderobe der Gestrandeten',
+  'home': 'Alle Werkzeuge',
   'lede': 'Kleide eine kleine Pixelfigur ein und lege fest, wie lange sie schon auf der Insel ist und wie sie sich fühlt. Alles wird nur einmal gezeichnet und folgt dem Körper in jeder Aktion, Blickrichtung und jedem Zustand.',
   'shuffle': 'Zufall',
   'reset': 'Neu beginnen',

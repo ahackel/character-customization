@@ -3,12 +3,11 @@ import './style.css';
 import { baseLook, DEFAULT_FACE, facesFor, wear } from '../lab/base.ts';
 import { entryById } from '../lab/catalog.ts';
 import {
-  CATEGORIES, colorChoices, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SHADOW, SIZE_MAX, SIZE_MIN, tryPlant,
+  CATEGORIES, colorChoices, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SIZE_MAX, SIZE_MIN, tryPlant,
   type Category, type Grown, type Plant,
 } from '../lab/flora.ts';
-import {
-  generateIsland, hiddenByGround, renderTerrain, surfaceAt, surfaceLevel, toScreen, type HeightMap, type Surface, type TerrainImage,
-} from '../lab/terrain.ts';
+import { generateIsland, renderTerrain, type HeightMap, type TerrainImage } from '../lab/terrain.ts';
+import { castShadow, layShadow, middleOf, paintIsland, scatter, stamp, type Scattered, type Spot, type Thing } from '../lab/island.ts';
 import { FLORA, FLORA_CALLS, FLORA_REJECTED, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED } from '../lab/poses.ts';
@@ -201,63 +200,6 @@ function survivorAt(ms: number): Sprite {
 const FEET = { x: 32, y: 52 };
 
 // ------------------------------------------------------------------ painting
-
-const rgbaOf = (hex: string): [number, number, number, number] => [
-  parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16),
-  hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255,
-];
-
-/** Lays a colour over a pixel of an image, blending the see-through shadow colour. */
-function blend(image: ImageData, x: number, y: number, hex: string): void {
-  if (x < 0 || y < 0 || x >= image.width || y >= image.height) return;
-  const [r, g, b, a] = rgbaOf(hex);
-  const o = (y * image.width + x) * 4;
-  const d = image.data;
-  if (a === 255 || d[o + 3] === 0) {
-    d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = Math.max(a, d[o + 3]);
-    return;
-  }
-  const k = a / 255;
-  d[o] = Math.round(r * k + d[o] * (1 - k));
-  d[o + 1] = Math.round(g * k + d[o + 1] * (1 - k));
-  d[o + 2] = Math.round(b * k + d[o + 2] * (1 - k));
-}
-
-type Picture = { get(x: number, y: number): string | null; shaded?(x: number, y: number): boolean };
-
-/** Paints a picture's pixels, leaving out its ground shadow; `hide` can veto single pixels. */
-function stamp(image: ImageData, raster: Picture, w: number, h: number, dx: number, dy: number, under = false, hide?: (x: number, y: number) => boolean): void {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const hex = raster.get(x, y);
-      if (!hex || hex === SHADOW) continue;
-      if (hide?.(x + dx, y + dy)) continue;
-      const tx = x + dx;
-      const ty = y + dy;
-      if (under && tx >= 0 && ty >= 0 && tx < image.width && ty < image.height && image.data[(ty * image.width + tx) * 4 + 3] === 255) continue;
-      blend(image, tx, ty, hex);
-    }
-  }
-}
-
-/**
- * Ground shadows are collected in one mask first and laid on the ground once, so where two
- * shadows overlap the ground is not darkened twice. Character sprites carry their shadow as
- * pixels of the shadow colour; plants keep it in a separate layer.
- */
-function castShadow(mask: Uint8Array, mw: number, mh: number, pic: Picture, w: number, h: number, dx: number, dy: number): void {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (!(pic.shaded?.(x, y) || pic.get(x, y) === SHADOW)) continue;
-      const tx = x + dx;
-      const ty = y + dy;
-      if (tx >= 0 && ty >= 0 && tx < mw && ty < mh) mask[ty * mw + tx] = 1;
-    }
-  }
-}
-function layShadow(image: ImageData, mask: Uint8Array): void {
-  for (let p = 0; p < mask.length; p++) if (mask[p]) blend(image, p % image.width, Math.floor(p / image.width), SHADOW);
-}
 
 /** A picture of one plant, cropped to what it paints and fitted to a box. */
 function thumb(raster: Raster, box: number): HTMLCanvasElement {
@@ -543,7 +485,7 @@ function mount(): void {
   root.append(
     h('main', { class: 'app' },
       h('header', { class: 'top' },
-        h('div', { class: 'top__text' }, h('h1', {}, t('title')), h('p', { class: 'lede' }, t('lede'))),
+        h('div', { class: 'top__text' }, h('a', { class: 'home-link', href: '../' }, t('home')), h('h1', {}, t('title')), h('p', { class: 'lede' }, t('lede'))),
         h('div', { class: 'top__actions' }, languages),
       ),
       h('section', { class: 'stage', 'aria-label': t('preview') },
@@ -590,113 +532,43 @@ sizeSlider.addEventListener('change', changed);
 
 /** The island: a 16 by 16 metre height map, drawn on a canvas that just holds it. */
 const ISLAND = { cells: 16 };
-const SCENE = { w: ISLAND.cells * 32, h: 318, origin: { x: ISLAND.cells * 16, y: 46 } };
+const SCENE = { w: SCENE_W, h: SCENE_H, origin: { x: ISLAND.cells * 16, y: 46 } };
 
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let x = Math.imul(a ^ (a >>> 15), a | 1);
-    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Where each group grows. Rocks may stand in the shallows; driftwood only lies on the beach. */
-const HOMES: Record<Category, Surface[]> = {
-  palm: ['beach', 'sand', 'grass'],
-  grass: ['sand', 'grass'],
-  cactus: ['sand', 'rock'],
-  jungle: ['grass'],
-  rock: ['shallow', 'beach', 'sand', 'grass', 'rock'],
-  driftwood: ['beach'],
-};
-/** Room each needs round it, in metres. */
-const ROOM: Record<Category, number> = { palm: 1.3, cactus: 0.8, jungle: 1.1, grass: 0.5, rock: 0.9, driftwood: 1.1 };
-
-let island: { seed: number; map: HeightMap; image: TerrainImage } | null = null;
-function islandOf(seed: number): { map: HeightMap; image: TerrainImage } {
+let island: { seed: number; map: HeightMap; image: TerrainImage; person: Spot } | null = null;
+function islandOf(seed: number): { map: HeightMap; image: TerrainImage; person: Spot } {
   if (island?.seed === seed) return island;
   const map = generateIsland(seed, ISLAND.cells, ISLAND.cells, { land: 0.85 });
-  island = { seed, map, image: renderTerrain(map, SCENE) };
+  island = { seed, map, image: renderTerrain(map, SCENE), person: middleOf(map) };
   return island;
 }
 
-/** Standing somewhere on the map: `i`, `j` in metres, on the ground of that cell. */
-interface Spot { i: number; j: number; level: number }
-/** `scale` varies each plant's size around the chosen one, the way plants of one kind differ. */
-interface Placed extends Spot { entry: PlantEntry; seed: number; scale: number }
 let layoutKey = '';
-let placed: Placed[] = [];
-let survivorSpot: Spot = { i: 7, j: 7, level: 1 };
+let placed: Scattered<PlantEntry>[] = [];
 
 /** Where things stand: each on ground it belongs on, clear of the others and of the survivor. */
-function layout(): Placed[] {
+function layout(): Scattered<PlantEntry>[] {
   const pool = FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
   const key = `${state.sceneSeed}|${state.tab}|${state.density}|${pool.length}`;
   if (key === layoutKey) return placed;
   layoutKey = key;
-  const { map } = islandOf(state.sceneSeed);
-  const n = ISLAND.cells;
-  const cells = new Map<Surface, [number, number][]>();
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const s = surfaceAt(map, i, j);
-    cells.set(s, [...(cells.get(s) ?? []), [i, j]]);
-  }
-  // The survivor stands on the dry land nearest the middle.
-  const dry = [...(cells.get('sand') ?? []), ...(cells.get('grass') ?? [])];
-  const middle = dry.sort((a, b) => Math.hypot(a[0] - n / 2, a[1] - n / 2) - Math.hypot(b[0] - n / 2, b[1] - n / 2))[0] ?? [n / 2, n / 2];
-  survivorSpot = { i: middle[0] + 0.5, j: middle[1] + 0.5, level: surfaceLevel(map, middle[0], middle[1]) };
-
-  const random = rng(state.sceneSeed * 7919 + pool.length);
+  const { map, person } = islandOf(state.sceneSeed);
   // Grass is common, so it is picked more often when every group is shown.
   const weighted = pool.flatMap((e) => (state.tab === 'all' && e.category === 'grass' ? [e, e, e] : [e]));
-  const out: Placed[] = [];
-  for (let tries = 0; out.length < DENSITY[state.density] && tries < 800 && weighted.length; tries++) {
-    const entry = weighted[Math.floor(random() * weighted.length)];
-    const homes = HOMES[entry.category].flatMap((s) => cells.get(s) ?? []);
-    if (!homes.length) continue;
-    const [ci, cj] = homes[Math.floor(random() * homes.length)];
-    const i = ci + 0.2 + random() * 0.6;
-    const j = cj + 0.2 + random() * 0.6;
-    const r = ROOM[entry.category];
-    const near = Math.hypot(i - survivorSpot.i, j - survivorSpot.j);
-    if (near < 0.9 + r * 0.5) continue;
-    // Nothing tall right in front of the survivor, or it would hide them.
-    const tall = entry.category === 'palm' || entry.category === 'jungle' || entry.category === 'cactus';
-    if (tall && i + j > survivorSpot.i + survivorSpot.j && near < 3) continue;
-    if (out.some((p) => Math.hypot(p.i - i, p.j - j) < (ROOM[p.entry.category] + r) * 0.6)) continue;
-    out.push({ entry, seed: Math.floor(random() * 8), scale: 0.8 + random() * 0.4, i, j, level: surfaceLevel(map, ci, cj) });
-  }
-  placed = out;
+  placed = scatter(map, weighted, DENSITY[state.density], state.sceneSeed, person);
   return placed;
 }
 
 function drawScene(ms: number, frame: number): void {
   const ctx = sceneCanvas.getContext('2d')!;
-  const { map, image: ground } = islandOf(state.sceneSeed);
-  const image = new ImageData(new Uint8ClampedArray(ground.rgba), ground.w, ground.h);
+  const { map, image: ground, person } = islandOf(state.sceneSeed);
   const wind = WINDS[state.wind];
-  const at = (spot: Spot) => {
-    const p = toScreen(spot.i, spot.j, spot.level);
-    return { x: Math.round(ground.origin.x + p.x), y: Math.round(ground.origin.y + p.y) };
-  };
-  const things: { spot: Spot; picture: Picture; w: number; h: number; dx: number; dy: number }[] = layout().map((p) => {
-    const raster = rasterOf(p.entry, p.seed, frame, wind, state.dryness, sizeStep(state.size * p.scale));
-    const foot = at(p);
-    return { spot: p, picture: raster, w: raster.w, h: raster.h, dx: foot.x - raster.origin.x, dy: foot.y - raster.origin.y };
+  const things: Thing[] = layout().map((p) => {
+    const raster = rasterOf(p.item, p.seed, frame, wind, state.dryness, sizeStep(state.size * p.scale));
+    return { spot: p, picture: raster, w: raster.w, h: raster.h, foot: raster.origin };
   });
-  const feet = at(survivorSpot);
-  things.push({ spot: survivorSpot, picture: survivorAt(ms), w: 64, h: 64, dx: feet.x - FEET.x, dy: feet.y - FEET.y });
-  // Shadows first, all together, then everything back to front; higher ground in front covers it.
-  const mask = new Uint8Array(image.width * image.height);
-  for (const t of things) castShadow(mask, image.width, image.height, t.picture, t.w, t.h, t.dx, t.dy);
-  layShadow(image, mask);
-  things.sort((a, b) => a.spot.i + a.spot.j - (b.spot.i + b.spot.j));
-  for (const t of things) {
-    stamp(image, t.picture, t.w, t.h, t.dx, t.dy, false, (x, y) => hiddenByGround(map, ground, x, y, t.spot.i, t.spot.j));
-  }
-  ctx.putImageData(image, 0, 0);
+  things.push({ spot: person, picture: survivorAt(ms), w: 64, h: 64, foot: FEET });
+  const image = paintIsland(map, ground, things);
+  ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
 }
 
 /**

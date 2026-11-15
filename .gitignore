@@ -4,3 +4,4 @@ assets-src/
 *.log
 .DS_Store
 dist-bake/
+dist-site/

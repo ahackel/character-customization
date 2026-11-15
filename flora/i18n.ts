@@ -5,6 +5,7 @@ export { currentLang, LANGS, setLang, type Lang } from '../wardrobe/i18n.ts';
 
 const en = {
   'title': 'Island Flora',
+  'home': 'All tools',
   'lede': 'Plants, rocks and driftwood for the island, written by a language model as a few parts and grown by rules in the same pixel style as the characters. Everything comes in variants; plants sway in the wind and dry out on their own.',
   'language': 'Language',
   'preview': 'Preview',
@@ -69,6 +70,7 @@ export type Key = keyof typeof en;
 
 const de: Record<Key, string> = {
   'title': 'Inselflora',
+  'home': 'Alle Werkzeuge',
   'lede': 'Pflanzen, Steine und Treibholz für die Insel, von einem Sprachmodell als wenige Teile beschrieben und nach Regeln im selben Pixelstil wie die Figuren gewachsen. Alles gibt es in Varianten; Pflanzen wiegen sich im Wind und trocknen von selbst aus.',
   'language': 'Sprache',
   'preview': 'Vorschau',

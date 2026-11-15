@@ -86,14 +86,19 @@ The flora page does exactly this in software for its preview and its island.
 ## 5. Terrain
 
 `lab/terrain.ts` is the start of the ground: a height map with one whole level per one-metre
-tile, level 0 at the water line, one level is 8 screen pixels (a step a person can climb). From
+tile, level 0 at the water line, one level is 8 screen pixels (about a third of a metre). From
 the heights alone, by rule:
 
-- the surface: deep water, shallows, beach (level 0), sand, grass, rock (high or steep);
-- cliffs: a side face wherever a tile stands above the one in front of it;
-- foam and surf where the sea touches land;
-- walking: `canStep` allows one level up or down, no water;
-- what grows where: each plant group has the surfaces it belongs on.
+- slopes: each tile's corners take the average of the four tiles round them, kept within one
+  level of the tile, so neighbours differing by up to two levels share a slope and larger
+  differences remain as cliffs;
+- the surface: deep water, shallows, beach (level 0), sand, grass, rock (high or steep); low
+  ground is sand whatever the tile, so grass gives way to sand down a slope;
+- the sea floor slopes too, and water is laid over everything below level 0 in bands by depth:
+  foam at the edge, sand showing through, shallow, deep. A beach runs into the sea in a curve;
+- walking: `canStep` allows slopes, not cliffs, and no water;
+- what grows where: each plant group has the surfaces it belongs on, and things stand on the
+  sloped ground at their exact point (`heightAt`).
 
 **Drawing it efficiently:** the ground does not move. Draw it in chunks (for example 16 × 16
 tiles) into a texture once, and only redraw a chunk when its heights change. Sprites standing on
@@ -103,7 +108,6 @@ higher (`hiddenByGround`). In an engine the same test is a depth value written b
 compared in the sprite shader, or simply splitting cliffs that can hide things into sprites of
 their own and sorting them with everything else.
 
-**Next steps for the terrain:** slopes between neighbouring levels (corner heights, so a beach
-can run into the sea smoothly), more surfaces (mud, wet rock, paths), tile textures painted by
+**Next steps for the terrain:** more surfaces (mud, wet rock, paths), tile textures painted by
 rule like the plants, and placement rules that read neighbours (palms leaning over the beach,
 reeds at the water's edge, jungle denser away from the sea).

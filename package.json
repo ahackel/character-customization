@@ -1,11 +1,13 @@
 {
-  "name": "character-customization",
+  "name": "pixel-art",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
+    "build:site": "tsc --noEmit && vite build --mode site",
+    "bake": "node lab/tools/bake.mjs",
     "preview": "vite preview --host",
     "assets:fetch": "node tools/fetch-assets.mjs",
     "assets:build": "node tools/build-assets.mjs"

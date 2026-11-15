@@ -1,9 +1,13 @@
-# Character customization
+# Pixel Art
 
-An exploration of how to build customizable, stylized game characters with good animation, for mobile. The target is a pixel-art game in isometric view about a shipwreck survivor on an island.
+Tools for a pixel-art game in isometric view about a shipwreck survivor on an island: stylized characters with good animation, plants, rocks and terrain, with the content written by a language model and drawn by rules. People only review and touch up.
+
+The tools are published at [andreashackel.de/pixel-art](https://andreashackel.de/pixel-art/): a start page, the [wardrobe](https://andreashackel.de/pixel-art/wardrobe/) and the [flora tool](https://andreashackel.de/pixel-art/flora/).
+
+The repository started as an exploration of customizable characters, and the earlier work is still here:
 
 - [`docs/research.md`](docs/research.md) compares six 2D and 3D approaches, recommends one, and covers how it carries over to pixel art.
-- The rest of this repository is a web prototype of that approach: 3D characters assembled from modular parts on one shared skeleton, drawn as pixel art.
+- `src/` and `prototype/` are a web prototype of that approach: 3D characters assembled from modular parts on one shared skeleton, drawn as pixel art.
 - [`docs/pixel-style-research.md`](docs/pixel-style-research.md) collects what makes small pixel-art characters appealing and how shipped games build layered ones.
 - [`docs/plan.md`](docs/plan.md) is the plan that followed feedback on that prototype: a true 2D pixel-art character whose items are written by a language model. `lab/` holds its first experiments and their results.
 
@@ -17,13 +21,23 @@ npm install
 npm run dev
 ```
 
-Open the printed address. Tap the island to walk (or use WASD), use the action buttons, and press **Customize** to open the wardrobe. **Scene** switches between the pixel look and a smooth look for comparison.
+Open the printed address for the start page. The first 3D prototype is at `/prototype/`: tap the island to walk (or use WASD), use the action buttons, and press **Customize** to open its wardrobe. **Scene** switches between the pixel look and a smooth look for comparison.
 
 ```bash
 npm run build
 ```
 
-builds a static site into `dist/`.
+builds every page, the 3D prototype and the lab included, into `dist/`.
+
+```bash
+npm run build:site
+```
+
+builds only the published site (start page, wardrobe, flora) into `dist-site/`.
+
+## Publishing
+
+`.github/workflows/pages.yml` builds the site and publishes it with GitHub Pages on every push to the default branch. With the repository named `pixel-art`, it appears at `andreashackel.de/pixel-art/`. It needs one setting: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## The 2D wardrobe
 

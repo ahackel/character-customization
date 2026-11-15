@@ -604,6 +604,7 @@ function mount(): void {
     h('main', { class: 'app' },
       h('header', { class: 'top' },
         h('div', { class: 'top__text' },
+          h('a', { class: 'home-link', href: '../' }, t('home')),
           h('h1', {}, t('title')),
           h('p', { class: 'lede' }, t('lede')),
         ),

@@ -223,6 +223,11 @@ export function tryPlant(input: unknown): { ok: true; compiled: CompiledPlant } 
 type V3 = [number, number, number];
 
 interface Base {
+  /**
+   * How much the element bends with the whole plant. It is the value of the part that grows from
+   * the ground, shared by everything attached to it, so leaves stay on their trunk.
+   */
+  bend: number;
   /** Painting order: larger is nearer the viewer. */
   depth: number;
   flex: number;
@@ -296,8 +301,17 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
   const vary = (value: number, part: Common, spread: number) => value * (1 + (random() - 0.5) * part.jitter * spread);
 
   type Anchor = { at: (t: number) => V3; heading: number };
+  /** What a part inherits from the parts it grows on. */
+  type Chain = { bend: number | null; rigid: boolean };
+  // Hard plants do not move in the wind at all, whatever the description says: cacti, and any
+  // ribbed or spiny part together with everything that grows on it.
+  const hard = (part: Part) => (part.type === 'stem' || part.type === 'blob') && (part.texture === 'ribs' || part.texture === 'spines');
+  const motion = (part: Part, chain: Chain) => {
+    const rigid = chain.rigid || hard(part);
+    return { rigid, bend: rigid ? 0 : chain.bend ?? part.sway, flex: rigid ? 0 : part.sway };
+  };
 
-  const place = (part: Part, anchor: Anchor) => {
+  const place = (part: Part, anchor: Anchor, chain: Chain) => {
     for (let i = 0; i < part.count; i++) {
       const spread = part.around >= 360 ? 360 / part.count : part.count > 1 ? part.around / (part.count - 1) : 0;
       let az = part.around >= 360 ? part.turn + (360 * i) / part.count : part.count > 1 ? part.turn - part.around / 2 + spread * i : part.turn;
@@ -308,14 +322,15 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
       const out = vary(part.out, part, 0.6);
       const origin: V3 = [base[0] + Math.cos(rad(az)) * out, base[1], base[2] + Math.sin(rad(az)) * out];
       const phase = random() * Math.PI * 2;
-      if (part.type === 'stem') growStem(part, origin, az, phase);
-      else if (part.type === 'leaf') growLeaf(part, origin, az, phase);
-      else if (part.type === 'blob') growBlob(part, origin, az, phase);
-      else growStamp(part, origin, phase);
+      const m = motion(part, chain);
+      if (part.type === 'stem') growStem(part, origin, az, phase, m);
+      else if (part.type === 'leaf') growLeaf(part, origin, az, phase, m);
+      else if (part.type === 'blob') growBlob(part, origin, az, phase, m);
+      else growStamp(part, origin, phase, m);
     }
   };
 
-  const growStem = (part: Stem, origin: V3, az: number, phase: number) => {
+  const growStem = (part: Stem, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     const length = Math.max(2, Math.round(vary(part.length, part, 0.4)));
     const lean = part.lean + (random() - 0.5) * part.jitter * 16;
     const curve = part.curve * (1 + (random() - 0.5) * part.jitter * 0.6);
@@ -328,14 +343,14 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     const widths = points.map((_, i) => part.width[0] + ((part.width[1] - part.width[0]) * i) / length);
     elements.push({
       kind: 'stem', points, widths, color: dried(part.color), accent: part.accent, texture: part.texture, cap: part.cap,
-      depth: points[points.length - 1][2], flex: part.sway, phase,
+      depth: points[points.length - 1][2], bend: m.bend, flex: m.flex, phase,
     });
     if (origin[1] < 1) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, part.width[0] * 0.8), canopy: false });
     const at = (t: number): V3 => points[Math.round(t * length)];
-    for (const child of part.children) place(child, { at, heading: az });
+    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
   };
 
-  const growLeaf = (part: Leaf, origin: V3, az: number, phase: number) => {
+  const growLeaf = (part: Leaf, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     // A dry plant sheds leaves, but never all of them.
     if (part.count > 2 && random() < dry * 0.3) return;
     const length = Math.max(2, vary(part.length, part, 0.4));
@@ -358,12 +373,12 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     elements.push({
       kind: 'leaf', points, shape: part.shape, width: vary(part.width, part, 0.3), color: dried(part.color), accent: part.accent,
       texture: part.texture, back: Math.sin(rad(az)) < -0.3, hang: 30 + dry * 30, tears,
-      depth: mid[2] + (Math.sin(rad(az)) < -0.3 ? -0.5 : 0.5), flex: part.sway, phase,
+      depth: mid[2] + (Math.sin(rad(az)) < -0.3 ? -0.5 : 0.5), bend: m.bend, flex: m.flex, phase,
     });
     shadow.push({ u: mid[0], v: mid[2], r: length * 0.3, canopy: true });
   };
 
-  const growBlob = (part: Blob, origin: V3, az: number, phase: number) => {
+  const growBlob = (part: Blob, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     const size: [number, number] = [Math.max(2, vary(part.size[0], part, 0.3)), Math.max(2, vary(part.size[1], part, 0.3))];
     // A blob sits on its attachment point, so a bush rests on the ground and a fruit hangs from its stalk.
     const center: V3 = [origin[0], origin[1] + size[1] / 2, origin[2]];
@@ -383,23 +398,24 @@ export function grow(plant: Plant, options: GrowOptions = {}): Grown {
     if (!isGreen && part.texture !== 'clumps' && random() < dry * 0.5 && part.size[0] < 8) return; // fruit and flowers drop
     elements.push({
       kind: 'blob', center, size, color: dried(part.color), accent: part.accent, texture: part.texture, clumps, seed: Math.floor(random() * 1e9),
-      depth: center[2] + 0.2, flex: part.sway, phase,
+      depth: center[2] + 0.2, bend: m.bend, flex: m.flex, phase,
     });
     shadow.push({ u: center[0], v: center[2], r: size[0] * 0.55, canopy: true });
     const at = (t: number): V3 => [center[0], center[1] + (t - 0.5) * size[1], center[2]];
-    for (const child of part.children) place(child, { at, heading: az });
+    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
   };
 
-  const growStamp = (part: StampPart, origin: V3, phase: number) => {
+  const growStamp = (part: StampPart, origin: V3, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     if (random() < dry * 0.5) return; // flowers go first
     const cells = mirror ? part.cells.map((row) => [...row].reverse()) : part.cells;
     const width = Math.max(...part.cells.map((r) => r.length));
     const anchor: [number, number] = mirror ? [width - 1 - part.anchor[0], part.anchor[1]] : part.anchor;
-    elements.push({ kind: 'stamp', at: origin, cells, anchor, depth: origin[2] + 0.6, flex: part.sway, phase });
+    elements.push({ kind: 'stamp', at: origin, cells, anchor, depth: origin[2] + 0.6, bend: m.bend, flex: m.flex, phase });
   };
 
   const ground: Anchor = { at: () => [0, 0, 0], heading: 0 };
-  for (const part of plant.parts) place(part, ground);
+  const root: Chain = { bend: null, rigid: plant.category === 'cactus' };
+  for (const part of plant.parts) place(part, ground, root);
   return { elements, shadow };
 }
 
@@ -464,13 +480,15 @@ export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster =
   const oy = options.origin?.y ?? FLORA_ORIGIN.y;
   const phi = (2 * Math.PI * frame) / FRAMES;
 
-  // The whole plant bends with height; leaves and blades also flutter towards their tips.
-  // A storm adds a steady lean on top of the swing.
-  const sway = (p: V3, t: number, el: Base): number => {
+  // The whole plant bends with height, by the amount of the part it grows from, so everything
+  // attached moves together. Leaves, fruit and flowers also flutter on their own; stems do not,
+  // or their tips would leave what grows on them behind. A storm adds a steady lean.
+  const sway = (p: V3, t: number, el: El): number => {
+    if (!el.bend && !el.flex) return 0;
     const h = Math.max(0, p[1]) / 60;
-    const bend = wind * Math.pow(h, 1.3) * (1.3 * Math.sin(phi) + 0.35 * wind);
-    const flutter = wind * el.flex * 1.3 * t * t * Math.sin(phi + el.phase);
-    return bend * (0.4 + el.flex * 0.6) + flutter;
+    const bend = wind * Math.pow(h, 1.3) * (1.3 * Math.sin(phi) + 0.35 * wind) * Math.min(1, el.bend * 1.6);
+    const flutter = el.kind === 'stem' ? 0 : wind * el.flex * 1.3 * t * t * Math.sin(phi + el.phase);
+    return bend + flutter;
   };
   const project = (p: V3, du = 0) => ({ x: ox + p[0] + du, y: oy - p[1] + p[2] * 0.5 });
 

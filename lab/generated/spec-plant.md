@@ -57,6 +57,8 @@ Every part has a `type` and these optional settings:
   spread blades over a clump or to set fruit beside a trunk.
 - `jitter`: 0 to 1, how much copies and variants differ in size and angle (default 0.3).
 - `sway`: 0 to 2, how much the wind moves it (defaults: stem 0.3, leaf 1, blob 0.2, stamp 0.6).
+  Everything attached to a part bends with it. Cacti, and any part with ribs or spines together
+  with what grows on it, never move in the wind.
 - `children`: a list of parts that grow from this one. Only stems and blobs have children.
   At most 4 levels deep, at most 600 parts once copies are counted.
 

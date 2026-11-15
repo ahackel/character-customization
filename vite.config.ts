@@ -1,19 +1,18 @@
 import { defineConfig } from 'vite';
 
 // Relative base so the built site works from any path (static hosting, file previews).
-// `vite build` builds every page for local use. `vite build --mode site` builds the published
-// site (andreashackel.de/pixel-art/): the start page, the wardrobe and the flora tool, without the
-// 3D prototype, its models, or the lab.
+// `vite build` builds every page for local use, the lab included. `vite build --mode site` builds
+// the published site (andreashackel.de/pixel-art/): the start page, the wardrobe, the flora tool
+// and the scene editor.
 export default defineConfig(({ mode }) => {
   const site = mode === 'site';
-  const pages = { main: 'index.html', wardrobe: 'wardrobe/index.html', flora: 'flora/index.html' };
+  const pages = { main: 'index.html', wardrobe: 'wardrobe/index.html', flora: 'flora/index.html', scene: 'scene/index.html' };
   return {
     base: './',
-    publicDir: site ? false : 'public',
     build: {
       outDir: site ? 'dist-site' : 'dist',
       chunkSizeWarningLimit: 900,
-      rollupOptions: { input: site ? pages : { ...pages, prototype: 'prototype/index.html', lab: 'lab/index.html' } },
+      rollupOptions: { input: site ? pages : { ...pages, lab: 'lab/index.html' } },
     },
   };
 });

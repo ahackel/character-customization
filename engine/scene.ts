@@ -1,0 +1,146 @@
+// A scene as it is saved: the ground (a height per tile and an optional painted surface), the
+// plants placed on it and where the character starts. Scenes live in this browser's storage and
+// can be written to and read from files. Everything read back is checked, since storage and
+// files may hold anything.
+import { plantById } from '../lab/flora-catalog.ts';
+import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from '../lab/terrain.ts';
+
+export interface PlacedPlant {
+  /** A flora catalogue id. */
+  plant: string;
+  /** Where its root stands, in metres from the north corner of the map. */
+  i: number;
+  j: number;
+  /** Which variant of the recipe grows, 0 to 3. */
+  seed: number;
+  size: number;
+}
+
+export interface Scene {
+  id: string;
+  name: string;
+  w: number;
+  h: number;
+  /** Level per tile, row by row. */
+  levels: number[];
+  /** Painted surface per tile: 0 follows the height, otherwise `PAINTS[n - 1]`. */
+  paint: number[];
+  plants: PlacedPlant[];
+  spawn: { i: number; j: number };
+}
+
+export const MIN_SIZE = 8;
+export const MAX_SIZE = 64;
+export const SEEDS = 4;
+export const SIZE_RANGE = [0.6, 1.6] as const;
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+export const newId = () => Math.random().toString(36).slice(2, 10);
+
+/** A new scene: a generated island, or open sea to build on. */
+export function createScene(name: string, w: number, h: number, island: boolean, seed = Math.floor(Math.random() * 1000)): Scene {
+  w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
+  h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
+  const map = island ? generateIsland(seed, w, h) : createHeightMap(w, h, -1);
+  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], spawn: { i: w / 2, j: h / 2 } };
+}
+
+/** The scene's ground as the terrain code reads it. */
+export const mapOf = (scene: Scene): HeightMap & { paint: Uint8Array } =>
+  ({ w: scene.w, h: scene.h, levels: Int8Array.from(scene.levels), paint: Uint8Array.from(scene.paint) });
+
+/** A scene with a new size, keeping what fits; new ground is sea. */
+export function resized(scene: Scene, w: number, h: number): Scene {
+  w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
+  h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
+  const levels = new Array(w * h).fill(MIN_LEVEL);
+  const paint = new Array(w * h).fill(0);
+  for (let j = 0; j < Math.min(h, scene.h); j++) for (let i = 0; i < Math.min(w, scene.w); i++) {
+    levels[j * w + i] = scene.levels[j * scene.w + i];
+    paint[j * w + i] = scene.paint[j * scene.w + i];
+  }
+  return {
+    ...scene, w, h, levels, paint,
+    plants: scene.plants.filter((p) => p.i < w && p.j < h),
+    spawn: { i: Math.min(scene.spawn.i, w - 0.5), j: Math.min(scene.spawn.j, h - 0.5) },
+  };
+}
+
+/** Checks a scene read from storage or a file. Throws with a short reason when it cannot be used. */
+export function cleanScene(input: unknown): Scene {
+  const s = input as Partial<Scene> | null;
+  if (!s || typeof s !== 'object') throw new Error('not a scene');
+  const w = Number(s.w);
+  const h = Number(s.h);
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < MIN_SIZE || h < MIN_SIZE || w > MAX_SIZE || h > MAX_SIZE) throw new Error('bad size');
+  if (!Array.isArray(s.levels) || s.levels.length !== w * h) throw new Error('bad ground');
+  const levels = s.levels.map((n) => clamp(Math.round(Number(n)) || 0, MIN_LEVEL, MAX_LEVEL));
+  const paint = Array.isArray(s.paint) && s.paint.length === w * h
+    ? s.paint.map((n) => (Number.isInteger(n) && n >= 0 && n <= PAINTS.length ? n : 0))
+    : new Array(w * h).fill(0);
+  const num = (n: unknown, lo: number, hi: number, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? clamp(n, lo, hi) : fallback);
+  const plants = (Array.isArray(s.plants) ? s.plants : [])
+    .filter((p): p is PlacedPlant => !!p && typeof p === 'object' && !!plantById(p.plant))
+    .map((p) => ({
+      plant: p.plant,
+      i: num(p.i, 0, w, w / 2),
+      j: num(p.j, 0, h, h / 2),
+      seed: Math.round(num(p.seed, 0, SEEDS - 1, 0)),
+      size: num(p.size, SIZE_RANGE[0], SIZE_RANGE[1], 1),
+    }));
+  return {
+    id: typeof s.id === 'string' && s.id ? s.id : newId(),
+    name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : 'Island',
+    w, h, levels, paint, plants,
+    spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
+  };
+}
+
+// ------------------------------------------------------------------ storage
+
+const STORAGE_KEY = 'pixel-scenes';
+
+export interface Library { current: string; scenes: Scene[] }
+
+/** The scenes saved here; the first visit gets one island to start with. Broken scenes are skipped. */
+export function loadLibrary(firstName: string): Library {
+  let scenes: Scene[] = [];
+  let current = '';
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
+    if (saved && Array.isArray(saved.scenes)) {
+      for (const s of saved.scenes) {
+        try {
+          scenes.push(cleanScene(s));
+        } catch {
+          // One unreadable scene does not take the others with it.
+        }
+      }
+      current = typeof saved.current === 'string' ? saved.current : '';
+    }
+  } catch {
+    // Without storage the page starts with a fresh island.
+  }
+  if (!scenes.length) scenes = [createScene(firstName, 28, 28, true, 7)];
+  if (!scenes.some((s) => s.id === current)) current = scenes[0].id;
+  return { current, scenes };
+}
+
+/** False when the browser refuses, so the page can warn that changes are not kept. */
+export function saveLibrary(library: Library): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const FILE_TYPE = 'pixel-scene';
+export const sceneFile = (scene: Scene) => JSON.stringify({ type: FILE_TYPE, version: 1, scene });
+
+export function readSceneFile(text: string): Scene {
+  const data = JSON.parse(text);
+  if (data?.type !== FILE_TYPE) throw new Error('not a scene file');
+  return { ...cleanScene(data.scene), id: newId() };
+}

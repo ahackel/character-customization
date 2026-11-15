@@ -24,8 +24,10 @@ const en = {
   'wardrobe.text': 'Dress a small pixel person, then choose how long they have been on the island and how they feel. Every item follows the body in every action and facing.',
   'flora': 'Island Flora',
   'flora.text': 'Palms, grass, cacti, jungle, rocks and driftwood, grown by rule from short recipes. With wind, seasons and sizes, on islands made from a height map.',
+  'scene': 'Scene Editor',
+  'scene.text': 'Build an island: raise and lower the ground, paint sand, grass and rock, place the plants. Then walk around it with a character from the wardrobe.',
   'open': 'Open',
-  'note': 'Both tools are in English and German and keep your changes in this browser.',
+  'note': 'All tools are in English and German and keep your changes in this browser.',
 };
 type Key = keyof typeof en;
 const de: Record<Key, string> = {
@@ -37,8 +39,10 @@ const de: Record<Key, string> = {
   'wardrobe.text': 'Kleide eine kleine Pixelfigur ein und lege fest, wie lange sie schon auf der Insel ist und wie sie sich fühlt. Jedes Teil folgt dem Körper in jeder Aktion und Blickrichtung.',
   'flora': 'Inselflora',
   'flora.text': 'Palmen, Gräser, Kakteen, Dschungel, Steine und Treibholz, nach Regeln aus kurzen Rezepten gewachsen. Mit Wind, Jahreszeiten und Größen, auf Inseln aus einer Höhenkarte.',
+  'scene': 'Szenen-Editor',
+  'scene.text': 'Baue eine Insel: Boden anheben und absenken, Sand, Gras und Fels malen, Pflanzen setzen. Dann lauf mit einer Figur aus der Garderobe darauf herum.',
   'open': 'Öffnen',
-  'note': 'Beide Werkzeuge gibt es auf Deutsch und Englisch; deine Änderungen bleiben in diesem Browser gespeichert.',
+  'note': 'Alle Werkzeuge gibt es auf Deutsch und Englisch; deine Änderungen bleiben in diesem Browser gespeichert.',
 };
 const t = (key: Key) => (currentLang() === 'de' ? de : en)[key];
 
@@ -83,35 +87,44 @@ function castAt(ms: number): Pixels {
 
 // ------------------------------------------------------------------ a small island
 
-const ISLE = { cells: 7, seed: 4 };
-const map = generateIsland(ISLE.seed, ISLE.cells, ISLE.cells, { land: 1.15, peak: 4 });
-const ground = renderTerrain(map, { w: ISLE.cells * 32, h: ISLE.cells * 16 + 104, origin: { x: ISLE.cells * 16, y: 94 } });
-const person = middleOf(map);
-const pool = FLORA.filter((e) => e.category !== 'cactus');
-const plants = scatter(map, pool.flatMap((e) => (e.category === 'grass' || e.category === 'palm' ? [e, e, e] : [e])), 9, ISLE.seed, person).map((p) => ({
-  spot: p,
-  grown: grow(p.item.plant, { seed: p.seed, size: p.scale }),
-  frames: [] as Raster[],
-}));
 const islander = lookOf('skinB', 'hairBrown', 'happy', 1, ['recipe-everyday-1', 'recipe-shorts-1', 'recipe-footwear-6']);
-const islanderFrames = new Map<number, Sprite>();
-function islandAt(ms: number, frame: number): Pixels {
-  const things: Thing[] = plants.map((p) => {
-    const raster = (p.frames[frame] ??= drawPlant(p.grown, { frame, wind: 1 }));
-    return { spot: p.spot, picture: raster, w: raster.w, h: raster.h, foot: raster.origin };
-  });
-  const clip = AUTHORED.idle;
-  const i = Math.floor((ms / 1000) * clip.rate) % clip.frames.length;
-  let sprite = islanderFrames.get(i);
-  if (!sprite) islanderFrames.set(i, (sprite = drawCharacter(islander, clip.frames[i], 0, { face: clip.faces?.[i] })));
-  things.push({ spot: person, picture: sprite, w: 64, h: 64, foot: { x: 32, y: 52 } });
-  return paintIsland(map, ground, things);
+
+/** A small island with plants and one person on it, doing `clip`. One for the flora card, one for the scene editor's. */
+function smallIsland(seed: number, clip: Clip, facing: Facing) {
+  const cells = 7;
+  const map = generateIsland(seed, cells, cells, { land: 1.15, peak: 4 });
+  const ground = renderTerrain(map, { w: cells * 32, h: cells * 16 + 104, origin: { x: cells * 16, y: 94 } });
+  const person = middleOf(map);
+  const pool = FLORA.filter((e) => e.category !== 'cactus');
+  const plants = scatter(map, pool.flatMap((e) => (e.category === 'grass' || e.category === 'palm' ? [e, e, e] : [e])), 9, seed, person).map((p) => ({
+    spot: p,
+    grown: grow(p.item.plant, { seed: p.seed, size: p.scale }),
+    frames: [] as Raster[],
+  }));
+  const sprites = new Map<number, Sprite>();
+  return {
+    ground,
+    at(ms: number, frame: number): Pixels {
+      const things: Thing[] = plants.map((p) => {
+        const raster = (p.frames[frame] ??= drawPlant(p.grown, { frame, wind: 1 }));
+        return { spot: p.spot, picture: raster, w: raster.w, h: raster.h, foot: raster.origin };
+      });
+      const i = Math.floor((ms / 1000) * clip.rate) % clip.frames.length;
+      let sprite = sprites.get(i);
+      if (!sprite) sprites.set(i, (sprite = drawCharacter(islander, clip.frames[i], facing, { face: clip.faces?.[i] })));
+      things.push({ spot: person, picture: sprite, w: 64, h: 64, foot: { x: 32, y: 52 } });
+      return paintIsland(map, ground, things);
+    },
+  };
 }
+const floraIsle = smallIsland(4, AUTHORED.idle, 0);
+const sceneIsle = smallIsland(11, AUTHORED.wave, 1);
 
 // ------------------------------------------------------------------ page
 
 const castCanvas = h('canvas', { class: 'tool__canvas', width: String(CAST_SIZE.w), height: String(CAST_SIZE.h) });
-const islandCanvas = h('canvas', { class: 'tool__canvas', width: String(ground.w), height: String(ground.h) });
+const islandCanvas = h('canvas', { class: 'tool__canvas', width: String(floraIsle.ground.w), height: String(floraIsle.ground.h) });
+const sceneCanvas = h('canvas', { class: 'tool__canvas', width: String(sceneIsle.ground.w), height: String(sceneIsle.ground.h) });
 
 function paint(canvas: HTMLCanvasElement, image: Pixels): void {
   canvas.getContext('2d')!.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
@@ -150,6 +163,7 @@ function mount(): void {
       h('section', { class: 'tools', 'aria-label': t('tools') },
         card('./wardrobe/', t('wardrobe'), t('wardrobe.text'), castCanvas, 'cast'),
         card('./flora/', t('flora'), t('flora.text'), islandCanvas, 'island'),
+        card('./scene/', t('scene'), t('scene.text'), sceneCanvas, 'island'),
       ),
       h('p', { class: 'home__note' }, t('note')),
     ),
@@ -159,7 +173,7 @@ function mount(): void {
 
 /** Whole-number enlargement that fits the card, so the pixels stay square. */
 function fit(): void {
-  for (const canvas of [castCanvas, islandCanvas]) {
+  for (const canvas of [castCanvas, islandCanvas, sceneCanvas]) {
     const box = canvas.parentElement;
     if (!box) continue;
     const room = box.clientWidth - 16;
@@ -181,7 +195,8 @@ const tick = (ms: number) => {
   if (key !== shown) {
     shown = key;
     paint(castCanvas, castAt(time));
-    paint(islandCanvas, islandAt(time, frame));
+    paint(islandCanvas, floraIsle.at(time, frame));
+    paint(sceneCanvas, sceneIsle.at(time, frame));
   }
   if (!still) requestAnimationFrame(tick);
 };

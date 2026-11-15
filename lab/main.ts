@@ -2,7 +2,11 @@ import './style.css';
 import { baseLook, wear } from './base.ts';
 import { compile } from './items.ts';
 import { AUTHORED, STAND, clipsFromSamples, type Clip, type SampledFrame } from './poses.ts';
-import { drawCharacter, FACING_NAMES, SPRITE_H, SPRITE_W, type Facing, type Item, type Look, type Sprite } from './puppet.ts';
+import { BODY_WINDOW, drawCharacter, FACING_NAMES, type Facing, type Item, type Look, type Sprite } from './puppet.ts';
+
+// Every view on this page shows the 32 x 48 body window of the drawing canvas.
+const SPRITE_W = BODY_WINDOW.w;
+const SPRITE_H = BODY_WINDOW.h;
 import sampledData from './generated/poses3d.json';
 import requests from './generated/requests.json';
 import timings from './generated/timings.json';
@@ -39,13 +43,17 @@ const views: View[] = [];
 
 function paint(ctx: CanvasRenderingContext2D, sprite: Sprite): void {
   const image = ctx.createImageData(SPRITE_W, SPRITE_H);
-  sprite.pixels.forEach((hex, i) => {
-    if (!hex) return;
-    image.data[i * 4] = parseInt(hex.slice(1, 3), 16);
-    image.data[i * 4 + 1] = parseInt(hex.slice(3, 5), 16);
-    image.data[i * 4 + 2] = parseInt(hex.slice(5, 7), 16);
-    image.data[i * 4 + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
-  });
+  for (let y = 0; y < SPRITE_H; y++) {
+    for (let x = 0; x < SPRITE_W; x++) {
+      const hex = sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y);
+      if (!hex) continue;
+      const o = (y * SPRITE_W + x) * 4;
+      image.data[o] = parseInt(hex.slice(1, 3), 16);
+      image.data[o + 1] = parseInt(hex.slice(3, 5), 16);
+      image.data[o + 2] = parseInt(hex.slice(5, 7), 16);
+      image.data[o + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
+    }
+  }
   ctx.putImageData(image, 0, 0);
 }
 
@@ -65,7 +73,7 @@ function puppetView(look: Look, state: () => { clip: Clip; facing: Facing }, sca
       shown = key;
       let sprite = cache.get(key);
       if (!sprite) {
-        sprite = drawCharacter(look, clip.frames[frame], facing, { face: clip.faces?.[frame] });
+        sprite = drawCharacter(look, clip.frames[frame], facing, { face: clip.faces?.[frame], swing: clip.swing });
         cache.set(key, sprite);
       }
       paint(ctx, sprite);
@@ -197,7 +205,7 @@ function rebuilt(): HTMLElement {
       h('h3', {}, 'What changed'),
       h('ul', {},
         h('li', {}, 'The arm. True isometry put one shoulder two pixels above the other, so the far arm hung from the neck. Shoulders are now level and the far arm sits behind the body in shade.'),
-        h('li', {}, 'The grip. A pole now stands on the ground beside the body, the arm reaches out to it, and the fist is drawn over the shaft, from the front and from behind.'),
+        h('li', {}, 'The grip. A tool is pinned to the hand in every frame with the fist drawn over it. A long one is carried with the arm held out so the shaft clears the head, and it turns with the forearm when swung.'),
         h('li', {}, 'The face. Eyes three pixels tall with a shine, blush, an open smile, a blink in the idle and a laughing face for the wave.'),
         h('li', {}, 'Hair in clumps with a tuft that breaks the outline and a lit band across the crown.'),
         h('li', {}, 'Hands and feet as visible blocks, and legs with a gap between them.'),
@@ -272,7 +280,7 @@ function motion(): HTMLElement {
         h('li', {}, 'The transfer works. Thirty-one clips are available this way, each costing a line of configuration.'),
         h('li', {}, 'Sampled motion carries the source character\'s posture: arms held away from the body and bent knees. It suits actions such as run and chop.'),
         h('li', {}, 'The written walk is tidier, because its poses were chosen for this size.'),
-        h('li', {}, 'A pole stays planted beside the body in every action. Tools that swing, such as an axe in the chop, still need rotated versions.'),
+        h('li', {}, 'In the chop the tool follows the hand and turns with the forearm in steps of 45 degrees.'),
       ),
       h('p', {}, 'A workable split: write the handful of poses seen all the time (idle, walk), and sample everything else.'),
     ),

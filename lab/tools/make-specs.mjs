@@ -2,7 +2,7 @@
 // from the real renderer so the text can never drift from the code.
 import fs from 'node:fs';
 import { PALETTE } from '../palette.ts';
-import { drawCharacter, layoutOf, HEAD_STAMP as HEAD_FRAME, TOOL_STAMP as TOOL_FRAME, SPRITE_W, SPRITE_H } from '../puppet.ts';
+import { drawCharacter, layoutOf, HEAD_STAMP as HEAD_FRAME, TOOL_STAMP as TOOL_FRAME, PAINT_W as SPRITE_W, PAINT_H as SPRITE_H, BODY_WINDOW } from '../puppet.ts';
 import { STAND } from '../poses.ts';
 import { baseLook } from '../base.ts';
 import { compileRecipe } from '../items.ts';
@@ -13,7 +13,7 @@ const symbol = new Map([
   [PALETTE.white[0], '='], [PALETTE.white[1], '='], [PALETTE.ink[0], 'o'], [PALETTE.mouth[0], '~'],
 ]);
 const asText = (sprite) => Array.from({ length: SPRITE_H }, (_, y) =>
-  Array.from({ length: SPRITE_W }, (_, x) => symbol.get(sprite.get(x, y)) ?? '.').join(''));
+  Array.from({ length: SPRITE_W }, (_, x) => symbol.get(sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) ?? '.').join(''));
 const numbered = (rows) => rows.map((r, i) => `${String(i).padStart(2, '0')} ${r}`).join('\n');
 const ruler = (w) => '   ' + Array.from({ length: w }, (_, i) => i % 10).join('');
 
@@ -84,8 +84,8 @@ const exampleSprite = (facing) => {
   const sprite = drawCharacter({ ...look, items: [example] }, STAND, facing);
   const bare = drawCharacter({ ...look, items: [] }, STAND, facing);
   return Array.from({ length: SPRITE_H }, (_, y) => Array.from({ length: SPRITE_W }, (_, x) => {
-    const c = sprite.get(x, y);
-    if (!c || c === bare.get(x, y)) return '.';
+    const c = sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y);
+    if (!c || c === bare.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) return '.';
     return c === PALETTE.blue[0] ? 'B' : c === PALETTE.blue[1] ? 'b' : '.';
   }).join(''));
 };

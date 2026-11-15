@@ -27,7 +27,7 @@ builds a static site into `dist/`.
 
 ## The 2D wardrobe
 
-With the dev server running, open `/wardrobe/` to dress the pixel survivor: skin, build, hair, beard, hat, top, bottom, shoes and tool, with colour swaps, five actions and four facings. Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`.
+With the dev server running, open `/wardrobe/` to dress a pixel person, as a survivor or as a passenger before the wreck: gender, skin, three builds, face options, hair, beard, hat, top, bottom, shoes and a held item, with colour swaps, five actions and four facings. Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`.
 
 ## The 2D experiments
 

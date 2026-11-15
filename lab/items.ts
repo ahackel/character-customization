@@ -1,6 +1,6 @@
 import { PALETTE, type Cell, type PaletteKey } from './palette.ts';
 import {
-  HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, SPRITE_H, SPRITE_W, TOOL_FRAME, TOOL_STAMP, TORSO_FRAME,
+  HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, PAINT_H, PAINT_W, TOOL_FRAME, TOOL_STAMP, TORSO_FRAME,
   SLOTS, type Item, type Layout, type Slot, type Stamp, type StampPair,
 } from './puppet.ts';
 
@@ -115,8 +115,8 @@ export function compileSprite(input: any): Compiled {
   const slot: Slot = input.slot;
   const legend = legendOf(input.legend);
   const sheets = {
-    front: grid(input.front, SPRITE_W, SPRITE_H, legend, 'front', repairs),
-    back: grid(input.back, SPRITE_W, SPRITE_H, legend, 'back', repairs),
+    front: grid(input.front, PAINT_W, PAINT_H, legend, 'front', repairs),
+    back: grid(input.back, PAINT_W, PAINT_H, legend, 'back', repairs),
   };
   if (count(sheets.front) === 0) throw new Error('front grid is empty');
   if (count(sheets.back) === 0) repairs.push('back grid is empty');

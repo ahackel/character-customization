@@ -9,6 +9,8 @@ export interface Entry {
   slot: Slot;
   /** Which format the model wrote it in. */
   format: 'paint' | 'recipe';
+  /** Who would wear it: a survivor on the island, or a passenger or crew member before the wreck. */
+  theme: 'castaway' | 'everyday';
   item: Item;
   /** The item's own colours, most used first. These are the ones a player may swap. */
   colors: PaletteKey[];
@@ -21,6 +23,9 @@ const EXCLUDED: Record<string, string> = {
   'recipe-spear': 'the small-stamp spears lean and break into jagged lines',
   'recipe-shorts': 'came out as briefs because of the length scale in the first format description',
 };
+
+// Request sets that describe people before the wreck. Everything else is castaway gear.
+const EVERYDAY = ['formal', 'casual', 'dresses', 'everyday-bottoms', 'carried', 'everyday-hats', 'hairstyles', 'everyday'];
 
 const FIXED: PaletteKey[] = ['ink', 'mouth', 'tooth', 'blush'];
 /** Sentence case, so names from different model calls read alike. Words such as "T-shirt" keep their capital. */
@@ -90,6 +95,7 @@ function build(): Entry[] {
         label: sentence(item.name),
         slot: item.slot,
         format: format === 'sprite' ? 'paint' : 'recipe',
+        theme: EVERYDAY.includes(set) ? 'everyday' : 'castaway',
         item,
         colors: colorsOf(item),
       });

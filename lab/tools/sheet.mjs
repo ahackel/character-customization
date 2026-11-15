@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
 import { drawCharacter, SPRITE_W, SPRITE_H } from '../puppet.ts';
+// Sheets show the whole drawing canvas, margins included, so swung tools are visible.
 import { AUTHORED } from '../poses.ts';
 import { baseLook } from '../base.ts';
 

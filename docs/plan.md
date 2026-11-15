@@ -164,6 +164,22 @@ Requested on 15 November 2026: push the body further, add a second hairstyle and
 
 Two rules are applied on top of the generated data: beards are hidden from behind, and a beard takes the hair colour.
 
+### Fourth pass
+
+Requested on 15 November 2026.
+
+- **Tools in the hand.** A tool's grip is pinned to the hand in every frame; nothing stands on the ground any more. A long tool is carried with the arm held out so the shaft clears the head.
+- **Rotating tools.** In swinging actions the tool turns with the forearm in steps of 45 degrees, as if held like a hammer. Long tools only tilt by one step so they stay on the canvas. Rotation is computed from the one drawing of the tool.
+- **Tucked hair.** Under a hat that covers the crown, hair above the hat's lower edge is removed by rule, so nothing pokes through or bulges beside it. A band such as a headband leaves the hair alone.
+- **Canvas.** Sprites are now drawn on a 64 by 64 canvas with the 32 by 48 body in the middle, which gives swung tools and wide hats room. The whole-sprite format still paints on 32 by 48.
+- **Third build.** Very slim: a 7-pixel torso, 2-pixel arms and 3-pixel legs. Clothing is fitted by dropping one column on each side.
+- **Gender.** A feminine body shape narrows the waist on the far side and adds a chest shadow; clothing follows both by rule. It also turns on eyelashes by default.
+- **Faces.** Composed from options: four eye shapes, seven eye colours, three mouths, three brow weights, and blush, freckles, lashes and glasses.
+- **Everyday clothes.** Eight further model calls produced 30 items for passengers and crew before the wreck: suit, officer's and cook's jackets, sailor shirt, hoodie, blouse, three dresses, jeans, suit trousers, pleated skirt, polo, jumper, shoes, sailor cap, cook's hat, sun hat, suitcase, umbrella, lantern, and three hairstyles (bun, afro, bob). 29 were valid as returned and one was auto-repaired (a hood reached past the torso area).
+- **Wardrobe.** Option cards now show only the item, cut out of the sprite. There is a Face tab, a gender switch, three builds, generated hairstyles, and a filter between castaway items and items from before the wreck. It holds 87 items.
+
+A fault found and fixed on the way: mirrored facings were one pixel off-centre.
+
 ### Recommendation
 
 1. Build on the puppet.

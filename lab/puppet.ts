@@ -3,11 +3,19 @@ import { hexOf, type Cell, type PaletteKey } from './palette.ts';
 // ------------------------------------------------------------------ geometry
 
 export type Vec3 = [number, number, number];
-/** Sprite size. The feet stand on row ORIGIN_Y, centred on the line between columns 15 and 16. */
-export const SPRITE_W = 32;
-export const SPRITE_H = 48;
-const ORIGIN_X = 16.5;
-const ORIGIN_Y = 44;
+/**
+ * The drawing canvas. The character itself fits the 32 x 48 body window in its middle; the
+ * margin around it is room for tools that swing out and for wide hats.
+ */
+export const SPRITE_W = 64;
+export const SPRITE_H = 64;
+export const BODY_WINDOW = { x: 16, y: 8, w: 32, h: 48 };
+/** Size of the grid the model paints on in the whole-sprite format: the body window. */
+export const PAINT_W = BODY_WINDOW.w;
+export const PAINT_H = BODY_WINDOW.h;
+/** The feet stand on row ORIGIN_Y, centred on the line between two pixel columns. */
+const ORIGIN_X = BODY_WINDOW.x + 16.5;
+const ORIGIN_Y = BODY_WINDOW.y + 44;
 
 /** 0 south-east, 1 south-west, 2 north-west, 3 north-east. 0 and 3 are drawn; 1 and 2 are their mirror images. */
 export type Facing = 0 | 1 | 2 | 3;
@@ -64,16 +72,13 @@ export type Stamp = (Cell | null)[][];
 
 /** Frames that rigid stamps are drawn in. The anchor is the pixel that sits on the joint. */
 export const HEAD_FRAME = { w: 33, h: 36, ax: 16, ay: 24 };
-export const TORSO_FRAME = { w: 15, h: 18, ax: 7, ay: 1 };
+export const TORSO_FRAME = { w: 21, h: 24, ax: 10, ay: 1 };
 export const TOOL_FRAME = { w: 33, h: 54, ax: 16, ay: 38 };
 /** Sizes the recipe format asks the model for. They sit inside the larger frames above. */
 export const HEAD_STAMP = { w: 21, h: 30, ax: 10, ay: 21 };
 export const TOOL_STAMP = { w: 15, h: 44, ax: 7, ay: 30 };
 /** Limb paint is a strip of this many cells from shoulder to hand, or hip to ankle. */
 export const LIMB_CELLS = 10;
-/** A tool stamp's grip sits this many rows above its foot, which rests on the ground for poles. */
-const GRIP_HEIGHT = 9;
-
 export interface StampPair {
   front: Stamp;
   back: Stamp;
@@ -94,11 +99,11 @@ export interface Item {
   /** Trouser colours from hip to ankle. */
   leg?: (Cell | null)[];
   foot?: Cell | null;
-  /** A carried object, held in the nearer hand. */
+  /** A carried object. Its grip is pinned to the nearer hand in every frame. */
   tool?: StampPair;
   /**
-   * How a tool is held. 'pole' stands on the ground beside the body with the fist around the
-   * shaft; 'carry' moves with the hand.
+   * How a tool is carried when it is not being swung. 'pole' is long: the arm is held out so the
+   * shaft clears the head. 'carry' is short: the arm hangs and swings as usual.
    */
   hold?: 'pole' | 'carry';
   /** Columns from the tool stamp's anchor to its shaft, front and back, so the fist closes on the shaft itself. */
@@ -112,13 +117,14 @@ export type Slot = (typeof SLOTS)[number];
 export interface Build {
   id: string;
   label: string;
-  /** Torso width in pixels: 9 or 11. */
-  torso: 9 | 11;
+  /** Torso width in pixels. */
+  torso: 7 | 9 | 11;
   arm: number;
   leg: number;
 }
 
 export const BUILDS: Build[] = [
+  { id: 'thin', label: 'Very slim', torso: 7, arm: 2, leg: 3 },
   { id: 'slim', label: 'Slim', torso: 9, arm: 3, leg: 4 },
   { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5 },
 ];
@@ -127,6 +133,8 @@ export interface Look {
   skin: PaletteKey;
   /** Defaults to the slim build. */
   build?: Build;
+  /** Body shape. 'f' narrows the waist and adds a chest shadow; clothing follows by rule. */
+  frame?: 'm' | 'f';
   /** The bare head, as stamps. */
   head: StampPair;
   /** Face expressions, drawn on the front of the head. 'neutral' is the default. */
@@ -137,6 +145,11 @@ export interface Look {
 export interface DrawOptions {
   /** Which face to show. */
   face?: string;
+  /**
+   * True while the tool is being swung: the holding arm follows the pose instead of the carry
+   * position, and the tool turns with the forearm.
+   */
+  swing?: boolean;
 }
 
 // ------------------------------------------------------------------ drawing
@@ -156,7 +169,8 @@ export class Sprite {
   mirrored(): Sprite {
     const out = new Sprite();
     for (let y = 0; y < SPRITE_H; y++) {
-      for (let x = 0; x < SPRITE_W; x++) out.pixels[y * SPRITE_W + (SPRITE_W - 1 - x)] = this.pixels[y * SPRITE_W + x];
+      // Mirror about the character's centre line, which lies between two columns.
+      for (let x = 1; x < SPRITE_W; x++) out.pixels[y * SPRITE_W + (SPRITE_W - x)] = this.pixels[y * SPRITE_W + x];
     }
     return out;
   }
@@ -209,12 +223,81 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
 /**
- * Fits a torso stamp drawn for the 9-pixel torso to the 11-pixel one by repeating one column on
- * each side of the middle. Horizontal patterns are unaffected; the anchor moves one column right.
+ * Fits a torso stamp drawn for the 9-pixel torso to another build by repeating or dropping one
+ * column on each side of the middle. Horizontal patterns are unaffected. Returns the stamp and
+ * where its anchor column now is.
  */
-function widened(stamp: Stamp): Stamp {
-  const repeat = [TORSO_FRAME.ax - 2, TORSO_FRAME.ax + 2];
-  return stamp.map((row) => row.flatMap((cell, col) => (repeat.includes(col) ? [cell, cell] : [cell])));
+function fitted(stamp: Stamp, width: 7 | 9 | 11): { stamp: Stamp; ax: number } {
+  if (width === 9) return { stamp, ax: TORSO_FRAME.ax };
+  const columns = [TORSO_FRAME.ax - 2, TORSO_FRAME.ax + 2];
+  const wide = width === 11;
+  return {
+    stamp: stamp.map((row) => row.flatMap((cell, col) => (columns.includes(col) ? (wide ? [cell, cell] : []) : [cell]))),
+    ax: TORSO_FRAME.ax + (wide ? 1 : -1),
+  };
+}
+
+/** A stamp turned about a pivot, as loose pixels. */
+type Turned = { dx: number; dy: number; cell: Cell }[];
+const turnedCache = new WeakMap<Stamp, Map<string, Turned>>();
+
+/**
+ * Turns a tool stamp about its grip in steps of 45 degrees, clockwise. Each target pixel looks
+ * up its source, so shafts stay unbroken lines and nothing is blended.
+ */
+function turned(stamp: Stamp, pivotX: number, pivotY: number, steps: number): Turned {
+  const key = `${pivotX},${pivotY},${steps}`;
+  let cache = turnedCache.get(stamp);
+  if (!cache) turnedCache.set(stamp, (cache = new Map()));
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const angle = (steps * Math.PI) / 4;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const out: Turned = [];
+  const reach = Math.max(stamp.length, stamp[0]?.length ?? 0);
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      const cell = stamp[Math.round(pivotY - dx * sin + dy * cos)]?.[Math.round(pivotX + dx * cos + dy * sin)];
+      if (cell) out.push({ dx, dy, cell });
+    }
+  }
+  cache.set(key, out);
+  return out;
+}
+
+/** True if a hat covers the top of the skull, as opposed to a band around the forehead. */
+function coversCrown(hat: Stamp): boolean {
+  for (let row = 0; row <= HEAD_FRAME.ay - 13; row++) {
+    for (let col = HEAD_FRAME.ax - 3; col <= HEAD_FRAME.ax + 3; col++) if (hat[row]?.[col]) return true;
+  }
+  return false;
+}
+
+const tuckedCache = new WeakMap<Stamp, WeakMap<Stamp, Stamp>>();
+
+/**
+ * Hair as worn under a hat: everything above the hat's lower edge is removed, so no tuft pokes
+ * through the crown or bulges beside it. Hair below the brim stays. Worked out from the two
+ * stamps, so no hairstyle needs a second drawing.
+ */
+function tucked(hair: Stamp, hat: Stamp): Stamp {
+  let byHat = tuckedCache.get(hair);
+  if (!byHat) tuckedCache.set(hair, (byHat = new WeakMap()));
+  const hit = byHat.get(hat);
+  if (hit) return hit;
+  const width = hat[0]?.length ?? 0;
+  const edge: number[] = Array(width).fill(-1);
+  hat.forEach((row, y) => row.forEach((cell, x) => {
+    if (cell) edge[x] = Math.max(edge[x], y);
+  }));
+  // Columns the hat does not reach take the edge of the nearest column it does.
+  const first = edge.findIndex((v) => v >= 0);
+  const last = edge.length - 1 - [...edge].reverse().findIndex((v) => v >= 0);
+  const edgeAt = (x: number) => (first < 0 ? -1 : edge[Math.min(last, Math.max(first, x))]);
+  const out = hair.map((row, y) => row.map((cell, x) => (cell && y <= edgeAt(x) ? null : cell)));
+  byHat.set(hat, out);
+  return out;
 }
 
 /** Draws one frame of a character. Every pixel is placed by a rule or comes from a stamp. */
@@ -232,10 +315,14 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // Later slots cover earlier ones.
   const ordered = SLOTS.flatMap((slot) => look.items.filter((i) => i.slot === slot));
   const tool = ordered.find((i) => i.tool);
-  const build = look.build ?? BUILDS[0];
+  const build = look.build ?? BUILDS.find((b) => b.id === 'slim')!;
   // Poses are authored for the slim build. Wider builds move the limbs outwards so that arms
   // still sit just outside the torso and legs keep a one-pixel gap.
   const armShift = ((build.torso - 9) / 2 + (build.arm - 3) / 2) / 0.7071;
+  const hat = ordered.find((i) => i.slot === 'hat' && i.head);
+  // Under a hat that covers the crown, hair is drawn in its tucked form.
+  const hairStamp = (item: Item, stamp: Stamp): Stamp =>
+    item.slot === 'hair' && hat && coversCrown(side(hat.head!)) ? tucked(stamp, side(hat.head!)) : stamp;
   const legShift = ((build.leg - 4) / 2) / 0.7071;
   const moved = (v: Vec3, s: 'L' | 'R', shift: number): Vec3 => [v[0] + (s === 'R' ? shift : -shift), v[1], v[2]];
 
@@ -294,11 +381,16 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       const top = Math.round(chest.y);
       const bottom = Math.round(hips.y) + 1;
       const width = build.torso;
+      const feminine = look.frame === 'f';
+      // The feminine shape draws the waist one pixel in on the far side, where it shows.
+      const waisted = (row: number) => feminine && row >= 5 && row <= 8;
+      const farColumn = farSide > 0 ? width - 1 : 0;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
         for (let i = 0; i < width; i++) {
-          const edge = farSide > 0 ? i === width - 1 : i === 0;
+          if (waisted(y - top) && i === farColumn) continue;
+          const edge = waisted(y - top) ? i === farColumn - farSide : i === farColumn;
           // A shadow under the chin, and the far side in shade.
           const under = y === top && i >= 2 && i <= width - 3;
           sprite.set(left + i, y, tone(skin, edge || under));
@@ -311,11 +403,24 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       } else {
         sprite.set(mid + 1, top + 8, tone(skin, true));
       }
+      const half = (width - 1) / 2;
       for (const item of ordered) {
         if (!item.torso) continue;
-        const stamp = side(item.torso);
-        if (width === 11) stampInto(sprite, widened(stamp), { ax: TORSO_FRAME.ax + 1, ay: TORSO_FRAME.ay }, mid, top);
-        else stampInto(sprite, stamp, TORSO_FRAME, mid, top);
+        const fit = fitted(side(item.torso), width);
+        let stamp = fit.stamp;
+        if (feminine) {
+          // Clothing follows the waist, and gets a soft shadow under the chest.
+          const edgeCol = fit.ax + farSide * half;
+          stamp = stamp.map((row, r) => row.map((cell, c) => {
+            const bodyRow = r - TORSO_FRAME.ay;
+            if (!cell) return cell;
+            if (waisted(bodyRow) && c === edgeCol) return null;
+            if (waisted(bodyRow) && c === edgeCol - farSide) return { ...cell, shade: true, light: false };
+            if (!back && bodyRow === 4 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
+            return cell;
+          }));
+        }
+        stampInto(sprite, stamp, { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
       }
     },
   });
@@ -328,8 +433,8 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     let elbow = P(moved(pose[`elbow${s}`], s, armShift));
     let hand = P(moved(pose[`hand${s}`], s, armShift));
     const holding = !far && tool;
-    if (holding && tool.hold === 'pole') {
-      // Arm held out to the side with the forearm raised, fist closed around the shaft.
+    if (holding && tool.hold === 'pole' && !options.swing) {
+      // A long tool is carried with the arm held out to the side, so the shaft clears the head.
       const side3 = s === 'R' ? 1 : -1;
       const elbow3 = add(shoulder3, [side3 * 3.4, -2.9, 0.4]);
       elbow = P(elbow3);
@@ -340,9 +445,20 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       depth: elbow.depth + (far ? -1 : 1),
       draw: () => {
         if (holding) {
-          const x = Math.round(hand.x) - (tool.gripDx?.[back ? 'back' : 'front'] ?? 0);
-          const y = tool.hold === 'pole' ? ORIGIN_Y - GRIP_HEIGHT : Math.round(hand.y);
-          stampInto(sprite, side(tool.tool!), TOOL_FRAME, x, y);
+          // The grip is pinned to the hand in every frame. While swinging, the tool turns with
+          // the forearm as if held like a hammer: upright when the forearm points forward.
+          let steps = 0;
+          if (options.swing) {
+            const fromDown = (Math.atan2(hand.x - elbow.x, hand.y - elbow.y) * 180) / Math.PI;
+            steps = Math.round((90 - fromDown) / 45);
+            // Long tools only tilt, so they stay on the canvas.
+            const limit = tool.hold === 'pole' ? 1 : 3;
+            steps = Math.max(-limit, Math.min(limit, steps));
+          }
+          const pivotX = TOOL_FRAME.ax + (tool.gripDx?.[back ? 'back' : 'front'] ?? 0);
+          for (const { dx, dy, cell } of turned(side(tool.tool!), pivotX, TOOL_FRAME.ay, steps)) {
+            sprite.set(Math.round(hand.x) + dx, Math.round(hand.y) + dy, hexOf(cell));
+          }
         }
         drawLimb(sprite, [shoulder, elbow, hand], build.arm, (t, across) => {
           // Where the nearer arm lies over the body, its inner edge is shaded so the two separate.
@@ -369,7 +485,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   layers.push({
     depth: back ? chest.depth + 0.5 : chest.depth - 0.5,
     draw: () => {
-      for (const item of ordered) if (item.headBehind) stampInto(sprite, side(item.headBehind), HEAD_FRAME, hx, hy);
+      for (const item of ordered) if (item.headBehind) stampInto(sprite, hairStamp(item, side(item.headBehind)), HEAD_FRAME, hx, hy);
     },
   });
   layers.push({
@@ -378,7 +494,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       stampInto(sprite, side(look.head), HEAD_FRAME, hx, hy);
       if (!back) stampInto(sprite, look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, HEAD_FRAME, hx, hy);
       for (const item of ordered) {
-        if (item.head) stampInto(sprite, side(item.head), HEAD_FRAME, hx, hy);
+        if (item.head) stampInto(sprite, hairStamp(item, side(item.head)), HEAD_FRAME, hx, hy);
       }
     },
   });
@@ -424,8 +540,9 @@ export interface Layout {
 
 export function layoutOf(pose: Pose, facing: 0 | 3): Layout {
   const P = (v: Vec3) => {
+    // Reported in body-window coordinates, the space the whole-sprite format is painted in.
     const p = project(v, facing);
-    return { x: Math.floor(p.x), y: Math.round(p.y), depth: p.depth };
+    return { x: Math.floor(p.x) - BODY_WINDOW.x, y: Math.round(p.y) - BODY_WINDOW.y, depth: p.depth };
   };
   const limb = (a: Vec3, b: Vec3) => ({ x: P(a).x, y0: P(a).y, y1: P(b).y, depth: P(a).depth });
   const nearFirst = <T extends { depth: number }>(list: T[]) => list.sort((p, q) => q.depth - p.depth);

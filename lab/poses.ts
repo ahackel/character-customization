@@ -82,6 +82,8 @@ export interface Clip {
   frames: Pose[];
   /** Face to show on each frame. Missing entries mean the neutral face. */
   faces?: (string | undefined)[];
+  /** True for actions that swing the held tool, such as a chop. */
+  swing?: boolean;
 }
 
 export const STAND = buildPose();
@@ -147,6 +149,6 @@ export function poseFromSample(frame: SampledFrame): Pose {
 
 export function clipsFromSamples(data: Record<string, { name: string; rate: number; frames: SampledFrame[] }>): Record<string, Clip> {
   return Object.fromEntries(
-    Object.entries(data).map(([key, clip]) => [key, { name: clip.name, rate: clip.rate, frames: clip.frames.map(poseFromSample) }]),
+    Object.entries(data).map(([key, clip]) => [key, { name: clip.name, rate: clip.rate, frames: clip.frames.map(poseFromSample), swing: key === 'chop' }]),
   );
 }

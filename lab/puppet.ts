@@ -133,7 +133,7 @@ export interface Build {
 export const BUILDS: Build[] = [
   { id: 'thin', label: 'Very slim', torso: 7, arm: 2, leg: 3 },
   { id: 'slim', label: 'Slim', torso: 9, arm: 3, leg: 4 },
-  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5, belly: 3 },
+  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5, belly: 2 },
 ];
 
 export interface Look {
@@ -423,9 +423,8 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       };
       // A sturdy build carries a belly: the lower torso stands out on the side the character faces.
       const bulge = (row: number): number => {
-        const most = build.belly ?? 0;
-        // Fullest at rows 7 to 9, one pixel less for each row away from them: it hangs a little.
-        return row > 11 ? 0 : Math.max(0, most - Math.max(0, 7 - row, row - 9));
+        // A soft curve that is fullest low down, never more than the build allows.
+        return Math.min(build.belly ?? 0, [0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 0][row] ?? 0);
       };
       /** True for a belly pixel with nothing below it: the underside, which is in shade. */
       const underBelly = (row: number, n: number) => bulge(row + 1) < n;
@@ -539,9 +538,9 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
           if (options.swing) {
             const fromDown = (Math.atan2(hand.x - elbow.x, hand.y - elbow.y) * 180) / Math.PI;
             steps = Math.round((90 - fromDown) / 45);
-            // Long tools only tilt, so they stay on the canvas.
-            const limit = tool.hold === 'pole' ? 1 : 3;
-            steps = Math.max(-limit, Math.min(limit, steps));
+            // A long tool does not turn with the arm: it stays tilted the way the character
+            // faces and is thrust with the hand, which also keeps it on the canvas.
+            steps = tool.hold === 'pole' ? ahead : Math.max(-3, Math.min(3, steps));
           }
           const pivotX = TOOL_FRAME.ax + (tool.gripDx?.[back ? 'back' : 'front'] ?? 0);
           for (const { dx, dy, cell } of turned(side(tool.tool!), pivotX, TOOL_FRAME.ay, steps)) {

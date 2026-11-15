@@ -202,11 +202,21 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
 `lab/tools/pass6.mjs` renders the check sheets (wear, belly, shoes, hair).
 
+### Seventh pass
+
+- **Belly, smaller.** It now stands out one pixel, two at its fullest, low on the torso.
+- **Mood is a value of the character**, like its condition: neutral, smiling, happy, laughing, sad, angry, surprised. It decides the mouth, the brows and how open the eyes are. Anger lowers a heavy brow onto the inner corner of the eye, sadness lets the outer corner droop; the lid is drawn in skin so the eye itself changes shape. The mouth is no longer a face option. A cheerful action such as waving shows a laugh unless the mood is a dark one.
+- **Condition is continuous.** It runs from 0 to 3 in quarter steps on a slider; the limits of every wear rule are interpolated, and each step still keeps the damage of the one before.
+- **Motion, all written by hand as key poses now.** Idle stands still and blinks every three seconds. Wave moves only the arm, held far enough out to show from behind. Run is rewritten: a small lean, elbows at a right angle swinging against the legs, the free knee carried high. Chop is replaced by a generic "use": one foot forward, the right arm works out to the side where it reads from the front and from behind. A short tool turns with the forearm; a long one stays tilted forward and is thrust.
+- The poses sampled from the 3D clips remain in the lab page as the comparison they were, but the wardrobe no longer uses them.
+
+`lab/tools/pass7.mjs` renders the check sheets (moods, motion, belly).
+
 ### Recommendation
 
 1. Build on the puppet.
 2. Use both formats by item type: recipes for plain clothing and wear states, whole-sprite paint for anything with a distinctive shape. Both compile to the same item data.
-3. Write the everyday poses (idle, walk) by hand and sample the rest from the 3D clips.
+3. Write poses by hand. The sampled run and chop carried the 3D character's posture and were replaced by hand-written key poses in the seventh pass; a clip is three to five key poses.
 4. Expect curation. By my count about 18 of the first 30 candidates are usable as returned. The recipe shorts and stamp spears need a retry.
 5. Ask the model for neat items only. Wear, fit to the build and the back of a beard are rules, and they apply to everything already in the catalogue.
 
@@ -214,5 +224,5 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
 - Consistency across a large catalogue. Fifteen candidates per format is a small sample.
 - Regenerating with a note, pixel touch-up.
-- Wear is shown at four fixed levels in still frames and short loops. Whether it reads well as gradual change during play is untested.
+- Wear and motion were judged from still frames and the wardrobe's loops. Whether wear reads well as gradual change during play is untested.
 - Hair falling behind the shoulders, backpacks. Skirt motion is a horizontal stretch only; the hem does not lift or lag.

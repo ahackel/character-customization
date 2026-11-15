@@ -61,7 +61,12 @@ const HEAD_BACK = pad([
 // columns 9 and 10, the far eye at 14 and 15, rows 12 to 14; the face looks towards the right.
 
 export const EYE_SHAPES = ['round', 'small', 'wide', 'sleepy'] as const;
-export const MOUTHS = ['grin', 'smile', 'small'] as const;
+/**
+ * Mood is a value of the character, like its condition. It decides the mouth, the slant of the
+ * brows and how open the eyes are; the features above and below stay the character's own.
+ */
+export const MOODS = ['neutral', 'smile', 'happy', 'laughing', 'sad', 'angry', 'surprised'] as const;
+export type Mood = (typeof MOODS)[number];
 export const BROWS = ['none', 'thin', 'thick'] as const;
 /** null keeps the eyes plain dark. */
 export const EYE_COLORS: (PaletteKey | null)[] = [null, 'blue', 'green', 'teal', 'grey', 'wood', 'purple'];
@@ -69,7 +74,6 @@ export const EYE_COLORS: (PaletteKey | null)[] = [null, 'blue', 'green', 'teal',
 export interface FaceOptions {
   eyes: (typeof EYE_SHAPES)[number];
   eyeColor: PaletteKey | null;
-  mouth: (typeof MOUTHS)[number];
   brows: (typeof BROWS)[number];
   blush: boolean;
   freckles: boolean;
@@ -82,12 +86,10 @@ export interface FaceOptions {
 export const GLASSES_COLORS: PaletteKey[] = ['black', 'brown', 'steel', 'straw', 'red', 'blue', 'green', 'pink', 'white'];
 
 export const DEFAULT_FACE: FaceOptions = {
-  eyes: 'round', eyeColor: null, mouth: 'grin', brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
+  eyes: 'round', eyeColor: null, brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
 };
 
-type Expression = 'neutral' | 'blink' | 'happy';
-
-function faceRows(o: FaceOptions, expression: Expression): string[] {
+function faceRows(o: FaceOptions, mood: Mood, blink: boolean): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
   const put = (x: number, y: number, ch: string) => {
     if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
@@ -96,29 +98,55 @@ function faceRows(o: FaceOptions, expression: Expression): string[] {
     for (let x = x0; x <= x1; x++) put(x, y, ch);
   };
   const wide = o.eyes === 'wide';
+  // Surprise opens the eyes one row further.
+  const top = mood === 'surprised' ? 11 : 12;
   for (const [x, outer] of [[9, -1], [14, 1]] as const) {
     const left = wide ? x - 1 : x;
-    if (expression === 'happy') {
+    if (mood === 'laughing') {
+      // Eyes squeezed shut into arcs.
       run(x, x + 1, 13, 'I');
       put(x - 1, 14, 'I');
       put(x + 2, 14, 'I');
-    } else if (expression === 'blink') {
+    } else if (blink) {
       run(left, x + 1, 14, 'I');
     } else {
       // A shine in the same corner of both eyes, colour beside the pupil.
+      const small = o.eyes === 'small' && mood !== 'surprised';
       if (o.eyes === 'sleepy') {
-        run(x - 1, x + 1, 12, 'I');
-      } else if (o.eyes !== 'small') {
-        put(left, 12, 'T');
-        run(left + 1, x + 1, 12, 'I');
+        run(x - 1, x + 1, top, 'I');
+      } else if (!small) {
+        put(left, top, 'T');
+        run(left + 1, x + 1, top, 'I');
       }
-      for (const y of [13, 14]) {
-        run(left, x, y, o.eyes === 'small' && y === 13 ? 'T' : 'C');
+      for (let y = top + 1; y <= 14; y++) {
+        run(left, x, y, small && y === 13 ? 'T' : 'C');
         put(x + 1, y, 'I');
       }
-      if (o.lashes) put(outer < 0 ? left - 1 : x + 2, 12, 'I');
+      if (o.lashes) put(outer < 0 ? left - 1 : x + 2, top, 'I');
     }
-    if (o.brows !== 'none') run(o.brows === 'thick' ? x - 1 : x, x + 1, 11, 'e');
+    // Brows. Anger lowers a heavy brow onto the inner corner of the eye and sadness lets the
+    // outer corner droop; the lid is skin, so the eye itself changes shape. Both show even on a
+    // face that otherwise has no brows drawn, because the mood depends on them.
+    const outerX = outer < 0 ? x : x + 1;
+    const innerX = outer < 0 ? x + 1 : x;
+    if (mood === 'angry' || mood === 'sad') {
+      if (!blink) {
+        // No shine, and one corner of the top row closed by the lid.
+        run(left, x + 1, 12, 'I');
+        put(mood === 'angry' ? innerX : outerX, 12, '%');
+      }
+      if (mood === 'angry') {
+        run(Math.min(outerX, innerX - outer), Math.max(outerX, innerX - outer), 11, 'e');
+        if (o.brows === 'thick') put(outerX + outer, 11, 'e');
+      } else {
+        put(innerX, 11, 'e');
+        if (o.brows !== 'none') put(innerX - outer, 11, 'e');
+      }
+    } else if (mood === 'surprised') {
+      run(o.brows === 'thick' ? x - 1 : x, x + 1, 10, 'e');
+    } else if (o.brows !== 'none') {
+      run(o.brows === 'thick' ? x - 1 : x, x + 1, 11, 'e');
+    }
   }
   put(13, 15, '%');
   if (o.blush) {
@@ -128,24 +156,33 @@ function faceRows(o: FaceOptions, expression: Expression): string[] {
   if (o.freckles) {
     for (const [x, y] of [[6, 15], [8, 16], [8, 14], [17, 15], [16, 16]]) put(x, y, '%');
   }
-  if (expression === 'happy') {
+  if (mood === 'laughing') {
     for (const y of [16, 17]) {
       put(10, y, 'M');
       run(11, 14, y, 'T');
       put(15, y, 'M');
     }
     run(11, 14, 18, 'M');
-  } else if (o.mouth === 'grin') {
+  } else if (mood === 'happy') {
     put(10, 16, 'M');
     run(11, 14, 16, 'T');
     put(15, 16, 'M');
     run(11, 14, 17, 'M');
-  } else if (o.mouth === 'smile') {
+  } else if (mood === 'smile') {
     put(10, 16, 'M');
     put(15, 16, 'M');
     run(11, 14, 17, 'M');
-  } else {
+  } else if (mood === 'sad') {
+    run(11, 14, 16, 'M');
+    put(10, 17, 'M');
+    put(15, 17, 'M');
+  } else if (mood === 'angry') {
+    run(12, 14, 16, 'M');
+  } else if (mood === 'surprised') {
     run(12, 13, 16, 'M');
+    run(12, 13, 17, 'M');
+  } else {
+    run(11, 14, 16, 'M');
   }
   if (o.glasses) {
     for (const x of [8, 13]) {
@@ -166,11 +203,16 @@ export function headFor(skin: PaletteKey): StampPair {
   return { front: parseStamp(HEAD_FRONT, {}, skin), back: parseStamp(HEAD_BACK, {}, skin) };
 }
 
-/** Builds the neutral, blinking and laughing faces for one set of options. Brows take the hair colour. */
-export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown'): Record<string, Stamp> {
+/**
+ * Builds the faces a character can show: 'neutral' is the mood itself, 'blink' the same with the
+ * eyes shut, and 'happy' what a cheerful action such as waving puts on, which is a laugh unless
+ * the mood is a dark one. Brows take the hair colour.
+ */
+export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): Record<string, Stamp> {
   const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
-  const make = (expression: Expression) => parseStamp(pad(faceRows(options, expression), 0), legend, skin);
-  return { neutral: make('neutral'), blink: make('blink'), happy: make('happy') };
+  const make = (as: Mood, blink: boolean) => parseStamp(pad(faceRows(options, as, blink), 0), legend, skin);
+  const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
+  return { neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false) };
 }
 
 // Short, slightly unruly hair: one tuft breaking the outline on top, a lit band across the

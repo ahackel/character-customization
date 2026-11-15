@@ -10,7 +10,7 @@ export const LANGS: { id: Lang; label: string; name: string }[] = [
 
 const en = {
   'title': 'Castaway Wardrobe',
-  'lede': 'Dress a small pixel person and decide how long they have been on the island. Everything is drawn once and follows the body in every action, facing and condition.',
+  'lede': 'Dress a small pixel person, then decide how long they have been on the island and how they feel. Everything is drawn once and follows the body in every action, facing and condition.',
   'shuffle': 'Shuffle',
   'reset': 'Start over',
   'language': 'Language',
@@ -30,7 +30,7 @@ const en = {
   'clip.walk': 'Walk',
   'clip.run': 'Run',
   'clip.wave': 'Wave',
-  'clip.chop': 'Chop',
+  'clip.use': 'Use',
 
   'ground': 'Ground',
   'ground.sand': 'Sand',
@@ -43,6 +43,15 @@ const en = {
   'wear.1': 'Worn',
   'wear.2': 'Ragged',
   'wear.3': 'Tattered',
+
+  'mood': 'Mood',
+  'mood.neutral': 'Neutral',
+  'mood.smile': 'Smiling',
+  'mood.happy': 'Happy',
+  'mood.laughing': 'Laughing',
+  'mood.sad': 'Sad',
+  'mood.angry': 'Angry',
+  'mood.surprised': 'Surprised',
 
   'tab.body': 'Body',
   'tab.face': 'Face',
@@ -70,10 +79,6 @@ const en = {
   'eyes.sleepy': 'Sleepy',
   'eyeColor': 'Eye colour',
   'eyeColor.dark': 'Dark',
-  'mouth': 'Mouth',
-  'mouth.grin': 'Grin',
-  'mouth.smile': 'Smile',
-  'mouth.small': 'Small',
   'brows': 'Brows',
   'brows.none': 'None',
   'brows.thin': 'Thin',
@@ -114,7 +119,7 @@ export type Key = keyof typeof en;
 
 const de: Record<Key, string> = {
   'title': 'Garderobe der Gestrandeten',
-  'lede': 'Kleide eine kleine Pixelfigur ein und lege fest, wie lange sie schon auf der Insel ist. Alles wird nur einmal gezeichnet und folgt dem Körper in jeder Aktion, Blickrichtung und jedem Zustand.',
+  'lede': 'Kleide eine kleine Pixelfigur ein und lege fest, wie lange sie schon auf der Insel ist und wie sie sich fühlt. Alles wird nur einmal gezeichnet und folgt dem Körper in jeder Aktion, Blickrichtung und jedem Zustand.',
   'shuffle': 'Zufall',
   'reset': 'Neu beginnen',
   'language': 'Sprache',
@@ -134,7 +139,7 @@ const de: Record<Key, string> = {
   'clip.walk': 'Gehen',
   'clip.run': 'Rennen',
   'clip.wave': 'Winken',
-  'clip.chop': 'Hacken',
+  'clip.use': 'Benutzen',
 
   'ground': 'Boden',
   'ground.sand': 'Sand',
@@ -147,6 +152,15 @@ const de: Record<Key, string> = {
   'wear.1': 'Abgetragen',
   'wear.2': 'Zerlumpt',
   'wear.3': 'Zerfetzt',
+
+  'mood': 'Stimmung',
+  'mood.neutral': 'Neutral',
+  'mood.smile': 'Lächelnd',
+  'mood.happy': 'Fröhlich',
+  'mood.laughing': 'Lachend',
+  'mood.sad': 'Traurig',
+  'mood.angry': 'Wütend',
+  'mood.surprised': 'Überrascht',
 
   'tab.body': 'Körper',
   'tab.face': 'Gesicht',
@@ -174,10 +188,6 @@ const de: Record<Key, string> = {
   'eyes.sleepy': 'Müde',
   'eyeColor': 'Augenfarbe',
   'eyeColor.dark': 'Dunkel',
-  'mouth': 'Mund',
-  'mouth.grin': 'Grinsen',
-  'mouth.smile': 'Lächeln',
-  'mouth.small': 'Klein',
   'brows': 'Augenbrauen',
   'brows.none': 'Keine',
   'brows.thin': 'Dünn',

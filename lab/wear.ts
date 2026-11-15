@@ -2,17 +2,26 @@ import type { Cell } from './palette.ts';
 import { HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, TORSO_FRAME, type Item, type Stamp, type StampPair } from './puppet.ts';
 
 /**
- * How long a character has been on the island. It is a value of the character, not of an item:
+ * How long a character has been on the island, from 0 to 3. It is a value of the character, not of an item:
  * every piece of clothing, the shoes, the hat and the hair are aged by rule from their one neat
  * drawing, so no item needs a second, ragged version.
  */
-export type Wear = 0 | 1 | 2 | 3;
-export const WEAR_LEVELS: { id: Wear; label: string }[] = [
+export type Wear = number;
+/** The scale runs from 0 to 3 and may take any value in between. These are its named points. */
+export const WEAR_LEVELS: { id: number; label: string }[] = [
   { id: 0, label: 'Neat' },
   { id: 1, label: 'Worn' },
   { id: 2, label: 'Ragged' },
   { id: 3, label: 'Tattered' },
 ];
+export const WEAR_MAX = 3;
+
+/** A value from a table with one entry per named level, interpolated for levels in between. */
+function at(table: number[], level: Wear): number {
+  const low = Math.floor(level);
+  const high = Math.min(table.length - 1, low + 1);
+  return table[low] + (table[high] - table[low]) * (level - low);
+}
 
 function hashOf(text: string): number {
   let h = 2166136261;
@@ -51,8 +60,8 @@ function wornCloth(stamp: Stamp, seed: number, level: Wear, hem: boolean, firstH
     for (let col = 0; col < width; col++) {
       const cell = out[row][col];
       if (!cell) continue;
-      if (chance(seed, col >> 1, row >> 1, 3) < STAINS[level]) out[row][col] = dull(cell);
-      if (row >= firstHoleRow && chance(seed, col, row, 2) < HOLES[level]) out[row][col] = null;
+      if (chance(seed, col >> 1, row >> 1, 3) < at(STAINS, level)) out[row][col] = dull(cell);
+      if (row >= firstHoleRow && chance(seed, col, row, 2) < at(HOLES, level)) out[row][col] = null;
     }
   }
   if (patch && level >= 2) {
@@ -81,11 +90,11 @@ function wornCloth(stamp: Stamp, seed: number, level: Wear, hem: boolean, firstH
 /** A sleeve or trouser leg, shortened from its free end, with a darker frayed last cell. */
 function wornStrip(strip: (Cell | null)[], seed: number, level: Wear, least: number): (Cell | null)[] {
   const length = strip.reduce((n, cell, i) => (cell ? i + 1 : n), 0);
-  const keep = Math.max(Math.min(length, least), Math.round(length * SLEEVE[level]));
+  const keep = Math.max(Math.min(length, least), Math.round(length * at(SLEEVE, level)));
   return strip.map((cell, i) => {
     if (!cell || i >= keep) return null;
     if (keep < length && i === keep - 1) return dull(cell);
-    return chance(seed, i, 40, 3) < STAINS[level] ? dull(cell) : cell;
+    return chance(seed, i, 40, 3) < at(STAINS, level) ? dull(cell) : cell;
   });
 }
 
@@ -94,7 +103,7 @@ function wornShaft(strip: (Cell | null)[], level: Wear): (Cell | null)[] {
   const first = strip.findIndex(Boolean);
   if (first < 0) return strip;
   const height = LIMB_CELLS - first;
-  const keep = [height, height, Math.max(1, height - 1), Math.ceil(height / 2)][level];
+  const keep = [height, height, Math.max(1, height - 1), Math.ceil(height / 2)][Math.floor(level)];
   const body = strip[LIMB_CELLS - 1] ?? strip[first]!;
   return strip.map((cell, i) => {
     if (!cell || i < LIMB_CELLS - keep) return null;
@@ -105,10 +114,10 @@ function wornShaft(strip: (Cell | null)[], level: Wear): (Cell | null)[] {
 /** A hat frays at its edge, where it is at least three pixels thick, and picks up stains. */
 function wornHat(stamp: Stamp, seed: number, level: Wear): Stamp {
   const out = copy(stamp);
-  const fray = [0, 0, 0.1, 0.2][level];
+  const fray = at([0, 0, 0.1, 0.2], level);
   stamp.forEach((cells, row) => cells.forEach((cell, col) => {
     if (!cell) return;
-    if (chance(seed, col >> 1, row >> 1, 3) < STAINS[level] * 0.8) out[row][col] = dull(cell);
+    if (chance(seed, col >> 1, row >> 1, 3) < at(STAINS, level) * 0.8) out[row][col] = dull(cell);
     for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
       const open = !stamp[row + dy]?.[col + dx];
       const thick = stamp[row - dy]?.[col - dx] && stamp[row - 2 * dy]?.[col - 2 * dx];
@@ -133,7 +142,7 @@ function unkempt(stamp: Stamp, seed: number, level: Wear, front: boolean, strays
   const width = out[0]?.length ?? 0;
   const plain = (cell: Cell): Cell => ({ key: cell.key, shade: false });
   if (strays) {
-    const limit = [0, 0.12, 0.2, 0.3][level];
+    const limit = at([0, 0.12, 0.2, 0.3], level);
     for (let row = 0; row < stamp.length; row++) {
       for (let col = 0; col < width; col++) {
         if (stamp[row][col] || (front && inFace(col, row))) continue;
@@ -148,8 +157,8 @@ function unkempt(stamp: Stamp, seed: number, level: Wear, front: boolean, strays
     const overFace = front && col >= FACE.x0 && col <= FACE.x1;
     // Clumps two pixels wide. Over the face only the fringe grows, and never past the brows.
     const grow = overFace
-      ? Math.min(Math.max(0, FACE.y0 + (level === 3 ? 1 : 0) - row), level >= 2 && chance(seed, col >> 1, 0, 7) < 0.5 ? 1 : 0)
-      : Math.round(chance(seed, col >> 1, 0, 7) * (level - 1) + (level === 3 ? 0.5 : 0));
+      ? Math.min(Math.max(0, FACE.y0 + (level >= 3 ? 1 : 0) - row), level >= 2 && chance(seed, col >> 1, 0, 7) < 0.5 ? 1 : 0)
+      : Math.max(0, Math.round(chance(seed, col >> 1, 0, 7) * (level - 1) + (level >= 3 ? 0.5 : 0)));
     for (let n = 1; n <= grow; n++) {
       if (row + n < out.length && !out[row + n][col]) out[row + n][col] = { ...stamp[row][col]!, light: false };
     }
@@ -157,14 +166,16 @@ function unkempt(stamp: Stamp, seed: number, level: Wear, front: boolean, strays
   return out;
 }
 
-const cache = new WeakMap<Item, Item[]>();
+const cache = new WeakMap<Item, Map<number, Item>>();
 
 /** The item as it looks at a wear level. Level 0 is the item as drawn. Tools do not age. */
 export function weathered(item: Item, level: Wear): Item {
+  level = Math.max(0, Math.min(WEAR_MAX, level));
   if (!level || item.slot === 'tool') return item;
-  const known = cache.get(item) ?? [];
+  const known = cache.get(item) ?? new Map<number, Item>();
   cache.set(item, known);
-  if (known[level]) return known[level];
+  const hit = known.get(level);
+  if (hit) return hit;
   const seed = hashOf(item.name + item.slot);
   const pair = (p: StampPair | undefined, each: (stamp: Stamp, front: boolean) => Stamp): StampPair | undefined =>
     p && { front: each(p.front, true), back: each(p.back, false) };
@@ -181,7 +192,7 @@ export function weathered(item: Item, level: Wear): Item {
     if (item.leg) out.leg = wornStrip(item.leg, seed, level, 2);
   } else if (item.slot === 'shoes') {
     if (item.foot && level >= 2) out.foot = dull(item.foot);
-    if (item.foot && level === 3 && !item.footOpen) out.footOpen = 'toe';
+    if (item.foot && level >= 3 && !item.footOpen) out.footOpen = 'toe';
     if (item.leg) out.leg = wornShaft(item.leg, level);
   } else if (item.slot === 'hat') {
     out.head = pair(item.head, (stamp) => wornHat(stamp, seed, level));
@@ -192,6 +203,6 @@ export function weathered(item: Item, level: Wear): Item {
     // A beard only grows longer. It has no back view.
     out.head = item.head && { front: unkempt(item.head.front, seed, level, false, false), back: item.head.back };
   }
-  known[level] = out;
+  known.set(level, out);
   return out;
 }

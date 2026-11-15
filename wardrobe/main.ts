@@ -1,16 +1,15 @@
 import './style.css';
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, headFor, MOUTHS, UNDERSHORTS, UNDERTOP,
-  type FaceOptions,
+  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
+  type FaceOptions, type Mood,
 } from '../lab/base.ts';
 import { CATALOG, CLOTH_KEYS, entryById, recolor, type Entry } from '../lab/catalog.ts';
 import { HAIR_KEYS, hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
-import { AUTHORED, STAND, clipsFromSamples, type Clip, type SampledFrame } from '../lab/poses.ts';
+import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
 import {
   BODY_WINDOW, BUILDS, drawCharacter, FACING_NAMES, type Facing, type Item, type Look, type Slot, type Sprite, type Stamp,
 } from '../lab/puppet.ts';
-import { WEAR_LEVELS, weathered, type Wear } from '../lab/wear.ts';
-import sampledData from '../lab/generated/poses3d.json';
+import { WEAR_MAX, weathered, type Wear } from '../lab/wear.ts';
 import { currentLang, itemName, LANGS, missingItemNames, setLang, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ state
@@ -24,8 +23,10 @@ interface State {
   skin: PaletteKey;
   build: string;
   frame: 'm' | 'f';
-  /** How long on the island: 0 is neat, 3 is tattered. It ages everything worn, and the hair. */
+  /** How long on the island: 0 is neat, 3 is tattered, any value in between. It ages everything worn, and the hair. */
   wear: Wear;
+  /** Decides the facial expression. The features under Face stay the same. */
+  mood: Mood;
   face: FaceOptions;
   /** A built-in style id, a catalogue id, or null for bald. */
   hair: string | null;
@@ -53,6 +54,7 @@ function defaultState(): State {
     frame: 'm',
     // The default is a survivor: ordinary clothes, some weeks on the island.
     wear: 2,
+    mood: 'happy',
     face: { ...DEFAULT_FACE },
     hair: 'short',
     hairColor: 'hairBrown',
@@ -80,14 +82,14 @@ function loadState(): State {
     if (saved.skin && SKIN_KEYS.includes(saved.skin)) state.skin = saved.skin;
     if (BUILDS.some((b) => b.id === saved.build)) state.build = saved.build!;
     if (saved.frame === 'm' || saved.frame === 'f') state.frame = saved.frame;
-    if (WEAR_LEVELS.some((w) => w.id === saved.wear)) state.wear = saved.wear!;
+    if (typeof saved.wear === 'number' && saved.wear >= 0 && saved.wear <= WEAR_MAX) state.wear = saved.wear;
+    if ((MOODS as readonly string[]).includes(saved.mood as string)) state.mood = saved.mood!;
     if (saved.hair === null || hairExists(saved.hair)) state.hair = saved.hair ?? null;
     if (saved.hairColor && saved.hairColor in PALETTE) state.hairColor = saved.hairColor;
     const face = saved.face;
     if (face) {
       if ((EYE_SHAPES as readonly string[]).includes(face.eyes)) state.face.eyes = face.eyes;
       if (EYE_COLORS.includes(face.eyeColor)) state.face.eyeColor = face.eyeColor;
-      if ((MOUTHS as readonly string[]).includes(face.mouth)) state.face.mouth = face.mouth;
       if ((BROWS as readonly string[]).includes(face.brows)) state.face.brows = face.brows;
       for (const key of ['blush', 'freckles', 'glasses', 'lashes'] as const) state.face[key] = !!face[key];
       if (face.glassesColor && GLASSES_COLORS.includes(face.glassesColor)) state.face.glassesColor = face.glassesColor;
@@ -120,13 +122,13 @@ let facing: Facing = 0;
 let clipKey = 'idle';
 let version = 0;
 
-const SAMPLED = clipsFromSamples(sampledData as unknown as Record<string, { name: string; rate: number; frames: SampledFrame[] }>);
+// All five are written by hand as key poses.
 const CLIPS: Record<string, Clip> = {
   idle: AUTHORED.idle,
   walk: AUTHORED.walk,
-  run: SAMPLED.run,
+  run: AUTHORED.run,
   wave: AUTHORED.wave,
-  chop: SAMPLED.chop,
+  use: AUTHORED.use,
 };
 const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
 
@@ -168,7 +170,7 @@ function lookOf(source: State, underwear = true): Look {
     build: BUILDS.find((b) => b.id === source.build),
     frame: source.frame,
     head: headFor(source.skin),
-    faces: facesFor(source.skin, source.face, source.hairColor),
+    faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
     items,
   };
 }
@@ -304,7 +306,11 @@ const stage = h('div', { class: 'stage__ground' });
 const facingRow = h('div', { class: 'facings', role: 'group' });
 const actionRow = h('div', { class: 'chips', role: 'group' });
 const groundRow = h('div', { class: 'chips', role: 'group' });
-const wearRow = h('div', { class: 'chips', role: 'group' });
+// The condition is a slider. It is built once and never replaced, so a drag is not interrupted.
+const wearSlider = h('input', { type: 'range', class: 'slider', min: '0', max: String(WEAR_MAX), step: '0.25' });
+const wearValue = h('output', { class: 'slider__value' });
+const wearName = (level: Wear) => t(`wear.${Math.round(level)}` as Key);
+const moodRow = h('div', { class: 'chips', role: 'group' });
 const tabRow = h('nav', { class: 'tabs', role: 'tablist' });
 const panel = h('div', { class: 'panel__body', role: 'tabpanel' });
 
@@ -419,7 +425,7 @@ function bodyPanel(): HTMLElement[] {
 function facePanel(): HTMLElement[] {
   const face = state.face;
   const bald = (d: State) => Object.assign(d, { hair: null, worn: { ...d.worn, hat: null, beard: null } });
-  const options = <K extends 'eyes' | 'mouth' | 'brows'>(title: string, key: K, values: readonly FaceOptions[K][]) => {
+  const options = <K extends 'eyes' | 'brows'>(title: string, key: K, values: readonly FaceOptions[K][]) => {
     const grid = h('div', { class: 'grid grid--small' });
     for (const value of values) {
       grid.append(card(t(`${key}.${value}` as Key), face[key] === value, regionPicture((d) => {
@@ -442,7 +448,6 @@ function facePanel(): HTMLElement[] {
       face.eyeColor = key;
       changed();
     }, t('eyeColor.dark')),
-    options(t('mouth'), 'mouth', MOUTHS),
     options(t('brows'), 'brows', BROWS),
     section(t('details'), h('div', { class: 'chips' }, toggle(t('blush'), 'blush'), toggle(t('freckles'), 'freckles'), toggle(t('lashes'), 'lashes'), toggle(t('glasses'), 'glasses'))),
     // The frame colour only matters while glasses are worn.
@@ -487,19 +492,21 @@ function shuffle(): void {
   next.frame = pick(['m', 'f'] as const);
   // The condition is kept, so one can shuffle through neat passengers or through castaways.
   next.wear = state.wear;
+  next.mood = state.mood;
   next.face = {
-    eyes: pick(EYE_SHAPES), eyeColor: pick(EYE_COLORS), mouth: pick(MOUTHS), brows: pick(BROWS),
+    eyes: pick(EYE_SHAPES), eyeColor: pick(EYE_COLORS), brows: pick(BROWS),
     blush: Math.random() < 0.6, freckles: Math.random() < 0.25, glasses: Math.random() < 0.15, glassesColor: pick(GLASSES_COLORS), lashes: next.frame === 'f',
   };
   const hairs = [...HAIR_STYLES.map((s) => s.id), ...CATALOG.filter((e) => e.slot === 'hair').map((e) => e.id)];
   next.hair = Math.random() < 0.08 ? null : pick(hairs);
   next.hairColor = pick(HAIR_COLORS.slice(0, 6));
-  const shod = [0.95, 0.8, 0.5, 0.3][next.wear];
-  const bearded = next.frame === 'm' ? [0.15, 0.3, 0.5, 0.65][next.wear] : 0;
+  const level = Math.round(next.wear);
+  const shod = [0.95, 0.8, 0.5, 0.3][level];
+  const bearded = next.frame === 'm' ? [0.15, 0.3, 0.5, 0.65][level] : 0;
   const chance: Record<WornSlot, number> = { top: 0.92, bottom: 0.92, shoes: shod, hat: 0.45, beard: bearded, tool: 0.5 };
   for (const slot of WORN_SLOTS) {
     // Nobody had a leaf skirt or a spear before the wreck.
-    const options = CATALOG.filter((e) => e.slot === slot && (next.wear > 0 || !e.island));
+    const options = CATALOG.filter((e) => e.slot === slot && (level > 0 || !e.island));
     const entry: Entry | null = options.length && Math.random() < chance[slot] ? pick(options) : null;
     next.worn[slot] = entry?.id ?? null;
     if (entry && slot !== 'beard' && entry.colors.length && Math.random() < 0.35) next.colors[slot] = { [entry.colors[0]]: pick(CLOTH_KEYS) };
@@ -524,8 +531,11 @@ function render(): void {
   panel.replaceChildren(...(tab === 'body' ? bodyPanel() : tab === 'face' ? facePanel() : tab === 'hair' ? hairPanel() : slotPanel(tab)));
   panel.scrollTop = scroll;
 
-  wearRow.replaceChildren(...WEAR_LEVELS.map((level) => chip(t(`wear.${level.id}` as Key), level.id === state.wear, () => {
-    state.wear = level.id;
+  wearSlider.value = String(state.wear);
+  wearSlider.setAttribute('aria-valuetext', wearName(state.wear));
+  wearValue.textContent = wearName(state.wear);
+  moodRow.replaceChildren(...MOODS.map((mood) => chip(t(`mood.${mood}` as Key), mood === state.mood, () => {
+    state.mood = mood;
     changed();
   })));
   actionRow.replaceChildren(...Object.keys(CLIPS).map((key) => chip(t(`clip.${key}` as Key), key === clipKey, () => {
@@ -551,7 +561,8 @@ function mount(): void {
   facingRow.setAttribute('aria-label', t('facing'));
   actionRow.setAttribute('aria-label', t('action'));
   groundRow.setAttribute('aria-label', t('ground'));
-  wearRow.setAttribute('aria-label', t('wear'));
+  wearSlider.setAttribute('aria-label', t('wear'));
+  moodRow.setAttribute('aria-label', t('mood'));
   tabRow.setAttribute('aria-label', t('sections'));
 
   FACING_NAMES.forEach((_, i) => {
@@ -600,7 +611,8 @@ function mount(): void {
       ),
       h('section', { class: 'stage', 'aria-label': t('preview') },
         h('div', { class: 'stage__view' }, stage, facingRow),
-        h('div', { class: 'row' }, h('h3', {}, t('wear')), wearRow),
+        h('div', { class: 'row row--slider' }, h('h3', {}, t('wear')), wearSlider, wearValue),
+        h('div', { class: 'row' }, h('h3', {}, t('mood')), moodRow),
         h('div', { class: 'row' }, h('h3', {}, t('action')), actionRow),
         h('div', { class: 'row' }, h('h3', {}, t('ground')), groundRow),
       ),
@@ -613,6 +625,15 @@ function mount(): void {
     ),
   );
 }
+
+// While dragging, only the preview follows; the item pictures are redrawn on release.
+wearSlider.addEventListener('input', () => {
+  state.wear = Number(wearSlider.value);
+  version++;
+  wearSlider.setAttribute('aria-valuetext', wearName(state.wear));
+  wearValue.textContent = wearName(state.wear);
+});
+wearSlider.addEventListener('change', changed);
 
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;

@@ -419,3 +419,21 @@ canvas {
 .top__actions {
   flex-wrap: wrap;
 }
+
+/* The condition slider and the name of the level it is nearest to. */
+.row--slider {
+  flex-wrap: nowrap;
+}
+.slider {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.slider__value {
+  min-width: 6.5em;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: right;
+}

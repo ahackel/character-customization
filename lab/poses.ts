@@ -88,29 +88,48 @@ export interface Clip {
 
 export const STAND = buildPose();
 
-const breatheIn = buildPose({ armL: { swing: 0, out: 3 }, armR: { swing: 0, out: 3 } });
-const breatheOut = buildPose({ sink: 1 });
+// Run: contact, passing, flight, then the same on the other foot. A small forward lean, elbows
+// held at a right angle and swinging against the legs, the knee of the free leg carried high.
+const runHalf: PoseSpec[] = [
+  { bob: -1, lean: 7, legR: { swing: 38, bend: 12 }, legL: { swing: -34, bend: 55 }, armL: { swing: 36, bend: 80 }, armR: { swing: -42, bend: 75 } },
+  { bob: 0, lean: 8, legR: { swing: 4, bend: 14 }, legL: { swing: 18, bend: 95 }, armL: { swing: 8, bend: 80 }, armR: { swing: -8, bend: 80 } },
+  { bob: 1, lean: 7, legR: { swing: -38, bend: 18 }, legL: { swing: 52, bend: 72 }, armL: { swing: -36, bend: 75 }, armR: { swing: 34, bend: 80 } },
+];
+
+// Use: one generic action for whatever is in the hand, or for bare hands. The body stays put with
+// one foot forward; the right arm works out to the side, where it reads from the front and from
+// behind: it lifts, comes down and recovers.
+const useStance = { legR: { swing: 9 }, legL: { swing: -9 }, armL: { swing: -8, bend: 12 } };
+const useFrames: PoseSpec[] = [
+  { ...useStance, armR: { swing: 50, bend: 75, out: 38 } },
+  { ...useStance, lean: -2, armR: { swing: 95, bend: 55, out: 38 } },
+  { ...useStance, lean: 4, armR: { swing: 60, bend: 20, out: 32 } },
+  { ...useStance, lean: 6, armR: { swing: 34, bend: 14, out: 28 } },
+  { ...useStance, lean: 3, armR: { swing: 44, bend: 45, out: 32 } },
+];
+
+// Wave: the raised hand swings from side to side, well clear of the head so that it also shows
+// from behind.
+const waveFrames: PoseSpec[] = [
+  { armL: { swing: 150, bend: 20, out: 40 } },
+  { armL: { swing: 154, bend: 0, out: 48 } },
+  { armL: { swing: 156, bend: -20, out: 56 } },
+  { armL: { swing: 154, bend: 0, out: 48 } },
+];
 
 export const AUTHORED: Record<string, Clip> = {
-  // Breathing, with a blink every third breath.
+  // Standing still. The only movement is a blink every three seconds.
   idle: {
     name: 'Idle',
-    rate: 2.5,
-    frames: [breatheIn, breatheOut, breatheIn, breatheOut, breatheIn, breatheOut],
-    faces: [undefined, undefined, undefined, undefined, 'blink', undefined],
+    rate: 5,
+    frames: Array<Pose>(15).fill(STAND),
+    faces: Array.from({ length: 15 }, (_, i) => (i === 13 ? 'blink' : undefined)),
   },
   walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
-  wave: {
-    name: 'Wave',
-    rate: 6,
-    frames: [
-      { armL: { swing: 70, bend: 60, out: 15 } },
-      { armL: { swing: 150, bend: 30, out: 25 }, bob: 1 },
-      { armL: { swing: 160, bend: -30, out: 25 } },
-      { armL: { swing: 150, bend: 30, out: 25 }, bob: 1 },
-    ].map(buildPose),
-    faces: ['happy', 'happy', 'happy', 'happy'],
-  },
+  run: { name: 'Run', rate: 11, frames: [...runHalf, ...runHalf.map(mirrored)].map(buildPose) },
+  // Only the arm moves; the body stays where it is.
+  wave: { name: 'Wave', rate: 7, frames: waveFrames.map(buildPose), faces: waveFrames.map(() => 'happy') },
+  use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
 };
 
 // ------------------------------------------------------------------ poses sampled from 3D clips

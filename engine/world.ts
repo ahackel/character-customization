@@ -3,19 +3,78 @@
 // answers where a screen pixel is on the map, and where a walker may go.
 import { drawPlant, grow, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../lab/flora.ts';
 import { plantById, type PlantEntry } from '../lab/flora-catalog.ts';
-import { blend, castShadow, footOf, HOMES, layShadow, stamp, type Picture, type Pixels, type Spot } from '../lab/island.ts';
+import { SHADOW } from '../lab/flora.ts';
+import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot } from '../lab/island.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import {
-  canStep, hiddenByGround, inside, levelAt, renderTerrain, SEA_LEVEL, setLevel, standingHeight, surfaceAt, type HeightMap, type TerrainImage,
+  heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
+  TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
+import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 /** Something drawn standing on the ground: `foot` is the pixel of its picture that touches the spot. */
 export interface Thing { spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number } }
 
-const SEA = [0x4f, 0xae, 0xc4];
 const EDGE = '#e0332e';
+const SHADE_RGB = [1, 3, 5].map((k) => parseInt(SHADE.slice(k, k + 2), 16));
+const LEVEL_M = 0.354; // metres per level, as in the terrain's light
+// Ripples on the open sea are long level lines in rows that the current carries down the screen,
+// each row swaying sideways; a line grows and shrinks over `ms`. Their colours, share, length and
+// drift, the glints and the waves come from `ocean`.
+const MARKS = { cell: 48, sway: 1.5, ms: 10000, rows: 0.4 };
+
+/**
+ * How strong a wave's crest line is at ground pixel x, y, `depth` levels deep, given the depths of
+ * the pixels above and to the left: the line is where the crest depth falls between them, so it is
+ * one pixel wide whatever the slope. Crests rise in the shallows, run in and break on the shore;
+ * the time is bent along x so crests are not rings.
+ */
+export function waveAt(depth: number, above: number, left: number, x: number, y: number, ms: number): number {
+  const reach = ocean.waveReach;
+  if (depth <= 0 || depth >= reach) return 0;
+  const bend = 0.1 * Math.sin(x * 0.07) + 0.06 * Math.sin(x * 0.019 + y * 0.041);
+  for (let n = 0; n < ocean.waves; n++) {
+    const phase = (((ms / (ocean.wavePeriod * 1000) + bend + n / ocean.waves) % 1) + 1) % 1;
+    const crest = reach * (1 - phase);
+    // Only against water: next to land or a cliff the crest would otherwise outline the shore for good.
+    const crosses = (other: number) => other > 0 && (depth - crest) * (other - crest) <= 0;
+    if (crosses(above) || crosses(left)) return Math.sqrt(phase);
+  }
+  return 0;
+}
+const mix = (a: number, b: number, k: number) => ((Math.imul(a * 7 + k, 73856093) ^ Math.imul(b * 13 + k, 19349663)) >>> 0) % 1000 / 1000;
+
+/**
+ * The mark on water `depth` levels deep at pixel x, y: 0 for none, else 1 + its index in
+ * `MARK_COLORS`. Glints blink anywhere; ripples only out past the waves.
+ */
+export function markAt(x: number, y: number, depth: number, ms: number): number {
+  if (depth < 0.3) return 0;
+  const t = ms / 1000;
+  const row = Math.floor(y - t * ocean.drift);
+  const g = { x: Math.floor(x / 9), y: Math.floor(row / 7) };
+  if (mix(g.x, g.y, 5) < ocean.glints && x === g.x * 9 + Math.floor(mix(g.x, g.y, 6) * 9) && row === g.y * 7 + Math.floor(mix(g.x, g.y, 7) * 7)
+    && (t / 2.5 + mix(g.x, g.y, 8)) % 1 < 0.1) return 3;
+  if (depth < ocean.waveReach + 0.6 || mix(row, 0, 1) > MARKS.rows) return 0; // rows without ripples leave the water calm between them
+  const sx = Math.floor(x + t * (mix(row, 0, 2) - 0.5) * 2 * MARKS.sway);
+  const cell = Math.floor(sx / MARKS.cell);
+  const r = (k: number) => mix(cell, row, k);
+  if (r(1) > ocean.ripples) return 0;
+  const phase = (ms / MARKS.ms + r(2)) % 1;
+  if (phase > 0.75) return 0;
+  const longest = Math.min(ocean.rippleLength, MARKS.cell - 2);
+  const len = Math.round(longest * (0.36 + 0.64 * r(3)) * Math.sin((phase / 0.75) * Math.PI));
+  const start = Math.floor(r(4) * (MARKS.cell - longest));
+  const at = sx - cell * MARKS.cell;
+  if (at < start || at >= start + len) return 0;
+  return r(5) < 0.7 ? 1 : 2;
+}
+
+/** The deepest a walker wades: the shallows, one level under the water line. Deeper water blocks. */
+export const WADE = SEA_LEVEL - 1;
+
 /** Everything blocks a walker except grass. Radius in metres per unit of plant size. */
 const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, rock: 0.4, driftwood: 0.35, grass: 0 };
 
@@ -110,12 +169,14 @@ export class World {
   /** The ground as seen: the scene's ground turned by `rot`. Edits go here and are copied back by `redraw`. */
   map: HeightMap & { paint: Uint8Array };
   ground!: TerrainImage;
+  /** The ground as drawn: the map, with the sea floor sloping gently from every coast. Walkers wade on it. */
+  floor!: HeightMap;
 
   constructor(scene: Scene, rot = 0) {
     this.scene = scene;
     this.rot = ((rot % 4) + 4) % 4;
     this.map = this.viewMap();
-    this.ground = renderTerrain(this.map);
+    this.ground = this.draw();
   }
 
   /** A point of the scene in view coordinates. One quarter turn takes (i, j) on a w by h map to (h - j, i). */
@@ -163,17 +224,29 @@ export class World {
   setRotation(rot: number): void {
     this.rot = ((rot % 4) + 4) % 4;
     this.map = this.viewMap();
-    this.ground = renderTerrain(this.map);
+    this.ground = this.draw();
   }
 
-  /** After the ground changed: copies it back to the scene and draws it again. */
-  redraw(): void {
+  /** Draws the ground with the sea's current water colours. */
+  private draw(): TerrainImage {
+    this.floor = seaFloor(this.map);
+    setWater(WATER_COLORS.map((k) => ocean[k]));
+    return renderTerrain(this.map);
+  }
+
+  /** Copies edits of the ground back to the scene, so what is saved is up to date. */
+  commit(): void {
     for (let j = 0; j < this.map.h; j++) for (let i = 0; i < this.map.w; i++) {
       const c = this.dataCell(i, j);
       this.scene.levels[c] = this.map.levels[j * this.map.w + i];
       this.scene.paint[c] = this.map.paint[j * this.map.w + i];
     }
-    this.ground = renderTerrain(this.map);
+  }
+
+  /** After the ground changed: copies it back to the scene and draws it again. */
+  redraw(): void {
+    this.commit();
+    this.ground = this.draw();
   }
 
   /** The scene's plants with their positions in view coordinates. */
@@ -209,25 +282,41 @@ export class World {
 
   /**
    * Paints the camera window: the ground, every shadow at once, then things back to front with
-   * higher ground in front hiding them. `highlight` lightens some tiles (the brush in the editor).
+   * higher ground in front hiding them. `highlight` tints some tiles (the brush in the editor).
    */
-  compose(view: Rect, things: Thing[], highlight?: Set<number>, outline = false): Pixels {
+  compose(view: Rect, things: Thing[], highlight?: { cells: Set<number>; color: string }, outline = false, ms = 0): Pixels {
     const { w, h } = view;
+    const SEA = rgb(ocean.deep);
+    const FOAM = rgb(ocean.wave);
+    const FAR = rgb(ocean.far);
+    const MARK_COLORS: [number[], number][] = [[rgb(ocean.rippleDark), ocean.rippleOpacity], [rgb(ocean.ripplePale), ocean.rippleOpacity], [[0xff, 0xff, 0xff], 0.8]];
     const g = this.ground;
     const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
     const d = image.data;
     for (let y = 0; y < h; y++) {
       const gy = y + view.y;
+      const far = ocean.gradient * (1 - y / h);
       for (let x = 0; x < w; x++) {
         const gx = x + view.x;
         const o = (y * w + x) * 4;
         if (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w) {
           d[o] = SEA[0]; d[o + 1] = SEA[1]; d[o + 2] = SEA[2]; d[o + 3] = 255;
+          const mark = markAt(gx, gy, 9, ms);
+          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (MARK_COLORS[mark - 1][0][k] - d[o + k]) * MARK_COLORS[mark - 1][1];
+          for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
           continue;
         }
         const p = gy * g.w + gx;
         d[o] = g.rgba[p * 4]; d[o + 1] = g.rgba[p * 4 + 1]; d[o + 2] = g.rgba[p * 4 + 2]; d[o + 3] = 255;
-        if (highlight?.has(g.cell[p])) blend(image, x, y, '#ffffff66');
+        const depth = SEA_LEVEL - g.height[p];
+        const foam = 0.85 * waveAt(depth, SEA_LEVEL - g.height[gy > 0 ? p - g.w : p], SEA_LEVEL - g.height[gx > 0 ? p - 1 : p], gx, gy, ms);
+        if (foam > 0) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * foam;
+        else if (depth > 0) {
+          const mark = markAt(gx, gy, depth, ms);
+          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (MARK_COLORS[mark - 1][0][k] - d[o + k]) * MARK_COLORS[mark - 1][1];
+        }
+        if (depth > 0) for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
+        if (highlight?.cells.has(g.cell[p])) blend(image, x, y, highlight.color);
       }
     }
     const placed = things
@@ -236,15 +325,74 @@ export class World {
         return { ...t, dx: at.x - t.foot.x - view.x, dy: at.y - t.foot.y - view.y };
       })
       .filter((t) => t.dx < w && t.dy < h && t.dx + t.w > 0 && t.dy + t.h > 0);
+    // Shadows reach past a thing's picture, so things just outside the window cast into it too.
+    // Each ground pixel is darkened once, and not where the ground already lies in shadow.
     const mask = new Uint8Array(w * h);
-    for (const t of placed) castShadow(mask, w, h, t.picture, t.w, t.h, t.dx, t.dy);
-    layShadow(image, mask);
+    for (const t of things) {
+      const at = footOf(g, t.spot);
+      if (at.x + 2 * t.w < view.x || at.x - 2 * t.w > view.x + w || at.y - t.h > view.y + h || at.y + t.h < view.y) continue;
+      for (const p of this.shadowOf(t)) {
+        const x = (p % g.w) - view.x;
+        const y = Math.floor(p / g.w) - view.y;
+        if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
+          mask[y * w + x] = 1;
+          const o = (y * w + x) * 4;
+          for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * SHADE_ALPHA;
+        }
+      }
+    }
     placed.sort((a, b) => a.spot.i + a.spot.j - (b.spot.i + b.spot.j));
     for (const t of placed) {
-      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, t.spot.level));
+      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.spot.level)));
     }
     if (outline) this.drawEdge(image, view);
     return image;
+  }
+
+  private shadows = new WeakMap<Picture, Map<string, Int32Array>>();
+  private shadowsOf: TerrainImage | null = null;
+
+  /**
+   * The ground pixels a thing's shadow falls on. Each pixel of its picture stands upright over its
+   * foot, as high as it is drawn above it, and is sent away from the light to where it meets the
+   * ground, so shadows lie across slopes and fall down cliffs. Kept per picture and spot.
+   */
+  private shadowOf(t: Thing): Int32Array {
+    const g = this.ground;
+    if (this.shadowsOf !== g) {
+      this.shadows = new WeakMap();
+      this.shadowsOf = g;
+    }
+    let byPicture = this.shadows.get(t.picture);
+    if (!byPicture) this.shadows.set(t.picture, (byPicture = new Map()));
+    const key = `${t.spot.i},${t.spot.j}`;
+    const known = byPicture.get(key);
+    if (known) return known;
+    const hit = new Set<number>();
+    for (let y = 0; y < t.h; y++) {
+      for (let x = 0; x < t.w; x++) {
+        const hex = t.picture.get(x, y);
+        if (!hex || hex === SHADOW) continue;
+        const up = Math.max(0, t.foot.y - y) / LEVEL_PX * LEVEL_M;
+        const side = (x - t.foot.x) / TILE_W;
+        const i = t.spot.i + side + up * SHADOW_RUN[0];
+        const j = t.spot.j - side + up * SHADOW_RUN[1];
+        // No shadows on the water: off the map, or where the ground lies under the water line.
+        if (!inside(this.map, Math.floor(i), Math.floor(j)) || heightAt(this.map, i, j) < SEA_LEVEL) continue;
+        const level = standingHeight(this.map, i, j);
+        const at = footOf(g, { i, j, level });
+        if (at.x < 0 || at.y < 0 || at.x >= g.w || at.y >= g.h) continue;
+        const p = at.y * g.w + at.x;
+        // Nearer, higher ground drawn over that point hides the shadow there.
+        if (Math.abs(Math.max(SEA_LEVEL, g.height[p]) - level) > 0.5) continue;
+        hit.add(p);
+      }
+    }
+    const pixels = Int32Array.from(hit);
+    // shortcut: a walker leaves one entry per spot it stood on; forget them past a few dozen.
+    if (byPicture.size > 48) byPicture.clear();
+    byPicture.set(key, pixels);
+    return pixels;
   }
 
   private edge: { x: number; y: number; spot: Spot }[] = [];
@@ -287,12 +435,13 @@ export class World {
     }
   }
 
-  /** Whether a walker can stand at a point: dry land, reached without a cliff, clear of big plants. */
+  /** Whether a walker can stand at a point: land or the shallows, reached without a cliff, clear of big plants. */
   canWalk(from: { i: number; j: number }, to: { i: number; j: number }): boolean {
     const a: [number, number] = [Math.floor(from.i), Math.floor(from.j)];
     const b: [number, number] = [Math.floor(to.i), Math.floor(to.j)];
-    if (!inside(this.map, ...b) || levelAt(this.map, ...b) < SEA_LEVEL) return false;
-    if ((a[0] !== b[0] || a[1] !== b[1]) && !canStep(this.map, a, b)) return false;
+    if (!inside(this.floor, ...b) || levelAt(this.floor, ...b) < WADE) return false;
+    // A step of more than a slope is a cliff, on land or under the water.
+    if ((a[0] !== b[0] || a[1] !== b[1]) && Math.abs(levelAt(this.floor, ...a) - levelAt(this.floor, ...b)) > SLOPE_LEVELS) return false;
     for (const p of this.viewPlants()) {
       const r = BLOCK[plantById(p.plant)!.category] * p.size;
       if (!r) continue;

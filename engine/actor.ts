@@ -2,7 +2,10 @@
 // sprite for the current frame. Movement slides along whatever blocks it.
 import { AUTHORED, type Clip } from '../lab/poses.ts';
 import { drawCharacter, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
-import { standingHeight } from '../lab/terrain.ts';
+import { SHADOW } from '../lab/flora.ts';
+import type { Picture } from '../lab/island.ts';
+import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight } from '../lab/terrain.ts';
+import { ocean, rgb } from './ocean.ts';
 import type { Thing, World } from './world.ts';
 
 export const EMOTES = ['wave', 'use'] as const;
@@ -15,6 +18,36 @@ const SPEED = { walk: 1.7, run: 3.6 };
 const EMOTE_LOOPS = 2;
 /** The pixel in a character sprite that stands on the ground. */
 const FEET = { x: 32, y: 52 };
+/** Wading is slower than walking on land. */
+const WADING = 0.6;
+/**
+ * Splashes while wading: drops thrown up from the feet every `every` seconds of walking (half that
+ * running), `per` at a time, falling back under `gravity`, in levels and tiles per second.
+ */
+const SPLASH = { every: 0.08, per: 2, up: [4, 8], out: 0.7, gravity: 40 };
+
+interface Drop { i: number; j: number; z: number; vi: number; vj: number; vz: number; pale: boolean }
+
+/** A colour moved part of the way to another; a sprite colour keeps its alpha. */
+function tint(hex: string, to: number[], k: number): string {
+  const from = rgb(hex);
+  return '#' + from.map((v, n) => Math.round(v + (to[n] - v) * k).toString(16).padStart(2, '0')).join('') + hex.slice(7);
+}
+
+/** A character picture standing `rows` pixels deep in water: the rows under the surface are tinted, the waterline lighter, the ground shadow gone. */
+function wading(sprite: Picture, rows: number): Picture {
+  const water = rgb(ocean.shallow);
+  const foam = rgb(ocean.wave);
+  const line = FEET.y - rows;
+  return {
+    get(x, y) {
+      const c = sprite.get(x, y);
+      if (!c || c === SHADOW) return null;
+      if (y === line) return tint(c, foam, 0.55);
+      return y > line ? tint(c, water, 0.6) : c;
+    },
+  };
+}
 
 /**
  * The facing for a direction on the map. The four facings are the map axes: +i is front right
@@ -34,6 +67,9 @@ export class Actor {
   private started = 0;
   private look: Look;
   private frames = new Map<string, Sprite>();
+  private wet = new Map<string, Picture>();
+  private drops: Drop[] = [];
+  private splashClock = 0;
 
   constructor(look: Look, at: { i: number; j: number }) {
     this.look = look;
@@ -44,6 +80,7 @@ export class Actor {
   setLook(look: Look): void {
     this.look = look;
     this.frames.clear();
+    this.wet.clear();
   }
 
   emote(emote: Emote, ms: number): void {
@@ -61,6 +98,7 @@ export class Actor {
    * direction stands still, letting an emote finish.
    */
   update(world: World, dt: number, di: number, dj: number, run: boolean, ms: number): void {
+    this.fly(Math.min(dt, 0.1));
     const length = Math.hypot(di, dj);
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
@@ -70,7 +108,9 @@ export class Actor {
     }
     this.facing = facingOf(di, dj, this.facing);
     this.play(run ? 'run' : 'walk', ms);
-    const step = (run ? SPEED.run : SPEED.walk) * Math.min(dt, 0.1);
+    const depth = this.depth(world);
+    const step = (run ? SPEED.run : SPEED.walk) * (depth > 0 ? WADING : 1) * Math.min(dt, 0.1);
+    if (depth > 0) this.splash(Math.min(dt, 0.1), run);
     const mi = (di / length) * step;
     const mj = (dj / length) * step;
     const from = { i: this.i, j: this.j };
@@ -86,12 +126,70 @@ export class Actor {
     }
   }
 
+  /** How deep the character stands in water, in levels; 0 on land. */
+  private depth(world: World): number {
+    return Math.max(0, SEA_LEVEL - heightAt(world.floor, this.i, this.j));
+  }
+
+  private splash(dt: number, run: boolean): void {
+    this.splashClock += dt;
+    const every = run ? SPLASH.every / 2 : SPLASH.every;
+    for (; this.splashClock > every; this.splashClock -= every) {
+      for (let n = 0; n < SPLASH.per; n++) {
+        const a = Math.random() * Math.PI * 2;
+        const out = SPLASH.out * (0.3 + Math.random() * 0.7);
+        this.drops.push({
+          i: this.i + Math.cos(a) * 0.12, j: this.j + Math.sin(a) * 0.12, z: 0,
+          vi: Math.cos(a) * out, vj: Math.sin(a) * out,
+          vz: SPLASH.up[0] + Math.random() * (SPLASH.up[1] - SPLASH.up[0]), pale: Math.random() < 0.4,
+        });
+      }
+    }
+  }
+
+  /** Moves the drops on; a drop is gone when it falls back into the water. */
+  private fly(dt: number): void {
+    for (const d of this.drops) {
+      d.i += d.vi * dt;
+      d.j += d.vj * dt;
+      d.vz -= SPLASH.gravity * dt;
+      d.z += d.vz * dt;
+    }
+    this.drops = this.drops.filter((d) => d.z > 0);
+  }
+
+  /** The splash drops in the air, each one pixel, standing on the water surface below it. */
+  dropThings(): Thing[] {
+    const white = ocean.wave;
+    const pale = ocean.shore;
+    return this.drops.map((d) => ({
+      spot: { i: d.i, j: d.j, level: SEA_LEVEL + d.z },
+      picture: d.pale ? dot(pale) : dot(white),
+      w: 1, h: 1, foot: { x: 0, y: 0 },
+    }));
+  }
+
   thing(world: World, ms: number): Thing {
     const clip: Clip = AUTHORED[this.clip];
     const n = Math.floor(((ms - this.started) / 1000) * clip.rate) % clip.frames.length;
     const key = `${this.clip}|${n}|${this.facing}`;
     let sprite = this.frames.get(key);
     if (!sprite) this.frames.set(key, (sprite = drawCharacter(this.look, clip.frames[n], this.facing, { face: clip.faces?.[n], swing: clip.swing })));
-    return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: 64, h: 64, foot: FEET };
+    const depth = this.depth(world);
+    if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: 64, h: 64, foot: FEET };
+    // In the shallows the feet stand on the sea floor, under the surface.
+    const rows = Math.round(depth * LEVEL_PX);
+    const wetKey = `${key}|${rows}`;
+    let picture = this.wet.get(wetKey);
+    if (!picture) this.wet.set(wetKey, (picture = wading(sprite, rows)));
+    return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: 64, h: 64, foot: FEET };
   }
+}
+
+const dots = new Map<string, Picture>();
+/** A one-pixel picture of a colour, kept so its shadow and drawing caches hold. */
+function dot(color: string): Picture {
+  let picture = dots.get(color);
+  if (!picture) dots.set(color, (picture = { get: () => color }));
+  return picture;
 }

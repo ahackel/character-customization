@@ -37,7 +37,7 @@ body {
 .viewport {
   position: relative;
   overflow: hidden;
-  background: #4faec4;
+  background: #2470cc;
 }
 .viewport__canvas {
   position: absolute;
@@ -61,6 +61,64 @@ body {
   justify-content: center;
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 1.25rem;
+}
+.sea {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  max-height: calc(100% - 24px);
+  max-width: calc(100% - 80px);
+  overflow: auto;
+}
+.sea summary {
+  list-style: none;
+  cursor: pointer;
+}
+.sea summary::-webkit-details-marker {
+  display: none;
+}
+.sea__body {
+  display: grid;
+  gap: 6px;
+  width: 260px;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.sea__body h3 {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sea__field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+.sea__field input[type='color'] {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: none;
+}
+.sea__range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sea__range input {
+  width: 96px;
+}
+.sea__range output {
+  min-width: 2.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .status {
   position: absolute;

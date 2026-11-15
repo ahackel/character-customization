@@ -4,12 +4,13 @@ import { defaultState, download, loadRoster, lookOf, pickFile, type Saved } from
 import { FRAMES } from '../lab/flora.ts';
 import { FLORA, plantById } from '../lab/flora-catalog.ts';
 import { castShadow, layShadow, ROOM, stamp, type Picture } from '../lab/island.ts';
-import { inside, levelAt, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
+import { inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
 import { Actor, EMOTES, type Emote } from '../engine/actor.ts';
 import {
   createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, type Scene,
 } from '../engine/scene.ts';
 import { grows, rasterOf, smooth, World, type Rect, type Thing } from '../engine/world.ts';
+import { ocean, OCEAN_PRESETS, OCEAN_RANGES, saveOcean, useOcean, WATER_COLORS, type OceanColor, type OceanNumber } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
 import { currentLang, LANGS, setLang, t, type Key } from './i18n.ts';
 
@@ -74,6 +75,8 @@ let saveTimer = 0;
 function store(): void {
   clearTimeout(saveTimer);
   saveTimer = 0;
+  // The ground is copied to the scene when it is redrawn, which may not have happened yet.
+  world.commit();
   if (!saveLibrary(library)) say(t('scene.saveFailed'));
 }
 /** After any change to the scene: saved shortly after, so a drag is one write. */
@@ -189,6 +192,22 @@ function brushCells(at: { i: number; j: number }, tool = prefs.tool): number[] {
     if (inside(world.map, i, j)) out.push(j * world.map.w + i);
   }
   return out;
+}
+
+/** Whether the tool would do nothing on a tile, so the brush shows red there. */
+function cannotEdit(at: { i: number; j: number }): boolean {
+  switch (prefs.tool) {
+    case 'plant':
+      return !grows(world.map, prefs.plant, at.i + 0.5, at.j + 0.5);
+    case 'spawn':
+      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
+    case 'raise':
+      return brushCells(at).every((c) => world.map.levels[c] >= MAX_LEVEL);
+    case 'lower':
+      return brushCells(at).every((c) => world.map.levels[c] <= MIN_LEVEL);
+    default:
+      return false;
+  }
 }
 
 function placePlant(at: { i: number; j: number }): void {
@@ -328,7 +347,7 @@ function keyDirection(): [number, number] {
 }
 
 type Gesture =
-  | { kind: 'stroke'; touched: Set<number>; last: string; level?: number }
+  | { kind: 'stroke'; touched: Set<number>; last: string; level?: number; tile?: { i: number; j: number }; at: number }
   | { kind: 'walk' }
   | { kind: 'pan'; x: number; y: number; cam: { x: number; y: number } }
   | { kind: 'pinch'; dist: number; zoom: number; mid: { x: number; y: number }; cam: { x: number; y: number } };
@@ -339,14 +358,31 @@ const pair = () => {
   return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
 };
 
-function strokeAt(e: PointerEvent): void {
+/** Ground tools that keep working while the pointer is held still, and how often they repeat. */
+const HELD: Tool[] = ['raise', 'lower', 'smooth', 'level'];
+const REPEAT_MS = 200;
+
+function strokeAt(e: { clientX: number; clientY: number }): void {
   if (gesture?.kind !== 'stroke') return;
   const tile = tileUnder(e);
   if (!tile) return;
   const key = `${tile.i},${tile.j}`;
   if (key === gesture.last) return;
   gesture.last = key;
+  gesture.tile = tile;
+  gesture.at = performance.now();
   apply(tile, gesture);
+}
+
+/**
+ * While held, the tool works again on the tile it last worked on. That tile is kept rather than
+ * picked again: as the ground rises, another tile can come to lie under the same pixel.
+ */
+function repeatStroke(ms: number): void {
+  if (gesture?.kind !== 'stroke' || !gesture.tile || !HELD.includes(prefs.tool) || ms - gesture.at < REPEAT_MS) return;
+  gesture.touched.clear();
+  gesture.at = ms;
+  apply(gesture.tile, gesture);
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -358,7 +394,7 @@ canvas.addEventListener('pointerdown', (e) => {
   } else if (pointers.size === 1) {
     if (e.button === 1 || e.button === 2 || keys.has('Space')) gesture = { kind: 'pan', x: e.clientX, y: e.clientY, cam: { ...cam } };
     else if (prefs.mode === 'edit') {
-      gesture = { kind: 'stroke', touched: new Set(), last: '' };
+      gesture = { kind: 'stroke', touched: new Set(), last: '', at: 0 };
       strokeAt(e);
     } else {
       gesture = { kind: 'walk' };
@@ -415,6 +451,7 @@ let shown = '';
 function frame(ms: number): void {
   const dt = Math.min(0.1, (ms - last) / 1000);
   last = ms;
+  repeatStroke(ms);
   if (groundDirty) {
     // shortcut: redraws the whole ground per changed tile; fine up to 64 by 64, draw only the changed rows if it ever lags.
     world.redraw();
@@ -446,17 +483,20 @@ function frame(ms: number): void {
 
   const view = viewRect();
   const wind = Math.floor((ms / 1000) * 6) % FRAMES;
-  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${hover?.i},${hover?.j}|${prefs.mode}`;
+  const waves = Math.floor(ms / 100);
+  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
     shown = key;
     const things: Thing[] = world.plantThings(wind);
-    if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms));
+    if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
       things.push({ spot: { i: s.i, j: s.j, level: Math.max(SEA_LEVEL, levelAt(world.map, Math.floor(s.i), Math.floor(s.j))) }, picture: FLAG, w: 6, h: 13, foot: { x: 0, y: 12 } });
     }
-    const highlight = prefs.mode === 'edit' && hover ? new Set(brushCells(hover)) : undefined;
-    const image = world.compose(view, things, highlight, prefs.mode === 'edit');
+    const blocked = prefs.mode === 'edit' && !!hover && cannotEdit(hover);
+    const highlight = prefs.mode === 'edit' && hover ? { cells: new Set(brushCells(hover)), color: blocked ? '#e0332e99' : '#ffffff66' } : undefined;
+    canvas.style.cursor = blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';
+    const image = world.compose(view, things, highlight, prefs.mode === 'edit', waves * 100);
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
   requestAnimationFrame(frame);
@@ -612,6 +652,66 @@ async function importScene(): Promise<void> {
 
 // ------------------------------------------------------------------ mount
 
+// ------------------------------------------------------------------ sea panel
+
+const SEA_GROUPS: { title: Key; fields: (OceanColor | OceanNumber)[] }[] = [
+  { title: 'sea.group.water', fields: ['shore', 'shallow', 'middle', 'open', 'deep', 'far', 'gradient'] },
+  { title: 'sea.group.waves', fields: ['wave', 'waveReach', 'wavePeriod', 'waves'] },
+  { title: 'sea.group.ripples', fields: ['rippleDark', 'ripplePale', 'rippleOpacity', 'ripples', 'rippleLength', 'drift', 'glints'] },
+];
+let seaOpen = false;
+
+/** After a sea setting changed: keep it, and redraw the ground if a water colour is baked into it. */
+function seaChanged(key: OceanColor | OceanNumber): void {
+  saveOcean();
+  if ((WATER_COLORS as string[]).includes(key)) groundDirty = true;
+  viewport.style.background = ocean.deep;
+  version++;
+}
+
+/** A floating panel over the scene with the sea's colours and motion, saved on this device. */
+function seaPanel(): HTMLElement {
+  const panel = h('details', { class: 'sea' }, h('summary', { class: 'chip' }, t('sea')));
+  panel.open = seaOpen;
+  panel.addEventListener('toggle', () => (seaOpen = panel.open));
+  const body = h('div', { class: 'sea__body' });
+  const field = (key: OceanColor | OceanNumber): HTMLElement => {
+    const label = t(`sea.${key}` as Key);
+    if (key in OCEAN_RANGES) {
+      const k = key as OceanNumber;
+      const [min, max, step] = OCEAN_RANGES[k];
+      const input = h('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(ocean[k]), 'aria-label': label });
+      const shown = h('output', {}, String(ocean[k]));
+      input.addEventListener('input', () => {
+        ocean[k] = Number(input.value);
+        shown.textContent = input.value;
+        seaChanged(k);
+      });
+      return h('label', { class: 'sea__field' }, h('span', {}, label), h('span', { class: 'sea__range' }, input, shown));
+    }
+    const k = key as OceanColor;
+    const input = h('input', { type: 'color', value: ocean[k], 'aria-label': label });
+    input.addEventListener('input', () => {
+      ocean[k] = input.value;
+      seaChanged(k);
+    });
+    return h('label', { class: 'sea__field' }, h('span', {}, label), input);
+  };
+  const fill = () => body.replaceChildren(
+    h('div', { class: 'chips', role: 'group', 'aria-label': t('sea.presets') },
+      ...(['blue', 'aqua'] as const).map((name) => button(t(`sea.preset.${name}`), () => {
+        useOcean(OCEAN_PRESETS[name]);
+        WATER_COLORS.forEach((k) => seaChanged(k));
+        fill();
+      })),
+    ),
+    ...SEA_GROUPS.flatMap((g) => [h('h3', {}, t(g.title)), ...g.fields.map(field)]),
+  );
+  fill();
+  panel.append(body);
+  return panel;
+}
+
 function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
@@ -629,8 +729,10 @@ function mount(): void {
       return b;
     }),
   );
+  viewport.style.background = ocean.deep;
   viewport.replaceChildren(
     canvas,
+    seaPanel(),
     h('div', { class: 'zoom' },
       button('+', () => setZoom(zoom + 1), { 'aria-label': t('zoom.in') }),
       button('−', () => setZoom(zoom - 1), { 'aria-label': t('zoom.out') }),

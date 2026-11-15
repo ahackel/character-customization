@@ -25,6 +25,10 @@ npm run build
 
 builds a static site into `dist/`.
 
+## The 2D wardrobe
+
+With the dev server running, open `/wardrobe/` to dress the pixel survivor: skin, build, hair, beard, hat, top, bottom, shoes and tool, with colour swaps, five actions and four facings. Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`.
+
 ## The 2D experiments
 
 With the dev server running, open `/lab/` for the comparison page.
@@ -34,7 +38,8 @@ With the dev server running, open `/lab/` for the comparison page.
 | `lab/puppet.ts` | Draws a 32 by 48 character from joint positions by fixed pixel rules, in four facings |
 | `lab/poses.ts` | Hand-written key poses, and poses built from sampled 3D clips |
 | `lab/items.ts` | The two item formats, their checks, and conversion to one common item shape |
-| `lab/base.ts`, `lab/palette.ts` | Generated base body and the master palette |
+| `lab/base.ts`, `lab/palette.ts` | Generated base body, faces and hairstyles, and the master palette |
+| `lab/catalog.ts` | Turns every generated file into wardrobe items and handles colour swaps |
 | `lab/generated/` | Format descriptions given to the model, its unedited answers, sampled poses, the 3D reference sheet |
 | `lab/tools/` | Scripts that write the format descriptions, sample the 3D clips and render preview sheets |
 

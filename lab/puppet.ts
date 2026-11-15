@@ -108,8 +108,25 @@ export interface Item {
 export const SLOTS = ['bottom', 'shoes', 'top', 'beard', 'hair', 'hat', 'tool'] as const;
 export type Slot = (typeof SLOTS)[number];
 
+/** Body build: how wide the torso and limbs are drawn. Clothing is fitted to it by rule. */
+export interface Build {
+  id: string;
+  label: string;
+  /** Torso width in pixels: 9 or 11. */
+  torso: 9 | 11;
+  arm: number;
+  leg: number;
+}
+
+export const BUILDS: Build[] = [
+  { id: 'slim', label: 'Slim', torso: 9, arm: 3, leg: 4 },
+  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5 },
+];
+
 export interface Look {
   skin: PaletteKey;
+  /** Defaults to the slim build. */
+  build?: Build;
   /** The bare head, as stamps. */
   head: StampPair;
   /** Face expressions, drawn on the front of the head. 'neutral' is the default. */
@@ -120,8 +137,6 @@ export interface Look {
 export interface DrawOptions {
   /** Which face to show. */
   face?: string;
-  /** Rows the hat sits lower (positive) or higher than the head this frame, for follow-through. */
-  hatLag?: number;
 }
 
 // ------------------------------------------------------------------ drawing
@@ -193,6 +208,15 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
 
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
+/**
+ * Fits a torso stamp drawn for the 9-pixel torso to the 11-pixel one by repeating one column on
+ * each side of the middle. Horizontal patterns are unaffected; the anchor moves one column right.
+ */
+function widened(stamp: Stamp): Stamp {
+  const repeat = [TORSO_FRAME.ax - 2, TORSO_FRAME.ax + 2];
+  return stamp.map((row) => row.flatMap((cell, col) => (repeat.includes(col) ? [cell, cell] : [cell])));
+}
+
 /** Draws one frame of a character. Every pixel is placed by a rule or comes from a stamp. */
 export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
   if (facing === 1) return drawCharacter(look, pose, 0, options).mirrored();
@@ -208,6 +232,12 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // Later slots cover earlier ones.
   const ordered = SLOTS.flatMap((slot) => look.items.filter((i) => i.slot === slot));
   const tool = ordered.find((i) => i.tool);
+  const build = look.build ?? BUILDS[0];
+  // Poses are authored for the slim build. Wider builds move the limbs outwards so that arms
+  // still sit just outside the torso and legs keep a one-pixel gap.
+  const armShift = ((build.torso - 9) / 2 + (build.arm - 3) / 2) / 0.7071;
+  const legShift = ((build.leg - 4) / 2) / 0.7071;
+  const moved = (v: Vec3, s: 'L' | 'R', shift: number): Vec3 => [v[0] + (s === 'R' ? shift : -shift), v[1], v[2]];
 
   const limbPaint = (kind: 'arm' | 'leg', t: number): Cell => {
     let cell: Cell = skin;
@@ -235,20 +265,20 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
 
   // ---- legs and feet. The farther leg is drawn in the shade tone, with a gap between the two.
   for (const s of ['L', 'R'] as const) {
-    const hip = P(pose[`hip${s}`]);
-    const knee = P(pose[`knee${s}`]);
-    const foot = P(pose[`foot${s}`]);
+    const hip = P(moved(pose[`hip${s}`], s, legShift));
+    const knee = P(moved(pose[`knee${s}`], s, legShift));
+    const foot = P(moved(pose[`foot${s}`], s, legShift));
     const far = hip.depth < hips.depth;
     layers.push({
       depth: knee.depth - 20,
       draw: () => {
-        drawLimb(sprite, [hip, knee, foot], 4, (t) => tone(limbPaint('leg', t), far));
+        drawLimb(sprite, [hip, knee, foot], build.leg, (t) => tone(limbPaint('leg', t), far));
         let shoe: Cell = skin;
         for (const item of ordered) if (item.foot) shoe = item.foot;
         // Feet are wider than the legs and point the way the character faces.
-        const left = Math.round(foot.x - 2);
+        const left = Math.round(foot.x - build.leg / 2);
         const top = Math.round(foot.y);
-        for (let dx = 0; dx < 5; dx++) {
+        for (let dx = 0; dx <= build.leg; dx++) {
           sprite.set(left + dx, top, tone(shoe, far));
           sprite.set(left + dx, top + 1, tone(shoe, far || dx === 0));
         }
@@ -263,32 +293,45 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     draw: () => {
       const top = Math.round(chest.y);
       const bottom = Math.round(hips.y) + 1;
+      const width = build.torso;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
-        const left = Math.round(chest.x + (hips.x - chest.x) * k - 4.5);
-        for (let i = 0; i < 9; i++) {
-          const edge = farSide > 0 ? i === 8 : i === 0;
+        const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
+        for (let i = 0; i < width; i++) {
+          const edge = farSide > 0 ? i === width - 1 : i === 0;
           // A shadow under the chin, and the far side in shade.
-          const under = y === top && i >= 2 && i <= 6;
+          const under = y === top && i >= 2 && i <= width - 3;
           sprite.set(left + i, y, tone(skin, edge || under));
         }
       }
-      if (!back) sprite.set(Math.floor(chest.x) + 1, top + 8, tone(skin, true));
-      for (const item of ordered) if (item.torso) stampInto(sprite, side(item.torso), TORSO_FRAME, Math.floor(chest.x), top);
+      const mid = Math.floor(chest.x);
+      if (back) {
+        // A hint of the spine, so the back is not an empty block.
+        for (let dy = 2; dy <= 5; dy++) sprite.set(mid, top + dy, tone(skin, true));
+      } else {
+        sprite.set(mid + 1, top + 8, tone(skin, true));
+      }
+      for (const item of ordered) {
+        if (!item.torso) continue;
+        const stamp = side(item.torso);
+        if (width === 11) stampInto(sprite, widened(stamp), { ax: TORSO_FRAME.ax + 1, ay: TORSO_FRAME.ay }, mid, top);
+        else stampInto(sprite, stamp, TORSO_FRAME, mid, top);
+      }
     },
   });
 
   // ---- arms and hands. The nearer hand holds the tool.
   for (const s of ['L', 'R'] as const) {
-    const shoulder = P(pose[`shoulder${s}`]);
+    const shoulder3 = moved(pose[`shoulder${s}`], s, armShift);
+    const shoulder = P(shoulder3);
     const far = shoulder.depth < chest.depth;
-    let elbow = P(pose[`elbow${s}`]);
-    let hand = P(pose[`hand${s}`]);
+    let elbow = P(moved(pose[`elbow${s}`], s, armShift));
+    let hand = P(moved(pose[`hand${s}`], s, armShift));
     const holding = !far && tool;
     if (holding && tool.hold === 'pole') {
       // Arm held out to the side with the forearm raised, fist closed around the shaft.
       const side3 = s === 'R' ? 1 : -1;
-      const elbow3 = add(pose[`shoulder${s}`], [side3 * 3.4, -2.9, 0.4]);
+      const elbow3 = add(shoulder3, [side3 * 3.4, -2.9, 0.4]);
       elbow = P(elbow3);
       hand = P(add(elbow3, [side3 * 3.6, -0.6, 2.6]));
     }
@@ -301,10 +344,13 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
           const y = tool.hold === 'pole' ? ORIGIN_Y - GRIP_HEIGHT : Math.round(hand.y);
           stampInto(sprite, side(tool.tool!), TOOL_FRAME, x, y);
         }
-        drawLimb(sprite, [shoulder, elbow, hand], 3, (t, across) => {
+        drawLimb(sprite, [shoulder, elbow, hand], build.arm, (t, across) => {
           // Where the nearer arm lies over the body, its inner edge is shaded so the two separate.
-          const contact = !far && t < 0.7 && (inner > 0 ? across === 2 : across === 0);
-          return tone(limbPaint('arm', t), far || contact);
+          const contact = !far && t < 0.7 && (inner > 0 ? across === build.arm - 1 : across === 0);
+          // The outer corner of the shoulder is lit, which rounds it.
+          const cap = !far && t === 0 && (inner > 0 ? across === 0 : across === build.arm - 1);
+          const cell = limbPaint('arm', t);
+          return cap ? hexOf({ ...cell, shade: false, light: true }) : tone(cell, far || contact);
         });
         // Hands are a visible block of skin, drawn over whatever they hold.
         const left = Math.round(hand.x - 1.5);
@@ -332,7 +378,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       stampInto(sprite, side(look.head), HEAD_FRAME, hx, hy);
       if (!back) stampInto(sprite, look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, HEAD_FRAME, hx, hy);
       for (const item of ordered) {
-        if (item.head) stampInto(sprite, side(item.head), HEAD_FRAME, hx, hy + (item.slot === 'hat' ? options.hatLag ?? 0 : 0));
+        if (item.head) stampInto(sprite, side(item.head), HEAD_FRAME, hx, hy);
       }
     },
   });

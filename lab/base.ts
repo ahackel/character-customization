@@ -24,7 +24,7 @@ const HEAD_FRONT = pad([
   '....#############....',
   '...###############...',
   '...###############...',
-  '...###############...',
+  '...####%%%%%%%%%%#...',
   '...###############...',
   '..%###############...',
   '..%%##############...',
@@ -130,14 +130,91 @@ const SHORT_HAIR_BACK = pad([
   '......hh.hh..h.......',
 ], 2);
 
-export function shortHair(color: PaletteKey): Item {
-  const legend = { H: color, L: `${color}+` } as const;
-  return {
-    name: 'Short hair',
-    slot: 'hair',
-    head: { front: parseStamp(SHORT_HAIR_FRONT, legend), back: parseStamp(SHORT_HAIR_BACK, legend) },
-  };
+// Long hair to the shoulders: a smooth crown with a parting, a lock in front of the near ear,
+// and a mass that falls behind the neck in front views and over the upper back from behind.
+const LONG_HAIR_FRONT = pad([
+  '......HHHHHHHHH......',
+  '....HHHHLLLLHHHHH....',
+  '..HHHHHLLLHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHH..',
+  '.HHHHHHHHHHHHHHHHHH..',
+  '.HHHHHHHHHHHHHHHHHh..',
+  '.HHHHHHHHhHHHHHHHHh..',
+  '.HHHHHhh..hhhhHHHHhh.',
+  '.HHHh.............hh.',
+  '.HHh..............hh.',
+  '.HHh..............hh.',
+  '.HHh..............hh.',
+  '.HHh...............h.',
+  '.HHH.................',
+  '.hHH.................',
+  '.hHH.................',
+  '.hHHh................',
+  '..hHh................',
+  '..hhh................',
+  '...h.................',
+], 3);
+
+const LONG_HAIR_BEHIND = pad([
+  '....hhhhhhhhhhhhhh...',
+  '....hhhhhhhhhhhhhh...',
+  '....hhhhhhhhhhhhhh...',
+  '....hhhhhhhhhhhhhh...',
+  '.....hhhhhhhhhhhh....',
+  '.....hhhhhhhhhhhh....',
+  '......hhhhhhhhhh.....',
+  '.......hh.hhh.hh.....',
+], 16);
+
+const LONG_HAIR_BACK = pad([
+  '......HHHHHHHHH......',
+  '....HHHHHHLLLLHHH....',
+  '..HHHHHHHHHHLLLHHHH..',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHHHHHHHHHHHH..',
+  '..hHHHHHhHHHHHHHHHH..',
+  '..hHHHHHhHHHHHhHHHH..',
+  '..hHHHHHhHHHHHhHHHH..',
+  '..hhHHHHhHHHHHhHHHH..',
+  '...hHHHHhHHHHHhHHH...',
+  '...hHHHHhHHHHHhHHH...',
+  '...hhHHHhHHHHHhHHh...',
+  '....hHHhhHHHHhhHH....',
+  '....hhHh.hHHh.hHh....',
+  '.....hh...hh...h.....',
+], 3);
+
+export interface HairStyle {
+  id: string;
+  label: string;
+  make: (color: PaletteKey) => Item;
 }
+
+const hairItem = (name: string, color: PaletteKey, front: string[], back: string[], behind?: string[]): Item => {
+  const legend = { H: color, L: `${color}+` } as const;
+  const empty = pad([], 0);
+  return {
+    name,
+    slot: 'hair',
+    head: { front: parseStamp(front, legend), back: parseStamp(back, legend) },
+    ...(behind ? { headBehind: { front: parseStamp(behind, legend), back: parseStamp(empty, legend) } } : {}),
+  };
+};
+
+export const HAIR_STYLES: HairStyle[] = [
+  { id: 'short', label: 'Short and unruly', make: (color) => hairItem('Short hair', color, SHORT_HAIR_FRONT, SHORT_HAIR_BACK) },
+  { id: 'long', label: 'Long', make: (color) => hairItem('Long hair', color, LONG_HAIR_FRONT, LONG_HAIR_BACK, LONG_HAIR_BEHIND) },
+];
+
+export const shortHair = (color: PaletteKey): Item => HAIR_STYLES[0].make(color);
 
 const shorts = (rows: string[]) => parseStamp([...Array(10).fill('.'.repeat(15)), ...rows], { W: 'white' });
 

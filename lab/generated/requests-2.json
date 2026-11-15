@@ -1,0 +1,56 @@
+[
+ {
+  "id": "axe",
+  "format": "sprite",
+  "slot": "tool",
+  "request": "A stone hand axe: a short wooden handle with a lashed stone head, carried in the hand at the side."
+ },
+ {
+  "id": "rod",
+  "format": "sprite",
+  "slot": "tool",
+  "request": "A fishing rod made from a long bamboo cane with a line and hook, held upright."
+ },
+ {
+  "id": "bandana",
+  "format": "sprite",
+  "slot": "hat",
+  "request": "A red bandana tied around the head, knotted at the back."
+ },
+ {
+  "id": "cap",
+  "format": "sprite",
+  "slot": "hat",
+  "request": "A battered navy captain's cap with a gold badge."
+ },
+ {
+  "id": "leafskirt",
+  "format": "sprite",
+  "slot": "bottom",
+  "request": "A skirt made of green palm leaves."
+ },
+ {
+  "id": "vest",
+  "format": "sprite",
+  "slot": "top",
+  "request": "An open sailcloth vest, off-white with rope ties, chest bare underneath."
+ },
+ {
+  "id": "tops",
+  "format": "recipe",
+  "slot": "top",
+  "request": "Six different tops a castaway might wear, clearly different from each other: for example a plain T-shirt, a tank top, a long tunic, a checked shirt, a shirt worn open, a cropped rag. Return exactly 6 items instead of 3."
+ },
+ {
+  "id": "bottoms",
+  "format": "recipe",
+  "slot": "bottom",
+  "request": "Six different bottoms a castaway might wear, clearly different from each other: for example long trousers, rolled-up trousers, knee-length shorts, a wrap skirt, patched trousers with a rope belt, briefs. Return exactly 6 items instead of 3."
+ },
+ {
+  "id": "shoes",
+  "format": "recipe",
+  "slot": "shoes",
+  "request": "Three different kinds of footwear a castaway might have: for example brown sandals, black boots, cloth foot wraps."
+ }
+]

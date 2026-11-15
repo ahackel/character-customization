@@ -151,6 +151,19 @@ Times include the overhead of running each call as a helper inside the working s
 - Recipe shorts came out very short because of the length scale in my format description.
 - Two frame-size limits in my own code clipped whole-sprite hats and spears on the first pass. I fixed the code; nothing was regenerated.
 
+### Third pass and the wardrobe prototype
+
+Requested on 15 November 2026: push the body further, add a second hairstyle and a second build, keep the hat attached to the head, and provide a prototype for testing customization.
+
+- **Hat.** The one-frame delay on hats is removed. A hat is rigid on the head.
+- **Second build.** A sturdy build with an 11-pixel torso and wider legs. Clothing drawn for the slim build is fitted by repeating one column on each side of the middle, so no item needs a second drawing.
+- **Second hairstyle.** Long hair with a lock in front of the ear, a mass behind the neck in front views and a fall over the upper back from behind.
+- **Body.** A shadow under the fringe or hat brim, a lit shoulder corner, a hint of the spine on the bare back.
+- **More items.** Nine further model calls produced 33 candidates (tops, bottoms, shoes, bandanas, caps, vests, leaf skirts, axes, fishing rods). All 33 were valid as returned. Tops, bottoms, bandanas, caps and vests look good to me; the axes are small and unclear and the fishing rods are thin and lean.
+- **Wardrobe.** `wardrobe/` is a page for dressing the survivor: skin, build, hairstyle and colour, beard, hat, top, bottom, shoes and tool, with colour swaps per item, five actions, four facings and four ground colours. It holds 57 items: everything generated so far except the two sets excluded for known faults (the leaning small-stamp spears and the first, too-short recipe shorts).
+
+Two rules are applied on top of the generated data: beards are hidden from behind, and a beard takes the hair colour.
+
 ### Recommendation
 
 1. Build on the puppet.

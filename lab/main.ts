@@ -59,17 +59,13 @@ function puppetView(look: Look, state: () => { clip: Clip; facing: Facing }, sca
     canvas,
     draw: (seconds) => {
       const { clip, facing } = state();
-      const count = clip.frames.length;
-      const frame = Math.floor(seconds * clip.rate) % count;
+      const frame = Math.floor(seconds * clip.rate) % clip.frames.length;
       const key = `${clip.name}|${facing}|${frame}`;
       if (key === shown) return;
       shown = key;
       let sprite = cache.get(key);
       if (!sprite) {
-        // Follow-through: when the body rises or drops, the hat arrives one frame late.
-        const before = clip.frames[(frame + count - 1) % count];
-        const hatLag = Math.sign(Math.round(clip.frames[frame].hips[1] - before.hips[1]));
-        sprite = drawCharacter(look, clip.frames[frame], facing, { face: clip.faces?.[frame], hatLag });
+        sprite = drawCharacter(look, clip.frames[frame], facing, { face: clip.faces?.[frame] });
         cache.set(key, sprite);
       }
       paint(ctx, sprite);
@@ -207,7 +203,7 @@ function rebuilt(): HTMLElement {
         h('li', {}, 'Hands and feet as visible blocks, and legs with a gap between them.'),
         h('li', {}, 'Colour. Every material gets its shadow and highlight from one rule: shadows lean towards plum, highlights towards cream.'),
         h('li', {}, 'Separation without outlines: a shaded edge where the arm crosses the body, a shadow under the chin, and a ground shadow.'),
-        h('li', {}, 'Motion: a breathing idle, a lean in the walk, and the hat arriving one frame late when the body rises or drops.'),
+        h('li', {}, 'Motion: a breathing idle with a blink, and a lean in the walk.'),
       ),
       h('p', {}, 'These follow common pixel-art practice for small sprites and how Stardew Valley, Habbo and the Liberated Pixel Cup characters are built. The research notes are in docs/pixel-style-research.md in the repository.'),
       h('p', {}, 'Still plain: the torso is a block, the back view has little to look at, and there is one body and one hairstyle. All generated items below were drawn for the first body and are shown on the second unchanged.'),

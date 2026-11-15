@@ -212,6 +212,18 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 
 `lab/tools/pass7.mjs` renders the check sheets (moods, motion, belly).
 
+### Foliage
+
+The same approach, extended to plants (`lab/flora.ts`, page `flora/`).
+
+- **Format.** The model never paints a plant. It writes a small tree of parts: `stem` (trunks, stalks, cactus columns and arms: length, taper, lean, curve, texture, cap), `leaf` (frond, blade, broad or needle: length, width, rise, droop, texture), `blob` (bushes, barrel cacti, pads, fruit: size and texture), and `stamp`, a tiny text grid for details such as flowers. Copies are spread round the stem or over a fan, at a range of heights. The description is `lab/generated/spec-plant.md`.
+- **Rules.** Parts grow in 3D and are projected in the same 2:1 view as the characters, sorted by depth, and shaded with the shared palette: stems lit on the left, leaf undersides and fronds that point away in shade, bushes built from shaded clumps, one ground shadow under the canopy and one under each stem. Five plant colours were added to the palette (jungle, lime, moss, sage, bark); they are kept out of the clothing colours.
+- **Variants, wind, season.** A seed varies sizes and angles within each part's jitter, and odd seeds are mirrored. Wind is eight frames: the whole plant bends with height, leaves flutter towards their tips, a storm adds a steady lean. Dryness from 0 to 1 is the plants' version of the clothing condition: leaves droop, turn olive then straw or brown in patches, tear and drop, and flowers and small fruit go first.
+- **Generation.** Four model calls, one per group, produced 19 plants: three palms, six grasses and ground covers, four cacti, six jungle plants. All 19 were valid as returned, none needed clamping, and none ran off the canvas. Palms, the saguaro, the prickly pear, the hibiscus bush and the bamboo read well to me; the monstera reads as a dark lettuce, and the grasses are correct but small, as they should be at this scale.
+- **Page.** A preview with four variants, wind, season and ground, the person for scale, colour swaps, and the model's recipe in an editor that regrows the plant as you type and keeps edits in the browser. An island scene scatters the current group round a survivor. English and German.
+
+`lab/tools/flora-sheet.mjs` renders plants to sheets (variants, wind frames, drying stages).
+
 ### Recommendation
 
 1. Build on the puppet.

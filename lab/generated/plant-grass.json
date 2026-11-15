@@ -1,0 +1,90 @@
+[
+  {
+    "name": "Fresh grass tuft",
+    "category": "grass",
+    "parts": [
+      { "type": "leaf", "shape": "blade", "color": "leaf", "count": 10, "out": 1,
+        "length": 7, "width": 1, "rise": 72, "droop": 30, "jitter": 0.5 },
+      { "type": "leaf", "shape": "blade", "color": "lime", "count": 5, "out": 1, "turn": 90, "around": 200,
+        "length": 5, "width": 1, "rise": 65, "droop": 25, "jitter": 0.5 }
+    ]
+  },
+  {
+    "name": "Tall beach grass",
+    "category": "grass",
+    "parts": [
+      { "type": "leaf", "shape": "blade", "color": "sage", "count": 12, "out": 2,
+        "length": 14, "width": 1, "rise": 78, "droop": 55, "jitter": 0.45, "sway": 1.4 },
+      { "type": "leaf", "shape": "blade", "color": "moss", "count": 6, "out": 1,
+        "length": 11, "width": 1, "rise": 82, "droop": 35, "jitter": 0.4, "sway": 1.2 }
+    ]
+  },
+  {
+    "name": "Dry yellow grass",
+    "category": "grass",
+    "parts": [
+      { "type": "leaf", "shape": "blade", "color": "straw", "count": 14, "out": 2,
+        "length": 9, "width": 1, "rise": 60, "droop": 70, "jitter": 0.6, "sway": 0.8 },
+      { "type": "leaf", "shape": "blade", "color": "yellow", "count": 6, "out": 1,
+        "length": 7, "width": 1, "rise": 75, "droop": 40, "jitter": 0.5, "sway": 0.8 },
+      { "type": "leaf", "shape": "blade", "color": "tan", "count": 4, "out": 2, "turn": 270, "around": 180,
+        "length": 6, "width": 1, "rise": 50, "droop": 80, "jitter": 0.5 }
+    ]
+  },
+  {
+    "name": "Reeds with seed heads",
+    "category": "grass",
+    "parts": [
+      { "type": "leaf", "shape": "blade", "color": "jungle", "count": 7, "out": 1,
+        "length": 10, "width": 2, "rise": 80, "droop": 35, "jitter": 0.4 },
+      { "type": "stem", "color": "green", "count": 4, "out": 2, "length": 11, "width": 1,
+        "lean": 6, "curve": 4, "cap": "point", "jitter": 0.3, "sway": 0.7,
+        "children": [
+          { "type": "stamp", "at": 0.85, "legend": { "B": "brown" },
+            "rows": ["BB", "BB", "BB", "bb"], "anchor": [0, 3], "sway": 0.5 }
+        ] }
+    ]
+  },
+  {
+    "name": "Clover patch",
+    "category": "grass",
+    "parts": [
+      { "type": "blob", "color": "leaf", "size": [16, 5], "texture": "clumps",
+        "children": [
+          { "type": "stamp", "count": 5, "at": [0.5, 1], "out": 5, "jitter": 0.5,
+            "legend": { "W": "white", "C": "cream" },
+            "rows": [".W.", "WCW", ".W."], "anchor": [1, 2] }
+        ] },
+      { "type": "leaf", "shape": "broad", "color": "green", "count": 8, "out": 6,
+        "length": 3, "width": 2, "rise": 15, "droop": 10, "jitter": 0.5, "sway": 0.4 }
+    ]
+  },
+  {
+    "name": "Wildflower tuft",
+    "category": "grass",
+    "parts": [
+      { "type": "leaf", "shape": "blade", "color": "leaf", "count": 8, "out": 1,
+        "length": 6, "width": 1, "rise": 65, "droop": 35, "jitter": 0.5 },
+      { "type": "stem", "color": "leaf", "turn": 180, "lean": 15, "length": 9, "width": 1, "out": 1,
+        "children": [
+          { "type": "stamp", "legend": { "P": "purple", "Y": "yellow" },
+            "rows": [".P.", "PYP", ".P."], "anchor": [1, 2] }
+        ] },
+      { "type": "stem", "color": "leaf", "turn": 20, "lean": 12, "length": 11, "width": 1, "out": 1,
+        "children": [
+          { "type": "stamp", "legend": { "Y": "yellow", "O": "orange" },
+            "rows": [".Y.", "YOY", ".Y."], "anchor": [1, 2] }
+        ] },
+      { "type": "stem", "color": "leaf", "turn": 100, "lean": 18, "length": 7, "width": 1, "out": 2,
+        "children": [
+          { "type": "stamp", "legend": { "K": "pink", "W": "white" },
+            "rows": [".K.", "KWK", ".K."], "anchor": [1, 2] }
+        ] },
+      { "type": "stem", "color": "leaf", "turn": 290, "lean": 10, "length": 10, "width": 1, "out": 1,
+        "children": [
+          { "type": "stamp", "legend": { "W": "white", "Y": "yellow" },
+            "rows": [".W.", "WYW", ".W."], "anchor": [1, 2] }
+        ] }
+    ]
+  }
+]

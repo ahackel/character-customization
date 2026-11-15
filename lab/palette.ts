@@ -34,6 +34,12 @@ const BASES = {
   grey: '#8f959e',
   steel: '#bac3cd',
   black: '#3a3a45',
+  // Plant colours. They follow the same ramp rule, so foliage is shaded like everything else.
+  jungle: '#2e7a4a',
+  lime: '#a5c94a',
+  moss: '#8a8f3e',
+  sage: '#78a585',
+  bark: '#7d5f4c',
 } as const;
 
 /** Colours with one fixed meaning, used by faces. They do not get derived tones. */
@@ -73,6 +79,8 @@ export const PALETTE = Object.fromEntries([
 export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
+/** Colours meant for plants. They are left out of the clothing colour choices. */
+export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark'];
 
 /** One pixel of paint: a palette entry in one of its tones. */
 export interface Cell {

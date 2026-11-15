@@ -29,6 +29,11 @@ builds a static site into `dist/`.
 
 With the dev server running, open `/wardrobe/` to dress a pixel person: gender, skin, three builds, face options, hair, beard, hat, top, bottom, shoes and a held item, with colour swaps, five actions and four facings. A condition from neat to tattered is a value of the character and ages everything worn, and the hair, by rule (`lab/wear.ts`). A mood drives the facial expression. Its items are the model-generated ones from `lab/generated/`, assembled by `lab/catalog.ts`. The text is in English and German (`wardrobe/i18n.ts`).
 
+
+## Island flora
+
+Open `/flora/` for plants in the same style: palms, grass, cacti and jungle plants. A language model describes each plant as a few parts (`lab/generated/spec-plant.md`); `lab/flora.ts` grows them by rule, adds variants, wind and drying out, and draws them in the characters' view and palette. The page shows them on the ground and in a small island scene with a survivor, and lets you edit a plant's recipe and watch it regrow.
+
 ## The 2D experiments
 
 With the dev server running, open `/lab/` for the comparison page.

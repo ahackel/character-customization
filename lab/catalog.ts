@@ -1,6 +1,6 @@
 import { beardFromBehind } from './base.ts';
 import { compile } from './items.ts';
-import { PALETTE, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
+import { PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
 
 /** One wearable in the wardrobe, compiled from what the model returned. */
@@ -127,5 +127,5 @@ export const entryById = (id: string | null | undefined): Entry | undefined => C
 
 /** Colours offered for clothing and hats. */
 export const CLOTH_KEYS = (Object.keys(PALETTE) as PaletteKey[]).filter(
-  (key) => !SKIN_KEYS.includes(key) && !FIXED.includes(key) && !key.startsWith('hair'),
+  (key) => !SKIN_KEYS.includes(key) && !FIXED.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key),
 );

@@ -1,0 +1,26 @@
+[
+ {
+  "id": "palms",
+  "format": "plant",
+  "category": "palm",
+  "request": "Three palm trees for a tropical island beach, clearly different from each other: a tall coconut palm leaning out over the sand with a cluster of coconuts under its crown, a short stout palm with a thick trunk and a dense crown, and a young palm sapling."
+ },
+ {
+  "id": "grass",
+  "format": "plant",
+  "category": "grass",
+  "request": "Six kinds of grass and low ground cover for an island, clearly different from each other: a short fresh grass tuft, tall beach grass, a clump of dry yellow grass, reeds with brown seed heads, a low clover patch with tiny white flowers, and a small tuft of wildflowers."
+ },
+ {
+  "id": "cacti",
+  "format": "plant",
+  "category": "cactus",
+  "request": "Four cacti for the dry, rocky side of the island, clearly different from each other: a tall saguaro with two arms, a round barrel cactus with a flower on top, a prickly pear with flat pads and red fruit, and a cluster of small round cacti."
+ },
+ {
+  "id": "jungle",
+  "format": "plant",
+  "category": "jungle",
+  "request": "Six jungle plants for the island's overgrown interior, clearly different from each other: a banana plant with a bunch of bananas, a monstera with split leaves, a large fern, a leafy bush with red hibiscus flowers, a clump of bamboo, and a small tree with a round leafy canopy."
+ }
+]

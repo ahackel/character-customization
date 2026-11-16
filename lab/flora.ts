@@ -1,4 +1,7 @@
-import { hexOf, PALETTE, type Cell, type PaletteKey } from './palette.ts';
+import { hexOf, PAINT_KEYS, PALETTE, SHADOW, type Cell, type PaletteKey } from './palette.ts';
+import { hashOf, pixelHash, rng } from './random.ts';
+
+export { SHADOW };
 
 // Plants for the island, drawn the way the characters are: a language model writes a small
 // description of parts (stems, leaves, rounded masses, tiny stamps), and fixed rules grow them
@@ -128,7 +131,7 @@ export function compilePlant(input: any): CompiledPlant {
     return Math.max(lo, Math.min(hi, n));
   };
   const key = (v: unknown, what: string): PaletteKey => {
-    if (typeof v !== 'string' || !(v in PALETTE) || ['ink', 'mouth', 'tooth', 'blush'].includes(v)) throw new Error(`${what}: "${String(v)}" is not a palette colour`);
+    if (typeof v !== 'string' || !PAINT_KEYS.includes(v as PaletteKey)) throw new Error(`${what}: "${String(v)}" is not a palette colour`);
     return v as PaletteKey;
   };
   const oneOf = <T extends string>(v: unknown, list: readonly T[], fallback: T, what: string): T => {
@@ -279,23 +282,6 @@ export interface Grown {
   elements: El[];
   /** Footprint for the ground shadow: stems cast their own, leaves and masses one canopy shadow. */
   shadow: { u: number; v: number; r: number; canopy: boolean }[];
-}
-
-function hashOf(text: string): number {
-  let h = 2166136261;
-  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return h >>> 0;
-}
-
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -574,8 +560,6 @@ export const FLORA_H = 144;
 export const FLORA_ORIGIN = { x: 64, y: 126 };
 /** Frames in one wind loop. */
 export const FRAMES = 8;
-/** The ground shadow colour, laid over the ground once wherever any shadow falls. */
-export const SHADOW = '#2a1c3a38';
 
 /** The canvas a plant of this size needs, and where its root sits on it. Size 1 and below fit the standard one. */
 export function canvasFor(size = 1): { w: number; h: number; origin: { x: number; y: number } } {
@@ -863,7 +847,7 @@ function drawBlob(r: Raster, el: BlobEl, c: { x: number; y: number }): void {
   const ry = el.size[1] / 2;
   const accent = el.accent ?? 'yellow';
   const spike = el.texture === 'spines' && el.accent ? el.accent : 'cream';
-  const hash = (x: number, y: number) => ((Math.imul(x + 31, 73856093) ^ Math.imul(y + 7, 19349663) ^ el.seed) >>> 0) % 1000 / 1000;
+  const hash = (x: number, y: number) => pixelHash(x, y, el.seed);
   const ellipse = (cx: number, cy: number, ax: number, ay: number, key: PaletteKey, shadeOnly = false) => {
     for (let y = Math.floor(cy - ay); y <= Math.ceil(cy + ay); y++) {
       for (let x = Math.floor(cx - ax); x <= Math.ceil(cx + ax); x++) {
@@ -939,7 +923,7 @@ function drawRock(r: Raster, el: RockEl, at: (p: V3) => { x: number; y: number }
   }
   for (const [a, b] of el.cracks) line(at(a), at(b), (x, y) => { if (near.has((y + 2048) * 8192 + x + 2048)) r.set(x, y, tone(el.color, 'shade')); });
   if (el.speckle) {
-    const hash = (x: number, y: number) => ((Math.imul(x + 31, 73856093) ^ Math.imul(y + 7, 19349663) ^ el.seed) >>> 0) % 1000 / 1000;
+    const hash = (x: number, y: number) => pixelHash(x, y, el.seed);
     for (const key of near.keys()) {
       const x = (key % 8192) - 2048;
       const y = Math.floor(key / 8192) - 2048;

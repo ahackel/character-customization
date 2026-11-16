@@ -3,7 +3,10 @@
 // masses (ellipsoids, and chains of spheres for legs, necks, tails, trunks and horns), posed for
 // each frame, ray-cast in the 2:1 view and lit like the plants: light from the upper left and a
 // little from the front, in the three tones of the master palette. No outlines.
-import { PALETTE, PALETTE_KEYS, type PaletteKey, type Tone } from './palette.ts';
+import { isShadow, PAINT_KEYS, PALETTE, SHADOW, type PaletteKey, type Tone } from './palette.ts';
+import { cellHash } from './random.ts';
+
+export { isShadow };
 import type { Facing } from './puppet.ts';
 
 // ------------------------------------------------------------------ the description
@@ -78,7 +81,7 @@ export const DEFAULT_ANIMAL: Animal = {
 };
 
 /** Colours an animal may use: the whole palette apart from the face colours with a fixed meaning. */
-export const COLOR_KEYS = PALETTE_KEYS.filter((k) => !['ink', 'mouth', 'tooth', 'blush'].includes(k));
+export const COLOR_KEYS = PAINT_KEYS;
 
 const isOf = <T extends string>(list: readonly T[], v: unknown): v is T => list.includes(v as T);
 
@@ -669,7 +672,6 @@ export const ANIMAL_H = 112;
 const OX = ANIMAL_W / 2;
 const OY = ANIMAL_H - 28;
 export const ANIMAL_ORIGIN = { x: OX, y: OY };
-const SHADOW = '#2a1c3a38';
 /** As on the plants: from the upper left and a little from the front, in view space. */
 const LIGHT: V = norm([-0.55, 0.75, 0.35]);
 
@@ -715,7 +717,7 @@ const VIEW: Record<0 | 3 | 4 | 6 | 7, { right: [number, number]; toward: [number
   7: nose(1, 0),
 };
 
-const hash = (a: number, b: number, c: number) => ((Math.imul(a + 101, 73856093) ^ Math.imul(b + 37, 19349663) ^ Math.imul(c + 11, 83492791)) >>> 0) % 1000 / 1000;
+const hash = cellHash;
 
 /**
  * Side on, the head would sit as high as the back. In the diagonal views whatever is further forward
@@ -1177,7 +1179,6 @@ export const SIZE_CLASSES = [
   { id: 'huge', upTo: Infinity, tiles: 3 },
 ] as const;
 export const sizeClassOf = (height: number) => SIZE_CLASSES.find((c) => height <= c.upTo)!;
-export const isShadow = (hex: string | null) => hex === SHADOW;
 
 // ------------------------------------------------------------------ files
 

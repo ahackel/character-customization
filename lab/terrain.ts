@@ -4,6 +4,8 @@
 // (sea, beach, sand, grass, rock), where the ground slopes and where it drops as a cliff, where
 // one can walk, and how it is painted.
 
+import { pixelHash, rng } from './random.ts';
+
 /** A ground tile on screen: one metre across. */
 export const TILE_W = 32;
 export const TILE_H = 16;
@@ -83,16 +85,6 @@ export function canStep(map: HeightMap, a: [number, number], b: [number, number]
 }
 
 // ------------------------------------------------------------------ generating
-
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), a | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** Smooth noise from a coarse grid of random values, -1 to 1. */
 function valueNoise(random: () => number, w: number, h: number, step: number): (x: number, y: number) => number {
@@ -354,7 +346,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     cell[p] = index;
     height[p] = level;
   };
-  const hash = (x: number, y: number) => ((Math.imul(x + 31, 73856093) ^ Math.imul(y + 7, 19349663)) >>> 0) % 1000 / 1000;
+  const hash = pixelHash;
   const screen = (i: number, j: number, level: number) => {
     const p = toScreen(i, j, level);
     return { x: origin.x + p.x, y: origin.y + p.y };

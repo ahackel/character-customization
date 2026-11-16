@@ -9,7 +9,8 @@ import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
 import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
-import { currentLang, itemName, LANGS, missingItemNames, t, type Key } from './i18n.ts';
+import { currentLang, LANGS } from '../shared/lang.ts';
+import { itemName, missingItemNames, t, type Key } from './i18n.ts';
 import { shapeEditor } from './shapes.ts';
 
 // ------------------------------------------------------------------ state

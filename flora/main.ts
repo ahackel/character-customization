@@ -10,10 +10,11 @@ import { castShadow, layShadow, middleOf, paintIsland, scatter, stamp, type Scat
 import { FLORA, FLORA_CALLS, FLORA_REJECTED, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED } from '../lab/poses.ts';
-import { drawCharacter, type Item, type Look, type Sprite } from '../lab/puppet.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, SPRITE_H, SPRITE_W, type Item, type Look, type Sprite } from '../lab/puppet.ts';
 import { weathered } from '../lab/wear.ts';
 import { button, cheer, dragToTurn, h, history, pick, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
-import { currentLang, missingPlantNames, plantName, t, type Key } from './i18n.ts';
+import { currentLang } from '../shared/lang.ts';
+import { missingPlantNames, plantName, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ state
 
@@ -201,8 +202,6 @@ function survivorAt(ms: number): Sprite {
   if (!sprite) survivorFrames.set(i, (sprite = drawCharacter(SURVIVOR, clip.frames[i], 0, { face: clip.faces?.[i] })));
   return sprite;
 }
-/** The pixel in a character sprite that stands on the ground. */
-const FEET = { x: 32, y: 52 };
 
 // ------------------------------------------------------------------ painting
 
@@ -596,7 +595,7 @@ function drawScene(ms: number, frame: number): void {
     const raster = rasterOf(p.item, p.seed, frame, wind, state.dryness, sizeStep(state.size * p.scale));
     return { spot: p, picture: raster, w: raster.w, h: raster.h, foot: raster.origin };
   });
-  things.push({ spot: person, picture: survivorAt(ms), w: 64, h: 64, foot: FEET });
+  things.push({ spot: person, picture: survivorAt(ms), w: SPRITE_W, h: SPRITE_H, foot: FEET });
   const image = paintIsland(map, ground, things);
   ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
 }
@@ -647,10 +646,10 @@ function drawPreview(ms: number, frame: number): void {
   const person = { x: view.origin.x - 30 - FEET.x, y: view.origin.y + 4 - FEET.y };
   const mask = new Uint8Array(view.w * view.h);
   castShadow(mask, view.w, view.h, raster, raster.w, raster.h, dx, dy);
-  if (state.person) castShadow(mask, view.w, view.h, survivorAt(ms), 64, 64, person.x, person.y);
+  if (state.person) castShadow(mask, view.w, view.h, survivorAt(ms), SPRITE_W, SPRITE_H, person.x, person.y);
   layShadow(image, mask);
   stamp(image, raster, raster.w, raster.h, dx, dy);
-  if (state.person) stamp(image, survivorAt(ms), 64, 64, person.x, person.y);
+  if (state.person) stamp(image, survivorAt(ms), SPRITE_W, SPRITE_H, person.x, person.y);
   ctx.putImageData(image, 0, 0);
 }
 

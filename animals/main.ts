@@ -14,7 +14,7 @@ import {
   checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word,
   type IconName,
 } from '../shared/shell.ts';
-import { currentLang } from '../wardrobe/i18n.ts';
+import { currentLang } from '../shared/lang.ts';
 import { drawSymptom, SYMPTOMS } from './symptoms.ts';
 
 // ------------------------------------------------------------------ words

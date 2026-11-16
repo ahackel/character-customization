@@ -1,7 +1,9 @@
 // Putting things on the island and painting them: which ground each group grows on, scattering
 // them without crowding, and drawing a scene in one pass with shared shadows and higher ground
 // in front hiding what stands behind it. Used by the flora page and the start page.
-import { SHADOW, type Category } from './flora.ts';
+import type { Category } from './flora.ts';
+import { SHADOW } from './palette.ts';
+import { rng } from './random.ts';
 import { hiddenByGround, standingHeight, surfaceAt, toScreen, type HeightMap, type Surface, type TerrainImage } from './terrain.ts';
 
 /** Where each group grows. Rocks may stand in the shallows; driftwood only lies on the beach. */
@@ -20,16 +22,6 @@ const TALL: Category[] = ['palm', 'jungle', 'cactus'];
 /** Standing somewhere on the map: `i`, `j` in metres, `level` the height of the ground there. */
 export interface Spot { i: number; j: number; level: number }
 export interface Scattered<T> extends Spot { item: T; seed: number; scale: number }
-
-export function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let x = Math.imul(a ^ (a >>> 15), a | 1);
-    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function cellsBySurface(map: HeightMap): Map<Surface, [number, number][]> {
   const cells = new Map<Surface, [number, number][]>();

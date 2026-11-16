@@ -2,11 +2,7 @@
 // same keys, which the compiler checks. Item names come from the model in English, so other
 // languages carry a name per catalogue id and fall back to the English one for anything new.
 
-export type Lang = 'en' | 'de';
-export const LANGS: { id: Lang; label: string; name: string }[] = [
-  { id: 'en', label: 'EN', name: 'English' },
-  { id: 'de', label: 'DE', name: 'Deutsch' },
-];
+import { currentLang, fill, type Lang } from '../shared/lang.ts';
 
 const en = {
   'title': 'Castaway Wardrobe',
@@ -470,38 +466,13 @@ const deItems: Record<string, string> = {
 
 const STRINGS: Record<Lang, Record<Key, string>> = { en, de };
 const ITEMS: Record<Lang, Record<string, string>> = { en: {}, de: deItems };
-const STORAGE_KEY = 'castaway-wardrobe-lang';
-
-function initial(): Lang {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (LANGS.some((l) => l.id === saved)) return saved as Lang;
-  } catch {
-    // Without storage the browser's language decides.
-  }
-  return typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('de') ? 'de' : 'en';
-}
-
-let lang: Lang = initial();
-
-export const currentLang = (): Lang => lang;
-
-export function setLang(next: Lang): void {
-  lang = next;
-  try {
-    localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // Ignore: the choice then lasts for this visit only.
-  }
-}
-
 /** The text for a key in the current language. `{name}` placeholders are filled from `values`. */
 export function t(key: Key, values: Record<string, string | number> = {}): string {
-  return (STRINGS[lang][key] ?? en[key] ?? key).replace(/\{(\w+)\}/g, (whole, name) => String(values[name] ?? whole));
+  return fill(STRINGS[currentLang()][key] ?? en[key] ?? key, values);
 }
 
 /** The name of a catalogue item in the current language, or the name the model gave it. */
-export const itemName = (id: string, fallback: string): string => ITEMS[lang][id]?.replaceAll('|', '\u00AD') ?? fallback;
+export const itemName = (id: string, fallback: string): string => ITEMS[currentLang()][id]?.replaceAll('|', '\u00AD') ?? fallback;
 
 /** Ids that have no name in a language, for a check in development. */
 export const missingItemNames = (ids: string[], language: Lang): string[] =>

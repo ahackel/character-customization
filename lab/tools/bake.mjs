@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 import { tryPlant, grow, drawPlant, FRAMES, SHADOW } from '../flora.ts';
-import { drawCharacter, BUILDS } from '../puppet.ts';
+import { drawCharacter, BUILDS, CHARACTER_ORIGIN, SPRITE_H, SPRITE_W } from '../puppet.ts';
 import { AUTHORED } from '../poses.ts';
 import { baseLook } from '../base.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, CLIP_IDS, drawAnimal, isShadow } from '../animal.ts';
@@ -95,14 +95,14 @@ for (const [clipId, clip] of Object.entries(AUTHORED)) {
     const list = clip.frames.map((pose, i) => {
       const sprite = drawCharacter(look, pose, facing, { face: clip.faces?.[i], swing: clip.swing });
       const name = `character/${clipId}/${facing}/${i}`;
-      return add(name, trim(64, 64, (x, y) => { const c = sprite.get(x, y); return c === SHADOW ? null : c; }, { x: 32, y: 52 }));
+      return add(name, trim(SPRITE_W, SPRITE_H, (x, y) => { const c = sprite.get(x, y); return c === SHADOW ? null : c; }, CHARACTER_ORIGIN));
     });
     animations[`character/${clipId}/${facing}`] = { fps: clip.rate, frames: list };
   }
 }
 {
   const sprite = drawCharacter(look, AUTHORED.idle.frames[0], 0);
-  add('character/shadow', trim(64, 64, (x, y) => (sprite.get(x, y) === SHADOW ? '#000000' : null), { x: 32, y: 52 }));
+  add('character/shadow', trim(SPRITE_W, SPRITE_H, (x, y) => (sprite.get(x, y) === SHADOW ? '#000000' : null), CHARACTER_ORIGIN));
 }
 
 // ---- animals: every preset in every clip and facing, with the anchor points of each frame

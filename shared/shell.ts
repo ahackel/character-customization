@@ -2,7 +2,7 @@
 // Preview inspector parts (sections, rows, segmented bars, sliders) and undo history.
 // A tool only declares its tabs, preview rows and what Shuffle does.
 import './ui.css';
-import { currentLang, LANGS, setLang, type Lang } from '../wardrobe/i18n.ts';
+import { currentLang, LANGS, setLang, type Lang } from './lang.ts';
 
 // ------------------------------------------------------------------ elements
 

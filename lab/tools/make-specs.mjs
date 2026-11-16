@@ -1,7 +1,7 @@
 // Writes the two format descriptions given to the language model, with reference grids taken
 // from the real renderer so the text can never drift from the code.
 import fs from 'node:fs';
-import { PALETTE } from '../palette.ts';
+import { PAINT_KEYS, PALETTE } from '../palette.ts';
 import { drawCharacter, layoutOf, HEAD_STAMP as HEAD_FRAME, TOOL_STAMP as TOOL_FRAME, PAINT_W as SPRITE_W, PAINT_H as SPRITE_H, BODY_WINDOW } from '../puppet.ts';
 import { STAND } from '../poses.ts';
 import { baseLook } from '../base.ts';
@@ -22,7 +22,7 @@ const back = asText(drawCharacter(look, STAND, 3));
 const lf = layoutOf(STAND, 0);
 const lb = layoutOf(STAND, 3);
 
-const palette = Object.keys(PALETTE).filter((k) => !['ink', 'mouth', 'tooth', 'blush'].includes(k)).join(', ');
+const palette = PAINT_KEYS.join(', ');
 
 const common = `
 ## Style

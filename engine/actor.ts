@@ -1,8 +1,8 @@
 // A character walking around a world: position in metres, facing, which clip plays, and the
 // sprite for the current frame. Movement slides along whatever blocks it.
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import { drawCharacter, FACING_RING, turnFacing, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
-import { SHADOW } from '../lab/flora.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
+import { SHADOW } from '../lab/palette.ts';
 import type { Picture } from '../lab/island.ts';
 import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight } from '../lab/terrain.ts';
 import { ocean, rgb } from './ocean.ts';
@@ -16,8 +16,6 @@ type ClipId = 'idle' | 'walk' | 'run' | Emote;
 const SPEED = { walk: 1.7, run: 3.6 };
 /** How many times an emote plays before the character goes back to standing. */
 const EMOTE_LOOPS = 2;
-/** The pixel in a character sprite that stands on the ground. */
-const FEET = { x: 32, y: 52 };
 /** Wading is slower than walking on land. */
 const WADING = 0.6;
 /**
@@ -253,13 +251,13 @@ export class Actor {
       this.frames.set(key, (sprite = drawCharacter(this.look, pose, facing, { face, swing: clip.swing })));
     }
     const depth = this.depth(world);
-    if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: 64, h: 64, foot: FEET };
+    if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: SPRITE_W, h: SPRITE_H, foot: FEET };
     // In the shallows the feet stand on the sea floor, under the surface.
     const rows = Math.round(depth * LEVEL_PX);
     const wetKey = `${key}|${rows}`;
     let picture = this.wet.get(wetKey);
     if (!picture) this.wet.set(wetKey, (picture = wading(sprite, rows)));
-    return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: 64, h: 64, foot: FEET };
+    return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: SPRITE_W, h: SPRITE_H, foot: FEET };
   }
 }
 

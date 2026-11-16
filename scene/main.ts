@@ -17,8 +17,9 @@ import { PRESETS } from '../lab/animal-presets.ts';
 import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
 import { roundBrush } from '../shared/brush.ts';
-import { button as tap, icon, segmented, topBar, word, type IconName } from '../shared/shell.ts';
-import { currentLang, t, type Key } from './i18n.ts';
+import { button as tap, h, icon, segmented, topBar, word, type IconName } from '../shared/shell.ts';
+import { currentLang } from '../shared/lang.ts';
+import { t, type Key } from './i18n.ts';
 
 // The scene editor: build a scene's ground and plants in Edit, walk around it with a saved
 // character in Play. Scenes, and the editor's own settings, are kept in this browser.
@@ -120,17 +121,6 @@ function switchTo(scene: Scene): void {
 }
 
 // ------------------------------------------------------------------ page helpers
-
-type Child = Node | string | null | undefined | false;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (key === 'class') node.className = value;
-    else node.setAttribute(key, value);
-  }
-  for (const child of children) if (child) node.append(child);
-  return node;
-}
 
 const statusLine = h('p', { class: 'status', 'aria-live': 'polite' });
 let statusTimer = 0;

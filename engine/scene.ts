@@ -2,6 +2,7 @@
 // plants and decorations placed on it and where the character starts. Scenes live in this browser's storage and
 // can be written to and read from files. Everything read back is checked, since storage and
 // files may hold anything.
+import { newId } from '../lab/files.ts';
 import { plantById } from '../lab/flora-catalog.ts';
 import { cleanAnimal, type Animal } from '../lab/animal.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
@@ -54,7 +55,6 @@ export const TURNS = 8;
 export const SIZE_RANGE = [0.6, 1.6] as const;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-export const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** A new scene: a generated island, or open sea to build on. */
 export function createScene(name: string, w: number, h: number, island: boolean, seed = Math.floor(Math.random() * 1000)): Scene {

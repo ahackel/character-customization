@@ -11,11 +11,11 @@ import { FLORA } from '../lab/flora-catalog.ts';
 import { middleOf, paintIsland, scatter, stamp, type Pixels, type Thing } from '../lab/island.ts';
 import { type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, type Clip } from '../lab/poses.ts';
-import { drawCharacter, type Facing, type Item, type Look, type Sprite } from '../lab/puppet.ts';
+import { CHARACTER_ORIGIN, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Item, type Look, type Sprite } from '../lab/puppet.ts';
 import { weathered } from '../lab/wear.ts';
 import { generateIsland, renderTerrain } from '../lab/terrain.ts';
 import { h, topBar, word, type ToolId } from '../shared/shell.ts';
-import { currentLang } from '../wardrobe/i18n.ts';
+import { currentLang } from '../shared/lang.ts';
 
 // The start page of the published site: what the tools are, each with a small live picture
 // drawn by the same code as the tool itself.
@@ -103,7 +103,7 @@ function castAt(ms: number): Pixels {
     const key = `${n}|${i}`;
     let sprite = castFrames.get(key);
     if (!sprite) castFrames.set(key, (sprite = drawCharacter(c.look, c.clip.frames[i], c.facing, { face: c.clip.faces?.[i], swing: c.clip.swing })));
-    stamp(image, sprite, 64, 64, c.x, 0);
+    stamp(image, sprite, SPRITE_W, SPRITE_H, c.x, 0);
   });
   return image;
 }
@@ -182,7 +182,7 @@ function smallIsland(seed: number, clip: Clip, facing: Facing) {
       const i = Math.floor((ms / 1000) * clip.rate) % clip.frames.length;
       let sprite = sprites.get(i);
       if (!sprite) sprites.set(i, (sprite = drawCharacter(islander, clip.frames[i], facing, { face: clip.faces?.[i] })));
-      things.push({ spot: person, picture: sprite, w: 64, h: 64, foot: { x: 32, y: 52 } });
+      things.push({ spot: person, picture: sprite, w: SPRITE_W, h: SPRITE_H, foot: CHARACTER_ORIGIN });
       return paintIsland(map, ground, things);
     },
   };
@@ -258,7 +258,7 @@ const list = (key: string): { id: string; name: string; [k: string]: unknown }[]
 function madeThings(): Made[] {
   const people: Made[] = loadRoster().map((c) => {
     const sprite = drawCharacter(characterLook(c.state), AUTHORED.idle.frames[0], 0);
-    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', currentKey: 'castaway-characters-current', id: c.id, picture: trimmed((x, y) => sprite.get(x, y), 64, 64, () => false) };
+    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', currentKey: 'castaway-characters-current', id: c.id, picture: trimmed((x, y) => sprite.get(x, y), SPRITE_W, SPRITE_H, () => false) };
   });
   const animals: Made[] = list('pixel-animals').map((s) => {
     const { sprite } = drawAnimal(cleanAnimal(s.animal), 'idle', 0, 0);

@@ -1,7 +1,5 @@
-// Text for the flora page. The language choice is shared with the wardrobe.
-import { currentLang } from '../wardrobe/i18n.ts';
-
-export { currentLang, LANGS, setLang, type Lang } from '../wardrobe/i18n.ts';
+// Text for the flora page.
+import { currentLang, fill } from '../shared/lang.ts';
 
 const en = {
   'title': 'Island Flora',
@@ -170,7 +168,7 @@ const STRINGS = { en, de } as const;
 const PLANTS: Record<string, Record<string, string>> = { en: {}, de: dePlants };
 
 export function t(key: Key, values: Record<string, string | number> = {}): string {
-  return (STRINGS[currentLang()][key] ?? en[key] ?? key).replace(/\{(\w+)\}/g, (whole, name) => String(values[name] ?? whole));
+  return fill(STRINGS[currentLang()][key] ?? en[key] ?? key, values);
 }
 
 export const plantName = (id: string, fallback: string): string => PLANTS[currentLang()][id]?.replaceAll('|', '­') ?? fallback;

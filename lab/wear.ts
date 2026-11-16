@@ -1,4 +1,5 @@
 import type { Cell } from './palette.ts';
+import { hashOf } from './random.ts';
 import { HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, TORSO_FRAME, type Item, type OwnView, type Stamp, type StampPair } from './puppet.ts';
 
 /**
@@ -21,12 +22,6 @@ function at(table: number[], level: Wear): number {
   const low = Math.floor(level);
   const high = Math.min(table.length - 1, low + 1);
   return table[low] + (table[high] - table[low]) * (level - low);
-}
-
-function hashOf(text: string): number {
-  let h = 2166136261;
-  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return h;
 }
 
 /**

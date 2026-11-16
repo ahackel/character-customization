@@ -1,7 +1,5 @@
-// Text for the scene editor. The language choice is shared with the wardrobe and the flora tool.
-import { currentLang } from '../wardrobe/i18n.ts';
-
-export { currentLang, LANGS, setLang } from '../wardrobe/i18n.ts';
+// Text for the scene editor.
+import { currentLang, fill } from '../shared/lang.ts';
 
 const en = {
   'title': 'Scene Editor',
@@ -192,5 +190,5 @@ const de: Record<Key, string> = {
 };
 
 export function t(key: Key, values: Record<string, string | number> = {}): string {
-  return ((currentLang() === 'de' ? de : en)[key] ?? en[key]).replace(/\{(\w+)\}/g, (whole, name) => String(values[name] ?? whole));
+  return fill((currentLang() === 'de' ? de : en)[key] ?? en[key], values);
 }

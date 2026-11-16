@@ -1,4 +1,5 @@
 import { PALETTE, type Cell, type PaletteKey } from './palette.ts';
+import { hashOf } from './random.ts';
 import {
   HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, PAINT_H, PAINT_W, TOOL_FRAME, TOOL_STAMP, TORSO_FRAME,
   SLOTS, type Item, type Layout, type Slot, type Stamp, type StampPair,
@@ -209,8 +210,7 @@ function extendUnderArms(pair: StampPair): void {
 // ------------------------------------------------------------------ format 2: recipes
 
 function seeded(text: string): () => number {
-  let h = 2166136261;
-  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  let h = hashOf(text);
   return () => {
     h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
     return ((h >>> 0) % 10000) / 10000;

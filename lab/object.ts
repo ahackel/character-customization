@@ -1,7 +1,10 @@
 // Objects: furniture, devices, the fountain and the cars, built from boxes, cylinders and balls on a
 // tile footprint and drawn by rule in the engine's look (docs/object-spec.md). Ray-cast per pixel in the
 // 2:1 view, lit with the flora light as the animals are, in all four camera turns.
-import { PALETTE, PALETTE_KEYS, type PaletteKey, type Tone } from './palette.ts';
+import { isShadow, PAINT_KEYS, PALETTE, SHADOW, type PaletteKey, type Tone } from './palette.ts';
+import { cellHash } from './random.ts';
+
+export { isShadow };
 
 export const SHAPES = ['box', 'cylinder', 'ball'] as const;
 /** The axis a cylinder lies along: standing (y), or lying along the footprint's width (x) or depth (z). */
@@ -42,7 +45,7 @@ export const UNIT = 16;
 export const MAX_TILES = 4;
 export const MAX_HEIGHT = 80;
 export const MAX_PARTS = 80;
-export const COLOR_KEYS = PALETTE_KEYS.filter((k) => !['ink', 'mouth', 'tooth', 'blush'].includes(k));
+export const COLOR_KEYS = PAINT_KEYS;
 export const LOOP_FRAMES = 8;
 export const LOOP_RATE = 6;
 
@@ -88,8 +91,6 @@ export const OBJECT_H = 160;
 const OX = OBJECT_W / 2;
 const OY = OBJECT_H - 40;
 export const OBJECT_ORIGIN = { x: OX, y: OY };
-const SHADOW = '#2a1c3a38';
-export const isShadow = (hex: string | null) => hex === SHADOW;
 /** As on the plants and animals: from the upper left and a little from the front, in view space (x right, y up, z towards the viewer). */
 const LIGHT = (() => { const l = [-0.55, 0.75, 0.35]; const n = Math.hypot(...l); return l.map((v) => v / n); })();
 
@@ -168,7 +169,7 @@ function hit(p: Part, o: V, dir: V, y0: number): { s: number; n: V } | null {
 }
 const AXES_INDEX: Record<Axis, number> = { x: 0, y: 1, z: 2 };
 
-const hash = (a: number, b: number, c: number) => ((Math.imul(a + 101, 73856093) ^ Math.imul(b + 37, 19349663) ^ Math.imul(c + 11, 83492791)) >>> 0) % 1000 / 1000;
+const hash = cellHash;
 
 /** Draws one frame of an object in one camera turn. */
 export function drawObject(prop: Prop, turn: Turn, frame = 0): ObjectFrame {

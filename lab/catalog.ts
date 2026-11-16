@@ -1,7 +1,7 @@
 import { BEARD_STYLES, beardFromBehind, stubbled, tidyBeard } from './base.ts';
 import { compile } from './items.ts';
 import { JOB_ITEMS } from './jobs.ts';
-import { ANIMAL_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
+import { ANIMAL_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
 
 /** One wearable in the wardrobe, compiled from what the model returned. */
@@ -44,7 +44,6 @@ const SUPERSEDED: Record<string, string> = {
 const ISLAND_SETS = ['leafskirt', 'vest', 'spear', 'axe', 'rod', 'bandana'];
 const ISLAND_IDS = ['recipe-shoes-2', 'sprite-hat-1'];
 
-const FIXED: PaletteKey[] = ['ink', 'mouth', 'tooth', 'blush'];
 /** Sentence case, so names from different model calls read alike. Words such as "T-shirt" keep their capital. */
 const sentence = (text: string) =>
   text
@@ -71,7 +70,7 @@ function eachCell(item: Item, visit: (cell: Cell) => void): void {
 function colorsOf(item: Item): PaletteKey[] {
   const tally = new Map<PaletteKey, number>();
   eachCell(item, (cell) => {
-    if (SKIN_KEYS.includes(cell.key) || FIXED.includes(cell.key)) return;
+    if (SKIN_KEYS.includes(cell.key) || FIXED_KEYS.includes(cell.key)) return;
     tally.set(cell.key, (tally.get(cell.key) ?? 0) + 1);
   });
   const total = [...tally.values()].reduce((a, b) => a + b, 0);
@@ -140,5 +139,5 @@ export const entryById = (id: string | null | undefined): Entry | undefined => C
 
 /** Colours offered for clothing and hats. */
 export const CLOTH_KEYS = (Object.keys(PALETTE) as PaletteKey[]).filter(
-  (key) => !SKIN_KEYS.includes(key) && !FIXED.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key) && !ANIMAL_KEYS.includes(key),
+  (key) => !SKIN_KEYS.includes(key) && !FIXED_KEYS.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key) && !ANIMAL_KEYS.includes(key),
 );

@@ -58,6 +58,10 @@ const FIXED = {
 } as const;
 
 export type PaletteKey = keyof typeof BASES | keyof typeof FIXED;
+
+/** The ground shadow colour of everything drawn, laid over the ground once wherever any shadow falls. */
+export const SHADOW = '#2a1c3a38';
+export const isShadow = (hex: string | null): boolean => hex === SHADOW;
 export type Tone = 'base' | 'shade' | 'light';
 
 const rgbOf = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -84,6 +88,9 @@ export const PALETTE = Object.fromEntries([
 ]) as Record<PaletteKey, Record<Tone, string>>;
 
 export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];
+/** The face colours with one fixed meaning, and every other colour: the ones things can be painted in. */
+export const FIXED_KEYS = Object.keys(FIXED) as PaletteKey[];
+export const PAINT_KEYS = PALETTE_KEYS.filter((k) => !FIXED_KEYS.includes(k));
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
 /** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices. */

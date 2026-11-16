@@ -1,4 +1,4 @@
-import { hexOf, type Cell, type PaletteKey } from './palette.ts';
+import { hexOf, SHADOW, type Cell, type PaletteKey } from './palette.ts';
 
 // ------------------------------------------------------------------ geometry
 
@@ -16,6 +16,8 @@ export const PAINT_H = BODY_WINDOW.h;
 /** The feet stand on row ORIGIN_Y, centred on the line between two pixel columns. */
 const ORIGIN_X = BODY_WINDOW.x + 16.5;
 const ORIGIN_Y = BODY_WINDOW.y + 44;
+/** The pixel on the ground under the character, as the animals, objects and plants give theirs. */
+export const CHARACTER_ORIGIN = { x: Math.floor(ORIGIN_X), y: ORIGIN_Y };
 
 /**
  * Eight facings. The diagonals keep their old numbers: 0 front right, 1 front left, 2 back left,
@@ -188,7 +190,6 @@ export interface DrawOptions {
 
 // ------------------------------------------------------------------ drawing
 
-const SHADOW = '#2a1c3a38';
 
 export class Sprite {
   readonly pixels: (string | null)[] = new Array(SPRITE_W * SPRITE_H).fill(null);

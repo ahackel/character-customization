@@ -13,7 +13,7 @@ import {
   button, checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, topBar, undoKeys, word,
   type IconName,
 } from '../shared/shell.ts';
-import { currentLang } from '../wardrobe/i18n.ts';
+import { currentLang } from '../shared/lang.ts';
 
 // ------------------------------------------------------------------ words
 

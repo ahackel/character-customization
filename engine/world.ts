@@ -3,9 +3,8 @@
 // answers where a screen pixel is on the map, and where a walker may go.
 import { drawPlant, FRAMES, grow, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../lab/flora.ts';
 import { plantById, type PlantEntry } from '../lab/flora-catalog.ts';
-import { SHADOW } from '../lab/flora.ts';
-import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot } from '../lab/island.ts';
-import { PALETTE, type PaletteKey } from '../lab/palette.ts';
+import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from '../lab/island.ts';
+import { PALETTE, SHADOW, type PaletteKey } from '../lab/palette.ts';
 import {
   heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
@@ -18,12 +17,11 @@ import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
-/** Something drawn standing on the ground: `foot` is the pixel of its picture that touches the spot. */
-export interface Thing { spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number } }
+export type { Thing };
 
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
-const SHADE_RGB = [1, 3, 5].map((k) => parseInt(SHADE.slice(k, k + 2), 16));
+const SHADE_RGB = rgb(SHADE);
 const LEVEL_M = 0.354; // metres per level, as in the terrain's light
 // Ripples on the open sea are long level lines in rows that the current carries down the screen,
 // each row swaying sideways; a line grows and shrinks over `ms`. Their colours, share, length and

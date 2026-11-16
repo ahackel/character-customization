@@ -3,6 +3,7 @@
 // 2:1 view, lit with the flora light as the animals are, in all four camera turns.
 import { isShadow, PAINT_KEYS, PALETTE, SHADOW, type PaletteKey, type Tone } from './palette.ts';
 import { cellHash } from './random.ts';
+import { savedList } from './files.ts';
 
 export { isShadow };
 
@@ -315,6 +316,11 @@ export function heightOf(prop: Prop): number {
 }
 
 // ------------------------------------------------------------------ files
+
+/** Where the object editor keeps its work on this device: the object being worked on, My things, and which of them is picked. */
+export const OBJECT_STORE = { draft: 'pixel-object-draft', roster: 'pixel-objects', current: 'pixel-objects-current' } as const;
+/** The objects in My things. */
+export const savedProps = () => savedList(OBJECT_STORE.roster, 'prop', cleanProp);
 
 const FILE_TYPE = 'pixel-object';
 export const propFile = (name: string, prop: Prop) => JSON.stringify({ type: FILE_TYPE, version: 1, name, object: prop }, null, 2);

@@ -5,6 +5,7 @@
 // little from the front, in the three tones of the master palette. No outlines.
 import { isShadow, PAINT_KEYS, PALETTE, SHADOW, type PaletteKey, type Tone } from './palette.ts';
 import { cellHash } from './random.ts';
+import { savedList } from './files.ts';
 
 export { isShadow };
 import type { Facing } from './puppet.ts';
@@ -1181,6 +1182,11 @@ export const SIZE_CLASSES = [
 export const sizeClassOf = (height: number) => SIZE_CLASSES.find((c) => height <= c.upTo)!;
 
 // ------------------------------------------------------------------ files
+
+/** Where the animal editor keeps its work on this device: the animal being worked on, My things, and which of them is picked. */
+export const ANIMAL_STORE = { draft: 'pixel-animal-draft', roster: 'pixel-animals', current: 'pixel-animals-current' } as const;
+/** The animals in My things. */
+export const savedAnimals = () => savedList(ANIMAL_STORE.roster, 'animal', cleanAnimal);
 
 const FILE_TYPE = 'pixel-animal';
 export const animalFile = (name: string, animal: Animal) => JSON.stringify({ type: FILE_TYPE, version: 1, name, animal }, null, 2);

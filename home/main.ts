@@ -1,21 +1,20 @@
 import './style.css';
-import { baseLook, DEFAULT_FACE, facesFor, wear, type Mood } from '../lab/base.ts';
-import { entryById } from '../lab/catalog.ts';
-import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, cleanAnimal, CLIPS, drawAnimal, isShadow as isAnimalShadow, type AnimalSprite, type ClipId } from '../lab/animal.ts';
-import { loadRoster, lookOf as characterLook } from '../lab/character.ts';
+import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_STORE, ANIMAL_W, CLIPS, drawAnimal, savedAnimals, type AnimalSprite, type ClipId } from '../lab/animal.ts';
+import { loadRoster, lookOf, outfitLook, pickCharacter } from '../lab/character.ts';
+import { writeStore } from '../lab/files.ts';
 import { presetById } from '../lab/animal-presets.ts';
-import { cleanProp, drawObject, isShadow as isObjectShadow, LOOP_FRAMES, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_W, type ObjectSprite, type Turn } from '../lab/object.ts';
+import { drawObject, LOOP_FRAMES, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_STORE, OBJECT_W, savedProps, type ObjectSprite, type Turn } from '../lab/object.ts';
 import { objectPresetById } from '../lab/object-presets.ts';
 import { drawPlant, FRAMES, grow, type Raster } from '../lab/flora.ts';
 import { FLORA } from '../lab/flora-catalog.ts';
 import { middleOf, paintIsland, scatter, stamp, type Pixels, type Thing } from '../lab/island.ts';
-import { type PaletteKey } from '../lab/palette.ts';
+import { isShadow } from '../lab/palette.ts';
 import { AUTHORED, type Clip } from '../lab/poses.ts';
-import { CHARACTER_ORIGIN, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Item, type Look, type Sprite } from '../lab/puppet.ts';
-import { weathered } from '../lab/wear.ts';
+import { CHARACTER_ORIGIN, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
 import { generateIsland, renderTerrain } from '../lab/terrain.ts';
 import { h, topBar, word, type ToolId } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
+import { trimmed } from '../shared/pixels.ts';
 
 // The start page of the published site: what the tools are, each with a small live picture
 // drawn by the same code as the tool itself.
@@ -58,17 +57,11 @@ const t = (key: Key) => (currentLang() === 'de' ? de : en)[key];
 
 // ------------------------------------------------------------------ the castaways
 
-function lookOf(skin: PaletteKey, hair: PaletteKey, mood: Mood, condition: number, ids: string[]): Look {
-  const items = ids.map((id) => entryById(id)?.item).filter((i): i is Item => !!i).map((i) => weathered(i, condition as 0));
-  const look = wear(baseLook(skin, hair), ...items);
-  return { ...look, faces: facesFor(skin, DEFAULT_FACE, hair, mood), items: look.items.map((i) => weathered(i, condition as 0)) };
-}
-
 /** Three castaways at three stages of their stay, each doing something. */
 const CAST: { look: Look; clip: Clip; facing: Facing; x: number }[] = [
-  { look: lookOf('skinA', 'hairRed', 'smile', 0, ['recipe-hair-tied-0', 'recipe-tops-0', 'recipe-shorts-0', 'recipe-footwear-5']), clip: AUTHORED.wave, facing: 0, x: 0 },
-  { look: lookOf('skinC', 'hairBlack', 'happy', 2, ['recipe-everyday-0', 'sprite-everyday-bottoms-0', 'sprite-hat-2']), clip: AUTHORED.walk, facing: 0, x: 40 },
-  { look: lookOf('skinD', 'hairBlack', 'neutral', 3, ['sprite-beard-0', 'recipe-shirt-1', 'recipe-bottoms-4', 'recipe-spear-0']), clip: AUTHORED.idle, facing: 1, x: 80 },
+  { look: outfitLook('skinA', 'hairRed', 'smile', 0, ['recipe-hair-tied-0', 'recipe-tops-0', 'recipe-shorts-0', 'recipe-footwear-5']), clip: AUTHORED.wave, facing: 0, x: 0 },
+  { look: outfitLook('skinC', 'hairBlack', 'happy', 2, ['recipe-everyday-0', 'sprite-everyday-bottoms-0', 'sprite-hat-2']), clip: AUTHORED.walk, facing: 0, x: 40 },
+  { look: outfitLook('skinD', 'hairBlack', 'neutral', 3, ['sprite-beard-0', 'recipe-shirt-1', 'recipe-bottoms-4', 'recipe-spear-0']), clip: AUTHORED.idle, facing: 1, x: 80 },
 ];
 const CAST_SIZE = { w: 144, h: 60 };
 const castFrames = new Map<string, Sprite>();
@@ -133,7 +126,7 @@ function setAt(ms: number): Pixels {
 
 // ------------------------------------------------------------------ a small island
 
-const islander = lookOf('skinB', 'hairBrown', 'happy', 1, ['recipe-everyday-1', 'recipe-shorts-1', 'recipe-footwear-6']);
+const islander = outfitLook('skinB', 'hairBrown', 'happy', 1, ['recipe-everyday-1', 'recipe-shorts-1', 'recipe-footwear-6']);
 
 /** A small island with plants and one person on it, doing `clip`. One for the flora card, one for the scene editor's. */
 function smallIsland(seed: number, clip: Clip, facing: Facing) {
@@ -192,57 +185,23 @@ function card(tool: ToolId, href: string, picture: HTMLElement, kind: string): H
 
 // ------------------------------------------------------------------ my things
 
-interface Made { name: string; tool: ToolId; href: string; currentKey: string; id: string; picture: HTMLCanvasElement }
-const read = (key: string): unknown => {
-  try {
-    return JSON.parse(localStorage.getItem(key) ?? 'null');
-  } catch {
-    // Without storage there is nothing to show.
-    return null;
-  }
-};
-/** A picture of a sprite, trimmed to what it paints and enlarged by whole numbers to fit the box. */
-function trimmed(get: (x: number, y: number) => string | null | undefined, w: number, hh: number, skip: (hex: string) => boolean, box = 72): HTMLCanvasElement {
-  let x0 = w, y0 = hh, x1 = 0, y1 = 0;
-  for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) {
-    const hex = get(x, y);
-    if (!hex || skip(hex)) continue;
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-  }
-  const cw = Math.max(1, x1 - x0 + 1), ch = Math.max(1, y1 - y0 + 1);
-  const canvas = h('canvas', { width: String(cw), height: String(ch) });
-  const ctx = canvas.getContext('2d')!;
-  const image = ctx.createImageData(cw, ch);
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-    const hex = get(x + x0, y + y0);
-    if (!hex || skip(hex)) continue;
-    const o = (y * cw + x) * 4;
-    for (let k = 0; k < 3; k++) image.data[o + k] = parseInt(hex.slice(1 + k * 2, 3 + k * 2), 16);
-    image.data[o + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
-  }
-  ctx.putImageData(image, 0, 0);
-  const scale = Math.max(1, Math.floor(box / Math.max(cw, ch)));
-  canvas.style.width = `${cw * scale}px`;
-  canvas.style.height = `${ch * scale}px`;
-  return canvas;
-}
-const list = (key: string): { id: string; name: string; [k: string]: unknown }[] => {
-  const raw = read(key);
-  return Array.isArray(raw) ? raw.filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string') : [];
-};
+/** Something made in a tool. `pick` makes it the one the tool opens on. */
+interface Made { name: string; tool: ToolId; href: string; pick: () => void; picture: HTMLCanvasElement }
+/** The size of a thing's picture on its card. */
+const THING_BOX = 72;
 /** The newest few from every tool, newest last in each list, shown newest first. */
 function madeThings(): Made[] {
   const people: Made[] = loadRoster().map((c) => {
-    const sprite = drawCharacter(characterLook(c.state), AUTHORED.idle.frames[0], 0);
-    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', currentKey: 'castaway-characters-current', id: c.id, picture: trimmed((x, y) => sprite.get(x, y), SPRITE_W, SPRITE_H, () => false) };
+    const sprite = drawCharacter(lookOf(c.state), AUTHORED.idle.frames[0], 0);
+    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', pick: () => pickCharacter(c.id), picture: trimmed(sprite, SPRITE_W, SPRITE_H, THING_BOX) };
   });
-  const animals: Made[] = list('pixel-animals').map((s) => {
-    const { sprite } = drawAnimal(cleanAnimal(s.animal), 'idle', 0, 0);
-    return { name: s.name, tool: 'animals', href: './animals/', currentKey: 'pixel-animals-current', id: s.id, picture: trimmed((x, y) => sprite.get(x, y), ANIMAL_W, ANIMAL_H, isAnimalShadow) };
+  const animals: Made[] = savedAnimals().map((s) => {
+    const { sprite } = drawAnimal(s.animal, 'idle', 0, 0);
+    return { name: s.name, tool: 'animals', href: './animals/', pick: () => writeStore(ANIMAL_STORE.current, s.id), picture: trimmed(sprite, ANIMAL_W, ANIMAL_H, THING_BOX, isShadow, true) };
   });
-  const objects: Made[] = list('pixel-objects').map((s) => {
-    const { sprite } = drawObject(cleanProp(s.prop), 0);
-    return { name: s.name, tool: 'objects', href: './objects/', currentKey: 'pixel-objects-current', id: s.id, picture: trimmed((x, y) => sprite.get(x, y), OBJECT_W, OBJECT_H, isObjectShadow) };
+  const objects: Made[] = savedProps().map((s) => {
+    const { sprite } = drawObject(s.prop, 0);
+    return { name: s.name, tool: 'objects', href: './objects/', pick: () => writeStore(OBJECT_STORE.current, s.id), picture: trimmed(sprite, OBJECT_W, OBJECT_H, THING_BOX, isShadow, true) };
   });
   const out: Made[] = [];
   for (let i = 1; out.length < 12 && i <= Math.max(people.length, animals.length, objects.length); i++) {
@@ -261,13 +220,7 @@ function thingsRow(): HTMLElement {
       h('span', { class: 'card__label' }, m.name),
       h('span', { class: 'card__label', style: 'font-weight: 500; opacity: .7' }, word(m.tool)));
     // Opening it picks it in its tool.
-    a.addEventListener('click', () => {
-      try {
-        localStorage.setItem(m.currentKey, m.currentKey === 'castaway-characters-current' ? m.id : JSON.stringify(m.id));
-      } catch {
-        // The tool then opens on what it had.
-      }
-    });
+    a.addEventListener('click', m.pick);
     return a;
   }));
 }

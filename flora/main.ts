@@ -1,17 +1,15 @@
 import './style.css';
-import { baseLook, DEFAULT_FACE, facesFor, wear } from '../lab/base.ts';
-import { entryById } from '../lab/catalog.ts';
+import { outfitLook } from '../lab/character.ts';
 import {
   CATEGORIES, colorChoices, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SIZE_MAX, SIZE_MIN, tryPlant,
   type Category, type Grown, type Plant,
 } from '../lab/flora.ts';
 import { generateIsland, renderTerrain, type HeightMap, type TerrainImage } from '../lab/terrain.ts';
 import { castShadow, layShadow, middleOf, paintIsland, scatter, stamp, type Scattered, type Spot, type Thing } from '../lab/island.ts';
-import { FLORA, FLORA_CALLS, FLORA_REJECTED, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
+import { cleanSwap, FLORA, FLORA_CALLS, FLORA_REJECTED, FLORA_STORE, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED } from '../lab/poses.ts';
-import { CHARACTER_ORIGIN as FEET, drawCharacter, SPRITE_H, SPRITE_W, type Item, type Look, type Sprite } from '../lab/puppet.ts';
-import { weathered } from '../lab/wear.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, SPRITE_H, SPRITE_W, type Sprite } from '../lab/puppet.ts';
 import { button, cheer, dragToTurn, h, history, pick, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
 import { missingPlantNames, plantName, t, type Key } from './i18n.ts';
@@ -56,7 +54,7 @@ interface State {
   custom: Record<string, string>;
 }
 
-const STORAGE_KEY = 'island-flora';
+const STORAGE_KEY = FLORA_STORE;
 function defaultState(): State {
   return {
     selected: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0]?.id ?? '',
@@ -82,8 +80,8 @@ function loadState(): State {
     if (saved.density && saved.density in DENSITY) state.density = saved.density;
     if (Number.isInteger(saved.sceneSeed)) state.sceneSeed = saved.sceneSeed!;
     for (const [id, swap] of Object.entries(saved.colors ?? {})) {
-      const clean = Object.entries(swap ?? {}).filter(([from, to]) => from in PALETTE && to && to in PALETTE);
-      if (plantById(id) && clean.length) state.colors[id] = Object.fromEntries(clean);
+      const clean = cleanSwap(swap);
+      if (plantById(id) && Object.keys(clean).length) state.colors[id] = clean;
     }
     for (const [id, text] of Object.entries(saved.custom ?? {})) if (plantById(id) && typeof text === 'string') state.custom[id] = text;
   } catch {
@@ -185,15 +183,7 @@ function rasterOf(entry: PlantEntry, seed: number, frame: number, wind: number, 
 
 // ------------------------------------------------------------------ the survivor, for scale
 
-function survivorLook(): Look {
-  const items: Item[] = ['recipe-everyday-0', 'sprite-everyday-bottoms-0', 'sprite-hat-2']
-    .map((id) => entryById(id)?.item)
-    .filter((i): i is Item => !!i)
-    .map((i) => weathered(i, 2));
-  const look = wear(baseLook('skinC', 'hairBlack'), ...items);
-  return { ...look, faces: facesFor('skinC', DEFAULT_FACE, 'hairBlack', 'happy'), items: look.items.map((i) => weathered(i, 2)) };
-}
-const SURVIVOR = survivorLook();
+const SURVIVOR = outfitLook('skinC', 'hairBlack', 'happy', 2, ['recipe-everyday-0', 'sprite-everyday-bottoms-0', 'sprite-hat-2']);
 const survivorFrames = new Map<number, Sprite>();
 function survivorAt(ms: number): Sprite {
   const clip = AUTHORED.idle;

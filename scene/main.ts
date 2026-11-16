@@ -12,7 +12,7 @@ import {
 } from '../engine/scene.ts';
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
-import { cleanAnimal, CLIPS, drawAnimal, isShadow, type Animal } from '../lab/animal.ts';
+import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../lab/animal.ts';
 import { PRESETS } from '../lab/animal-presets.ts';
 import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
@@ -245,17 +245,7 @@ function placeDecor(at: { i: number; j: number }): void {
 
 /** The animals made in the animal editor, then its presets; read again each time the picker shows, since that editor may be open in another tab. */
 function animalChoices(): { id: string; name: string; animal: Animal }[] {
-  let saved: { id: string; name: string; animal: Animal }[] = [];
-  try {
-    const list = JSON.parse(localStorage.getItem('pixel-animals') ?? '[]');
-    if (Array.isArray(list)) {
-      saved = list.filter((a) => a && typeof a.id === 'string' && typeof a.name === 'string')
-        .map((a) => ({ id: a.id, name: a.name.slice(0, 40), animal: cleanAnimal(a.animal) }));
-    }
-  } catch {
-    // Without storage only the presets are offered.
-  }
-  return [...saved, ...PRESETS.map((p) => ({ ...p, id: `preset:${p.id}` }))];
+  return [...savedAnimals(), ...PRESETS.map((p) => ({ ...p, id: `preset:${p.id}` }))];
 }
 
 function placeAnimal(at: { i: number; j: number }): void {

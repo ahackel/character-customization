@@ -1,4 +1,5 @@
 import { tryPlant, type Category, type Plant } from './flora.ts';
+import { PALETTE, type PaletteKey } from './palette.ts';
 
 /** One plant as the model wrote it, compiled. */
 export interface PlantEntry {
@@ -40,3 +41,13 @@ export const FLORA: PlantEntry[] = built.entries;
 export const FLORA_REJECTED = built.rejected;
 export const FLORA_CALLS = built.calls;
 export const plantById = (id: string | null | undefined) => FLORA.find((e) => e.id === id);
+
+/**
+ * Where the flora tool keeps its work on this device. Its `custom` (per plant, the recipe as edited
+ * there, as text) and `colors` (per plant, a colour swap) are read by the scene editor too, so a
+ * plant looks the same in both.
+ */
+export const FLORA_STORE = 'island-flora';
+/** A colour swap from storage: which of a plant's own colours is replaced by which. Anything that is not a palette colour is left out. */
+export const cleanSwap = (swap: unknown): Partial<Record<PaletteKey, PaletteKey>> =>
+  Object.fromEntries(Object.entries(swap ?? {}).filter(([from, to]) => from in PALETTE && to && (to as string) in PALETTE));

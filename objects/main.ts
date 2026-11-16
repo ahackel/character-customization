@@ -3,17 +3,18 @@
 // Built on the shared editor shell, like the wardrobe.
 import {
   AXES, COLOR_KEYS, cleanProp, DEFAULT_PROP, drawObject, framesOf, heightOf, isShadow, KINDS, LOOP_RATE, LOOPS, MAX_HEIGHT, MAX_PARTS, MAX_TILES, newPart,
-  ObjectSprite, OBJECT_H, OBJECT_W, PAINTS, propFile, readPropFile, SHAPES, UNIT,
+  ObjectSprite, OBJECT_H, OBJECT_STORE, OBJECT_W, PAINTS, propFile, readPropFile, savedProps, SHAPES, UNIT,
   type ObjectFrame, type Part, type Prop, type Turn,
 } from '../lab/object.ts';
 import { OBJECT_PRESETS } from '../lab/object-presets.ts';
-import { download, newId, pickFile } from '../lab/files.ts';
+import { download, newId, pickFile, readStore, writeStore } from '../lab/files.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import {
   button, checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, topBar, undoKeys, word,
   type IconName,
 } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
+import { fitWhole, paintSprite, trimmed, type Rect } from '../shared/pixels.ts';
 
 // ------------------------------------------------------------------ words
 
@@ -33,44 +34,19 @@ const label = (key: string) => (LABEL[key] ? LABEL[key][de() ? 1 : 0] : key);
 
 // ------------------------------------------------------------------ state
 
-const DRAFT_KEY = 'pixel-object-draft';
-const ROSTER_KEY = 'pixel-objects';
-const CURRENT_KEY = 'pixel-objects-current';
+const { draft: DRAFT_KEY, roster: ROSTER_KEY, current: CURRENT_KEY } = OBJECT_STORE;
 interface Saved { id: string; name: string; prop: Prop }
 
-const read = <T>(key: string, fallback: T): T => {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? fallback : JSON.parse(raw);
-  } catch {
-    // Without storage the editor starts from the first preset.
-    return fallback;
-  }
-};
-const write = (key: string, value: unknown): boolean => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-let prop = cleanProp(read(DRAFT_KEY, OBJECT_PRESETS[0].prop));
-let roster: Saved[] = (() => {
-  const list = read<unknown>(ROSTER_KEY, []);
-  return Array.isArray(list)
-    ? list.filter((s) => s && typeof s.id === 'string' && typeof s.name === 'string').map((s) => ({ id: s.id, name: s.name.slice(0, 40), prop: cleanProp(s.prop) }))
-    : [];
-})();
-let currentId: string | null = read<string | null>(CURRENT_KEY, null);
+let prop = cleanProp(readStore(DRAFT_KEY, OBJECT_PRESETS[0].prop));
+let roster: Saved[] = savedProps();
+let currentId: string | null = readStore<string | null>(CURRENT_KEY, null);
 if (!roster.some((s) => s.id === currentId)) currentId = null;
 
 const current = () => roster.find((s) => s.id === currentId);
 // Opening the editor shows the object picked in My things, even if the draft moved on.
 if (current()) prop = structuredClone(current()!.prop);
 const EXPERT_KEY = 'pixel-objects-expert';
-let expert = read<boolean>(EXPERT_KEY, false) === true;
+let expert = readStore<boolean>(EXPERT_KEY, false) === true;
 
 type TabId = 'things' | 'size' | 'parts' | 'points';
 const TABS: [TabId, string, string, IconName][] = [['things', 'Things', 'Dinge', 'armchair'], ['size', 'Size', 'Größe', 'box'], ['parts', 'Parts', 'Teile', 'shapes'], ['points', 'Points', 'Punkte', 'pin']];
@@ -79,17 +55,15 @@ let turn: Turn = 0;
 let selected = 0;
 let paused = false;
 let version = 0;
-let crop: Crop = { x: 0, y: 0, w: OBJECT_W, h: OBJECT_H };
+let crop: Rect = { x: 0, y: 0, w: OBJECT_W, h: OBJECT_H };
 const GROUNDS = [['Floor', 'Boden', '#d9d3c4'], ['Grass', 'Gras', '#8fcf78'], ['Path', 'Weg', '#c9bfae']] as const;
 let ground: string = GROUNDS[0][2];
 let message = '';
 
 // ------------------------------------------------------------------ drawing
 
-interface Crop { x: number; y: number; w: number; h: number }
-
 /** A square around the object in every turn, so the view does not jump when turning. */
-function cropFor(p: Prop): Crop {
+function cropFor(p: Prop): Rect {
   let x0 = OBJECT_W, y0 = OBJECT_H, x1 = 0, y1 = 0;
   for (const at of [0, 1, 2, 3] as const) {
     const { sprite } = drawObject(p, at);
@@ -103,39 +77,10 @@ function cropFor(p: Prop): Crop {
   return { x: Math.round(OBJECT_W / 2 - side / 2), y: Math.round((y0 + y1) / 2 - side / 2), w: side, h: side };
 }
 
-function paint(canvas: HTMLCanvasElement, sprite: ObjectSprite, crop: Crop): void {
-  if (canvas.width !== crop.w || canvas.height !== crop.h) Object.assign(canvas, { width: crop.w, height: crop.h });
-  const ctx = canvas.getContext('2d')!;
-  const image = ctx.createImageData(crop.w, crop.h);
-  for (let y = 0; y < crop.h; y++) for (let x = 0; x < crop.w; x++) {
-    const hex = sprite.get(x + crop.x, y + crop.y);
-    if (!hex) continue;
-    const o = (y * crop.w + x) * 4;
-    for (let k = 0; k < 3; k++) image.data[o + k] = parseInt(hex.slice(1 + k * 2, 3 + k * 2), 16);
-    image.data[o + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
-  }
-  ctx.putImageData(image, 0, 0);
-}
-
-/** Whole-number enlargement that fits a box, so pixels stay square. */
-function fit(canvas: HTMLCanvasElement, box: number): void {
-  const scale = Math.max(1, Math.floor(box / Math.max(canvas.width, canvas.height)));
-  canvas.style.width = `${canvas.width * scale}px`;
-  canvas.style.height = `${canvas.height * scale}px`;
-}
-
 /** A small picture of an object, trimmed to what it paints. */
 function thumbnail(p: Prop, box = 60): HTMLCanvasElement {
-  const { sprite } = drawObject(p, 0);
-  let x0 = OBJECT_W, y0 = OBJECT_H, x1 = 0, y1 = 0;
-  for (let y = 0; y < OBJECT_H; y++) for (let x = 0; x < OBJECT_W; x++) {
-    const hex = sprite.get(x, y);
-    if (!hex || isShadow(hex)) continue;
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-  }
-  const canvas = h('canvas', { class: 'thumb' });
-  paint(canvas, sprite, { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 });
-  fit(canvas, box);
+  const canvas = trimmed(drawObject(p, 0).sprite, OBJECT_W, OBJECT_H, box, isShadow);
+  canvas.className = 'thumb';
   return canvas;
 }
 
@@ -149,13 +94,13 @@ const undo = history(() => prop, (value) => {
 });
 
 function storeRoster(note = ''): void {
-  message = write(ROSTER_KEY, roster) ? note : L('Could not save: this browser refuses storage here.', 'Nicht gespeichert: Dieser Browser erlaubt hier keinen Speicher.');
+  message = writeStore(ROSTER_KEY, roster) ? note : L('Could not save: this browser refuses storage here.', 'Nicht gespeichert: Dieser Browser erlaubt hier keinen Speicher.');
 }
 
 /** Keeps the draft and, if one is picked, its entry in My things. */
 function persist(): void {
   version++;
-  write(DRAFT_KEY, prop);
+  writeStore(DRAFT_KEY, prop);
   selected = Math.max(0, Math.min(selected, prop.parts.length - 1));
   const saved = current();
   if (saved) {
@@ -174,7 +119,7 @@ function changed(): void {
 }
 function setCurrent(id: string | null): void {
   currentId = id;
-  write(CURRENT_KEY, id);
+  writeStore(CURRENT_KEY, id);
 }
 function addThing(name: string, from: Prop): void {
   const saved = { id: newId(), name: name.slice(0, 40), prop: structuredClone(from) };
@@ -477,7 +422,7 @@ function renderBar(): void {
       { label: L('Import', 'Importieren'), icon: 'upload', run: () => void importFile() },
       { label: expert ? L('Expert tools: on', 'Expertenwerkzeuge: an') : L('Expert tools: off', 'Expertenwerkzeuge: aus'), icon: 'sliders', run: () => {
         expert = !expert;
-        write(EXPERT_KEY, expert);
+        writeStore(EXPERT_KEY, expert);
         if (!expert && tab === 'points') tab = 'things';
         render();
       } },
@@ -607,8 +552,8 @@ const tick = (ms: number) => {
       }
     }
     if (tab === 'points') for (const p of Object.values(points)) marked.set(p.x, p.y, p.visible ? '#ff00ff' : '#ff00ff66');
-    paint(hero, marked, crop);
-    fit(hero, Math.min(stage.clientWidth, stage.clientHeight) - 40);
+    paintSprite(hero, marked, crop);
+    fitWhole(hero, Math.min(stage.clientWidth, stage.clientHeight) - 40);
   }
   requestAnimationFrame(tick);
 };

@@ -2,9 +2,10 @@
 // frame, and a camera window composed each frame with everything standing on the ground. Also
 // answers where a screen pixel is on the map, and where a walker may go.
 import { drawPlant, FRAMES, grow, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../lab/flora.ts';
-import { plantById, type PlantEntry } from '../lab/flora-catalog.ts';
+import { readStore } from '../lab/files.ts';
+import { cleanSwap, FLORA_STORE, plantById, type PlantEntry } from '../lab/flora-catalog.ts';
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from '../lab/island.ts';
-import { PALETTE, SHADOW, type PaletteKey } from '../lab/palette.ts';
+import { SHADOW } from '../lab/palette.ts';
 import {
   heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
@@ -87,20 +88,13 @@ const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, 
  * Plants as the flora tool shows them: a recipe edited there, and colours swapped there, are kept
  * in that tool's storage and used here too. Read once per page load.
  */
-const floraEdits = (() => {
-  try {
-    const saved = JSON.parse(localStorage.getItem('island-flora') ?? 'null');
-    return { custom: saved?.custom ?? {}, colors: saved?.colors ?? {} } as { custom: Record<string, unknown>; colors: Record<string, Record<string, string>> };
-  } catch {
-    return { custom: {}, colors: {} };
-  }
-})();
+const floraEdits = readStore<{ custom?: Record<string, unknown>; colors?: Record<string, unknown> } | null>(FLORA_STORE, null);
 const plantCache = new Map<string, Plant>();
 export function plantOf(entry: PlantEntry): Plant {
   let plant = plantCache.get(entry.id);
   if (plant) return plant;
   plant = entry.plant;
-  const text = floraEdits.custom[entry.id];
+  const text = floraEdits?.custom?.[entry.id];
   if (typeof text === 'string') {
     try {
       const parsed = tryPlant(JSON.parse(text));
@@ -109,8 +103,7 @@ export function plantOf(entry: PlantEntry): Plant {
       // A broken edit in the flora tool falls back to the original recipe, as it does there.
     }
   }
-  const swap = Object.fromEntries(Object.entries(floraEdits.colors[entry.id] ?? {}).filter(([a, b]) => a in PALETTE && b in PALETTE)) as Partial<Record<PaletteKey, PaletteKey>>;
-  plant = recolorPlant(plant, swap);
+  plant = recolorPlant(plant, cleanSwap(floraEdits?.colors?.[entry.id]));
   plantCache.set(entry.id, plant);
   return plant;
 }

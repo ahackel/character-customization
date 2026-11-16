@@ -2,7 +2,7 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
+  baseLook, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP, wear,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
@@ -131,6 +131,13 @@ function wornItem(source: State, slot: WornSlot): Item | null {
   return slot === 'beard' ? inHairColor(entry, source.beardColor ?? source.hairColor) : recolor(entry.item, source.colors[slot] ?? {});
 }
 
+/** A character in a fixed outfit of catalogue items, for the pictures that show one for scale or for show. */
+export function outfitLook(skin: PaletteKey, hair: PaletteKey, mood: Mood, condition: Wear, ids: string[]): Look {
+  const items = ids.map((id) => entryById(id)?.item).filter((i): i is Item => !!i).map((i) => weathered(i, condition));
+  const look = wear(baseLook(skin, hair), ...items);
+  return { ...look, faces: facesFor(skin, DEFAULT_FACE, hair, mood), items: look.items.map((i) => weathered(i, condition)) };
+}
+
 /** `underwear` is off for the mannequin that item pictures are cut from. */
 export function lookOf(source: State, underwear = true): Look {
   const items: Item[] = [];
@@ -165,6 +172,25 @@ const ROSTER_KEY = 'castaway-characters';
 const DRAFT_KEY = 'castaway-wardrobe';
 const FILE_TYPE = 'castaway-character';
 
+
+const CURRENT_KEY = 'castaway-characters-current';
+/** The id of the character picked in My things. Kept as plain text, not as JSON like the other tools' ids. */
+export function pickedCharacter(): string | null {
+  try {
+    return localStorage.getItem(CURRENT_KEY);
+  } catch {
+    // Without storage nothing is picked.
+    return null;
+  }
+}
+export function pickCharacter(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(CURRENT_KEY, id);
+    else localStorage.removeItem(CURRENT_KEY);
+  } catch {
+    // The pick then lasts for this visit only.
+  }
+}
 
 /** Characters saved on this device. The first time, the wardrobe's working character becomes the first one. */
 export function loadRoster(): Saved[] {

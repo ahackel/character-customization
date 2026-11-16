@@ -1,7 +1,7 @@
 import { BROWS, EYE_COLORS, EYE_SHAPES, GLASSES_COLORS, HAIR_STYLES, HEAD_SHAPES, MOODS, type FaceOptions } from '../lab/base.ts';
 import { CATALOG, CLOTH_KEYS, entryById, type Entry } from '../lab/catalog.ts';
 import {
-  characterFile, cleanState, defaultState, download, GROUNDS, HAIR_COLORS, loadRoster, lookOf, newId, pickFile, readCharacterFile, saveRoster,
+  characterFile, cleanState, defaultState, download, GROUNDS, HAIR_COLORS, loadRoster, lookOf, newId, pickCharacter, pickedCharacter, pickFile, readCharacterFile, saveRoster,
   WORN_SLOTS, type Saved, type State, type WornSlot,
 } from '../lab/character.ts';
 import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
@@ -10,6 +10,7 @@ import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprit
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang, LANGS } from '../shared/lang.ts';
+import { fitWhole, paintSprite, setPixel, type Rect } from '../shared/pixels.ts';
 import { itemName, missingItemNames, t, type Key } from './i18n.ts';
 import { shapeEditor } from './shapes.ts';
 
@@ -52,37 +53,11 @@ let version = 0;
 
 // ------------------------------------------------------------------ drawing
 
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 /** The preview shows the body with room around it for swung tools, wide hats and lying down. */
 const HERO: Rect = { x: 4, y: 6, w: 56, h: 54 };
 const FACE: Rect = { x: BODY_WINDOW.x + 7, y: BODY_WINDOW.y + 12, w: 18, h: 11 };
 /** The whole head with the neck, for the head shape pictures. */
 const HEAD: Rect = { x: BODY_WINDOW.x + 3, y: BODY_WINDOW.y + 1, w: 26, h: 26 };
-
-function setPixel(image: ImageData, x: number, y: number, hex: string): void {
-  const o = (y * image.width + x) * 4;
-  image.data[o] = parseInt(hex.slice(1, 3), 16);
-  image.data[o + 1] = parseInt(hex.slice(3, 5), 16);
-  image.data[o + 2] = parseInt(hex.slice(5, 7), 16);
-  image.data[o + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
-}
-
-function paint(canvas: HTMLCanvasElement, sprite: Sprite, crop: Rect): void {
-  const ctx = canvas.getContext('2d')!;
-  const image = ctx.createImageData(crop.w, crop.h);
-  for (let y = 0; y < crop.h; y++) {
-    for (let x = 0; x < crop.w; x++) {
-      const hex = sprite.get(x + crop.x, y + crop.y);
-      if (hex) setPixel(image, x, y, hex);
-    }
-  }
-  ctx.putImageData(image, 0, 0);
-}
 
 /** The animated preview. Built again with the page; `heroShown` is what it shows, so it is only repainted on a change. */
 let hero: HTMLCanvasElement | null = null;
@@ -91,12 +66,7 @@ let heroShown = '';
 const standing = (source: State, underwear = true) => drawCharacter(lookOf(source, underwear), STAND, 0);
 
 /** Sizes a small picture so its art pixels are whole screen pixels and it fills the card. */
-function fit(canvas: HTMLCanvasElement, box = 60): HTMLCanvasElement {
-  const scale = Math.max(1, Math.min(4, Math.floor(box / Math.max(canvas.width, canvas.height))));
-  canvas.style.width = `${canvas.width * scale}px`;
-  canvas.style.height = `${canvas.height * scale}px`;
-  return canvas;
-}
+const fit = (canvas: HTMLCanvasElement, box = 60) => fitWhole(canvas, box, 4);
 
 /** A plain mannequin with the current body, used as the background items are cut out of. */
 function mannequin(): State {
@@ -151,7 +121,7 @@ function regionPicture(change: (draft: State) => void, crop: Rect, underwear = t
   const draft = structuredClone(state);
   change(draft);
   const canvas = h('canvas', { class: 'thumb', width: String(crop.w), height: String(crop.h) });
-  paint(canvas, standing(draft, underwear), crop);
+  paintSprite(canvas, standing(draft, underwear), crop);
   return fit(canvas, box);
 }
 
@@ -182,14 +152,8 @@ const TAB_ICONS: Record<TabId, IconName> = { body: 'body', face: 'face', hair: '
 
 // My things: saved characters on this device, shared with the scene editor. The working character
 // is kept on every change as before; while a saved one is picked, changes go straight into it.
-const CURRENT_KEY = 'castaway-characters-current';
 let roster = loadRoster();
-let currentId: string | null = null;
-try {
-  currentId = localStorage.getItem(CURRENT_KEY);
-} catch {
-  // Without storage nothing is selected.
-}
+let currentId = pickedCharacter();
 if (!roster.some((c) => c.id === currentId)) currentId = roster.length === 1 ? roster[0].id : null;
 const current = () => roster.find((c) => c.id === currentId);
 // Opening the wardrobe shows the character picked in My things, even if the draft moved on.
@@ -197,12 +161,7 @@ if (current()) state = cleanState(structuredClone(current()!.state));
 
 function setCurrent(id: string | null): void {
   currentId = id;
-  try {
-    if (id) localStorage.setItem(CURRENT_KEY, id);
-    else localStorage.removeItem(CURRENT_KEY);
-  } catch {
-    // The selection then lasts for this visit only.
-  }
+  pickCharacter(id);
 }
 
 /** Stores the list; a refusal is shown in the bar, since it is the one thing that loses work. */
@@ -769,7 +728,7 @@ const tick = (ms: number) => {
       const face = clip.faces?.[frame] === 'blink' || !eyesAside ? clip.faces?.[frame] : 'aside';
       frames.set(key, (sprite = drawCharacter(look, pose, facing, { face, swing: clip.swing })));
     }
-    paint(hero, sprite, HERO);
+    paintSprite(hero, sprite, HERO);
   }
   requestAnimationFrame(tick);
 };

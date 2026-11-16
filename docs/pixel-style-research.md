@@ -90,6 +90,8 @@ Weak points found by rendering every facing and the walk (`node lab/tools/review
 | A foot lifted behind the body was a flat block | A pushing-off foot tips toe down | Seen from the side or in 3/4 it narrows to the toes under the shin |
 | Coast waves followed the sea floor, which is drawn up to 11 pixels lower than the water surface over it | Waves belong to the surface | The terrain image keeps the depth under each pixel's point of the water surface (`depth`), and waves and wavelets are placed by it |
 | Open-sea ripples were long single-pixel lines that read as scan lines | Pixel-art seas use short, sparse wavelets: a pale crest with darker ends | Wavelets of up to 7 pixels with their ends turned down a row in the dark colour |
+| Catalog hairstyles only had 3/4 views; side on they reused the 3/4 front, leaving the back of the head bare, and the mohawk's crest sat off the middle from the front and behind | Every view of a style shows the same haircut | Side on, a catalog style is built from both 3/4 views: the back view behind the ear, the front view narrowed in front of it, the crown from the front view alone. The mohawk has hand-drawn front, back, side and 3/4 back views, and holes left inside shaved stubble are filled. The parts check now colours the ears and fails a hairstyle or hat whose ears show in some views but not in others |
+| Hair moved rigidly with the head | Secondary motion: loose parts follow through a frame late | Hair hanging below the ears lags the body's rise and fall by a pixel in the walk and run, and trails a pixel behind at a run. The scalp stays put, so short hair and hats never move |
 
 ### The parts check
 

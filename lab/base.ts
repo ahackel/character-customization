@@ -689,6 +689,103 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
   },
 };
 
+/**
+ * Front, back and side views drawn by hand for catalog hairstyles whose 3/4 views do not turn
+ * well by rule, keyed by catalog id. Rows are in the 3/4 stamps' grid: the skull starts on row 6.
+ * 'back' replaces the 3/4 back view. H hair, h its shade, L its highlight, s shaved stubble. Side rows are drawn a pixel shallow
+ * already, the face at the right.
+ */
+const CATALOG_HAIR_ROWS: Record<string, Partial<Record<OwnView | 'back', string[]>>> = {
+  // Mohawk: a crest along the middle of the head from the brow to the nape, the sides shaved.
+  'recipe-hair-short-0': {
+    back: [
+      '.........H...........',
+      '........HH...........',
+      '........HHh..........',
+      '........HHh..........',
+      '........HHh..........',
+      '........HLh..........',
+      '......ssHLhssss......',
+      '....ssssHHhssssss....',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '...sssssHHhsssssss...',
+      '....ssssHhhsssss.....',
+      '.......sshhsss.......',
+    ],
+    S: [
+      '..........H..........',
+      '.........HH..........',
+      '.........HHh.........',
+      '.........HHh.........',
+      '.........HHh.........',
+      '.........HLh.........',
+      '......sssHLhsss......',
+      '....sssssHHhsssss....',
+      '...ssssssHHhssssss...',
+      '...sssssshhhssssss...',
+      '...ss...........ss...',
+      '...s.............s...',
+      '...s.............s...',
+    ],
+    N: [
+      '..........H..........',
+      '.........HH..........',
+      '.........HHh.........',
+      '.........HHh.........',
+      '.........HHh.........',
+      '.........HLh.........',
+      '......sssHLhsss......',
+      '....sssssHHhsssss....',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '...ssssssHHhssssss...',
+      '....sssssHHhsssss....',
+      '.....ssssHhhssss.....',
+      '.......sshhhss.......',
+    ],
+    E: [
+      '......H..............',
+      '.....HH..H...........',
+      '.....HHH.HH..H.......',
+      '....HHHHHHHH.HH......',
+      '....hHHLLHHHHHH......',
+      '...hhHHHLLLHHHHH.....',
+      '...hhhHHHHHHHHHHh....',
+      '...shhhhhhhhhhhhs....',
+      '...ssssssssssssss....',
+      '...sssssssssssss.....',
+      '...ssssssssss........',
+      '...sssssssss.........',
+      '...ssss....s.........',
+      '...sss....s..........',
+      '...sss...............',
+      '....ss...............',
+      '....s................',
+    ],
+  },
+};
+
+/** The hand-drawn views of a catalog hairstyle, in its hair colour, or undefined. */
+export function catalogHairViews(id: string, key: PaletteKey): { views: Item['views']; back?: Stamp } | undefined {
+  const { back, ...views } = CATALOG_HAIR_ROWS[id] ?? {};
+  if (!CATALOG_HAIR_ROWS[id]) return undefined;
+  const cell = (ch: string): Cell | null =>
+    ch === 'H' ? { key, shade: false } : ch === 'h' ? { key, shade: true } : ch === 'L' ? { key, shade: false, light: true } : ch === 's' ? { key, shade: true, mix: STUBBLE } : null;
+  const stamp = (rows: string[]) => pad(rows, 0).map((row) => [...row].map(cell));
+  return { views: Object.fromEntries(Object.entries(views).map(([view, rows]) => [view, { head: stamp(rows) }])), ...(back ? { back: stamp(back) } : {}) };
+}
+
 export const BEARD_STYLES = Object.entries(BEARD_ROWS).map(([id, { label, rows, side, short }]) => {
   const parse = (lines: string[]) => {
     const parsed = parseStamp(pad(lines, 12), { H: 'hairBrown', L: 'hairBrown+' });
@@ -701,17 +798,26 @@ export const BEARD_STYLES = Object.entries(BEARD_ROWS).map(([id, { label, rows, 
 
 /**
  * Hair shaved to stubble, which the model paints as a chequer of single pixels, becomes an even
- * see-through shade: each lone pixel and each gap between two of them.
+ * see-through shade: each lone pixel and each gap between two of them, and any hole left inside.
  */
 export function stubbled(stamp: Stamp): Stamp {
   const lone = (x: number, y: number) =>
     !!stamp[y]?.[x] && ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => stamp[y + dy]?.[x + dx]);
   const shade = (c: Cell): Cell => ({ key: c.key, shade: true, mix: STUBBLE });
-  return stamp.map((row, y) =>
+  const even = stamp.map((row, y) =>
     row.map((cell, x) => {
       if (cell) return lone(x, y) ? shade(cell) : cell;
       const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => lone(x + dx, y + dy));
       return near.length >= 2 ? shade(stamp[y + near[0][1]][x + near[0][0]]!) : null;
+    }),
+  );
+  // A bare pixel left inside the stubble, between hair on either side, is stubble too.
+  return even.map((row, y) =>
+    row.map((cell, x) => {
+      if (cell) return cell;
+      const [r, l, d, u] = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => even[y + dy]?.[x + dx] ?? null);
+      const stubble = [r, l, d, u].find((c) => c?.mix);
+      return stubble && ((r && l) || (u && d)) ? shade(stubble) : null;
     }),
   );
 }

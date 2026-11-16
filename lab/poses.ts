@@ -90,6 +90,18 @@ export interface Clip {
 
 export const STAND = buildPose();
 
+/**
+ * Follow-through for a looping clip: hanging hair lags a frame behind the body's rise and fall,
+ * a pixel down as the body comes up and up as it drops, and `trail` pixels behind it.
+ */
+function withHair(specs: PoseSpec[], trail = 0): Pose[] {
+  return specs.map((spec, i) => {
+    const before = specs[(i + specs.length - 1) % specs.length].bob ?? 0;
+    const rise = Math.sign((spec.bob ?? 0) - before);
+    return { ...buildPose(spec), hair: [0, -rise, -trail] as Vec3 };
+  });
+}
+
 // Run: contact, passing, flight, then the same on the other foot. A small forward lean, elbows
 // held at a right angle and swinging against the legs, the knee of the free leg carried high.
 const runHalf: PoseSpec[] = [
@@ -143,8 +155,8 @@ const LOOK_STEPS: [Pose, string | undefined][] = [
 export const AUTHORED: Record<string, Clip> = {
   // Standing still. The only movement is a blink every three seconds.
   idle: { name: 'Idle', ...resting(STAND) },
-  walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
-  run: { name: 'Run', rate: 11, frames: [...runHalf, ...runHalf.map(mirrored)].map(buildPose) },
+  walk: { name: 'Walk', rate: 8, frames: withHair([...walkHalf, ...walkHalf.map(mirrored)]) },
+  run: { name: 'Run', rate: 11, frames: withHair([...runHalf, ...runHalf.map(mirrored)], 1) },
   // Only the arm moves; the body stays where it is.
   wave: { name: 'Wave', rate: 7, frames: waveFrames, faces: waveFrames.map(() => 'happy') },
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },

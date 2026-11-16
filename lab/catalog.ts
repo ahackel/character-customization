@@ -1,4 +1,4 @@
-import { BEARD_STYLES, beardFromBehind, stubbled, tidyBeard } from './base.ts';
+import { BEARD_STYLES, beardFromBehind, catalogHairViews, stubbled, tidyBeard } from './base.ts';
 import { compile } from './items.ts';
 import { JOB_ITEMS } from './jobs.ts';
 import { ANIMAL_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
@@ -103,6 +103,10 @@ function build(): Entry[] {
       // Rule: the back view of a beard is worked out from its front view. Both formats drew a
       // tuft at the neck there instead.
       if (item.slot === 'hair' && item.head) item.head = { front: stubbled(item.head.front), back: stubbled(item.head.back) };
+      const key = item.head?.front.flat().find((c) => c && !c.mix)?.key;
+      const drawn = item.slot === 'hair' && key ? catalogHairViews(`${format}-${set}-${index}`, key) : undefined;
+      if (drawn) item.views = { ...item.views, ...drawn.views };
+      if (drawn?.back && item.head) item.head = { ...item.head, back: drawn.back };
       if (item.slot === 'beard' && item.head) {
         const front = tidyBeard(item.head.front);
         item.head = { front, back: beardFromBehind(front) };

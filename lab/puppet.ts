@@ -65,6 +65,11 @@ export interface Pose {
   lie?: boolean;
   /** The head turned this many eighths of a turn to the character's left (negative: right), at most one. */
   look?: number;
+  /**
+   * Follow-through: how far hair hanging below the ears lags behind the head this frame, in
+   * pixels. It drops as the body rises, lifts as it drops, and trails behind at a run.
+   */
+  hair?: Vec3;
 }
 
 // Forward and right in ground coordinates, for each drawn view. Front, back and side views keep
@@ -207,7 +212,7 @@ export interface DrawOptions {
 /** The colours of the parts drawing. The working arm holds the tool; the free arm is the other one. */
 export const PART_COLORS = {
   legs: '#3355ff', torso: '#00aa44', clothes: '#88dd00', workArm: '#ff2222', freeArm: '#ff9900', tool: '#888888',
-  head: '#ffcc99', face: '#000000', hair: '#aa00ff', hat: '#00dddd', beard: '#996600', behind: '#ff66cc',
+  head: '#ffcc99', face: '#000000', hair: '#aa00ff', hat: '#00dddd', beard: '#996600', behind: '#ff66cc', ear: '#cc6644',
 } as const;
 export type Part = keyof typeof PART_COLORS;
 
@@ -519,6 +524,29 @@ function coversEars(hair: Stamp, head: Stamp): boolean {
   return hit;
 }
 
+const sideCache = new WeakMap<StampPair, Stamp>();
+/**
+ * Hair side on, for a hairstyle drawn only in 3/4: behind the ear it is the 3/4 back view, which
+ * shows the back of the head; from the ear forward it is the 3/4 front view, narrowed to run from
+ * the ear to the brow. The ear lies on the edge of both 3/4 views and in the middle side on.
+ * Above the skull, from row `top`, it is the 3/4 front view as it is.
+ */
+function hairSide(pair: StampPair, top: number): Stamp {
+  const hit = sideCache.get(pair);
+  if (hit) return hit;
+  const dx = HEAD_FRAME.ax - HEAD_STAMP.ax;
+  const earFront = Math.max(...EARS.E.map(([x]) => x)) + dx;
+  const earDiagonal = Math.max(...EARS.front.map(([x]) => x)) + dx;
+  // The face edge: the 3/4 skull ends at stamp column 17, the side skull at 18.
+  const ratio = (17 - (earDiagonal - dx)) / (18 - (earFront - dx));
+  // A bun or a crest standing up from the crown is drawn once, where the 3/4 front view has it.
+  const out = pair.front.map((row, y) =>
+    y < top ? row : row.map((_, x) => (x <= earFront ? pair.back[y]?.[x] ?? null : row[earDiagonal + Math.round((x - earFront) * ratio)] ?? null)),
+  );
+  sideCache.set(pair, out);
+  return out;
+}
+
 const tuckedCache = new WeakMap<Stamp, WeakMap<Stamp, Stamp>>();
 
 /**
@@ -579,7 +607,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
  */
 function mirroredPose(pose: Pose): Pose {
   const flip = (v: Vec3): Vec3 => [-v[0], v[1], v[2]];
-  const out = { ...pose, hips: flip(pose.hips), chest: flip(pose.chest), neck: flip(pose.neck), look: pose.look ? -pose.look : pose.look };
+  const out = { ...pose, hips: flip(pose.hips), chest: flip(pose.chest), neck: flip(pose.neck), look: pose.look ? -pose.look : pose.look, ...(pose.hair ? { hair: flip(pose.hair) } : {}) };
   for (const joint of ['shoulder', 'elbow', 'hand', 'hip', 'knee', 'foot'] as const) {
     out[`${joint}L`] = flip(pose[`${joint}R`]);
     out[`${joint}R`] = flip(pose[`${joint}L`]);
@@ -918,6 +946,19 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   // ---- head: rigid stamps. A wider build repeats the middle column of the head, hair and hat
   // stamps so they widen together and stay centred; the face keeps its size in the middle.
   const neck = P(pose.neck);
+  // Hair below the ears lags behind the head by whole pixels; the scalp stays put, so short hair never moves.
+  const lag = pose.hair ? { x: Math.round(P(add(pose.neck, pose.hair)).x - neck.x), y: Math.round(-pose.hair[1]) } : { x: 0, y: 0 };
+  const lagged = (stamp: Stamp): Stamp => {
+    if (!lag.x && !lag.y) return stamp;
+    const cut = skullTop(bareHead()) + 9;
+    // Rows just under the ears move less, so the hair bends instead of breaking off.
+    return stamp.map((row, y) => {
+      if (y <= cut) return row;
+      const from = stamp[Math.max(cut, y - lag.y)] ?? [];
+      const dx = y > cut + 2 ? lag.x : 0;
+      return row.map((_, x) => from[x - dx] ?? null);
+    });
+  };
   // The head turns up to an eighth either way of the body and is drawn in the view it then
   // faces: that view's own stamps, mirrored for the left-hand views.
   const headFacing = turnFacing(facing, -Math.max(-1, Math.min(1, pose.look ?? 0)));
@@ -974,6 +1015,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   const fallback = (item: Item): Stamp => {
     const stamp = hside(item.head!);
     if ((item.slot === 'hat' || item.slot === 'hair') && (hv === 'S' || hv === 'N')) return faceOn(stamp, hv === 'S', item.slot === 'hat');
+    if (item.slot === 'hair' && hv === 'E') return hairSide(item.head!, skullTop(look.head.front));
     if (item.slot !== 'beard' || !hv) return stamp;
     // Side on the beard moves forward with the face. Face on it is the half of the 3/4 beard
     // towards the face, mirrored about the middle of the face; from behind only what stands out
@@ -1054,7 +1096,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       for (const item of ordered) {
         const behind = itemBehind(item);
         as('behind');
-        if (behind) stampInto(sprite, headStamp(behind), HEAD_FRAME, hx, hy);
+        if (behind) stampInto(sprite, item.slot === 'hair' ? lagged(headStamp(behind)) : headStamp(behind), HEAD_FRAME, hx, hy);
       }
     },
   });
@@ -1063,6 +1105,11 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     draw: () => {
       as('head');
       stampInto(sprite, headStamp(headOf()).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
+      if (options.parts && !earsHidden) {
+        // The ears in a colour of their own, so a script can tell whether they show.
+        as('ear');
+        stampInto(sprite, headStamp(headOf().map((row, y) => row.map((cell, x) => (cell && ears.some(([ex, ey]) => ex === x && ey === y) ? cell : null)))), HEAD_FRAME, hx, hy);
+      }
       as('face');
       // In the parts drawing blush is skin: hair may lie over a cheek, not over the features.
       if (!headBack) stampInto(sprite, options.parts ? face.map((row) => row.map((c) => (c?.key === 'blush' ? null : c))) : face, HEAD_FRAME, fx, hy);
@@ -1071,7 +1118,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         if (!item.head) continue;
         const stamp = headStamp(headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : item === hairItem ? withEars(itemHead(item)) : itemHead(item));
         as(item.slot === 'hair' ? 'hair' : item.slot === 'beard' ? 'beard' : 'hat');
-        stampInto(sprite, item.slot === 'hair' ? offFace(stamp) : stamp, HEAD_FRAME, hx, hy);
+        stampInto(sprite, item.slot === 'hair' ? offFace(lagged(stamp)) : stamp, HEAD_FRAME, hx, hy);
       }
       // The mouth shows through any beard, in whatever shape the mood gives it.
       if (bearded && !headBack) {

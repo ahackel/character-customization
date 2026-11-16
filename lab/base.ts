@@ -1,4 +1,5 @@
 import type { Cell, PaletteKey } from './palette.ts';
+import shapesFile from './face-shapes.json' with { type: 'json' };
 import { HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
 
 // The foundation set: the bare head, its faces, a first hairstyle and the undershorts.
@@ -63,8 +64,9 @@ const ROUND_BACK = [
  */
 export const HEAD_SHAPES = ['round', 'heart', 'thin', 'square'] as const;
 export type HeadShape = (typeof HEAD_SHAPES)[number];
-const SHAPES: Record<HeadShape, { front: Record<number, string>; back: Record<number, string> }> = {
-  round: { front: {}, back: {} },
+// `straight` is the face-on and straight-back view, `side` the profile facing right.
+const SHAPES: Record<HeadShape, Record<'front' | 'back' | 'straight' | 'side', Record<number, string>>> = {
+  round: { front: {}, back: {}, straight: {}, side: {} },
   // Wide at the cheekbones, narrowing to a small pointed chin.
   heart: {
     front: {
@@ -86,6 +88,24 @@ const SHAPES: Record<HeadShape, { front: Record<number, string>; back: Record<nu
       12: '.......#######.......',
       13: '.........%%%%........',
     },
+    straight: {
+      6: '..%###############%..',
+      7: '..%###############%..',
+      8: '..################%..',
+      10: '....############%....',
+      11: '.....##########%.....',
+      12: '.......######%.......',
+      13: '........%%%%%........',
+    },
+    // Side on: full cheekbones, the jaw drawn back to a small chin.
+    side: {
+      6: '..#####%%##########..',
+      7: '..####%############..',
+      8: '..####%############..',
+      11: '.....##############..',
+      12: '.......##########%...',
+      13: '.........%%%%%%%.....',
+    },
   },
   // A narrow face, one pixel in on both sides from the brow down.
   thin: {
@@ -105,13 +125,54 @@ const SHAPES: Record<HeadShape, { front: Record<number, string>; back: Record<nu
       12: '......#########%.....',
       13: '........%%%%%%.......',
     },
-    // From behind the crown stays round, so hair drawn for the round head still meets it; only
-    // the jaw is narrower.
     back: {
+      0: '.......#######.......',
+      1: '.....###########.....',
+      2: '....#############....',
+      3: '....#############....',
+      4: '....#############....',
+      5: '....#############....',
+      6: '....#############%%..',
+      7: '....#############%%..',
+      8: '....#############....',
+      9: '....#############....',
       10: '....#############....',
       11: '.....###########.....',
       12: '......#########......',
       13: '.......%%%%%%%.......',
+    },
+    straight: {
+      0: '.......#######.......',
+      1: '.....###########.....',
+      2: '....#############....',
+      3: '....#############....',
+      4: '....#############....',
+      5: '....#############....',
+      6: '...%#############%...',
+      7: '...%#############%...',
+      8: '....#############....',
+      9: '....############%....',
+      10: '....############%....',
+      11: '.....##########%.....',
+      12: '......########%......',
+      13: '.......%%%%%%%.......',
+    },
+    // Side on: a pixel less at the back of the skull and under the jaw.
+    side: {
+      0: '.......########......',
+      1: '.....############....',
+      2: '....##############...',
+      3: '....##############...',
+      4: '....###############..',
+      5: '....###############..',
+      6: '....###%%##########..',
+      7: '....##%############..',
+      8: '....##%############..',
+      9: '....###%%###########.',
+      10: '.....##############..',
+      11: '.....##############..',
+      12: '......############%..',
+      13: '........%%%%%%%%%....',
     },
   },
   // A broad jaw that stays wide down to the chin.
@@ -125,6 +186,18 @@ const SHAPES: Record<HeadShape, { front: Record<number, string>; back: Record<nu
       11: '...###############...',
       12: '....#############....',
       13: '......%%%%%%%%%......',
+    },
+    straight: {
+      11: '...##############%...',
+      12: '....############%....',
+      13: '......%%%%%%%%%......',
+    },
+    // Side on: the jaw stays deep right back to the ear.
+    side: {
+      10: '...################..',
+      11: '...################..',
+      12: '...###############%..',
+      13: '.....%%%%%%%%%%%%....',
     },
   },
 };
@@ -164,136 +237,6 @@ export const DEFAULT_FACE: FaceOptions = {
   eyes: 'round', eyeColor: null, brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
 };
 
-function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false, south = false): string[] {
-  const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
-  // Seen straight from the front the face sits in the middle of the head: two columns left of
-  // where it sits in the three-quarter view, which puts the eyes either side of the centre.
-  const shift = south ? -2 : 0;
-  const put = (x: number, y: number, ch: string) => {
-    if (grid[y]?.[x + shift] !== undefined) grid[y][x + shift] = ch;
-  };
-  const run = (x0: number, x1: number, y: number, ch: string) => {
-    for (let x = x0; x <= x1; x++) put(x, y, ch);
-  };
-  // Surprise opens the eyes one row further.
-  const top = mood === 'surprised' ? 11 : 12;
-  // Small eyes are one dark pixel, like the animals' eyes, and keep that size in every state.
-  const small = o.eyes === 'small';
-  for (const [x, outer] of [[9, -1], [14, 1]] as const) {
-    const left = x;
-    if (small) {
-      if (mood === 'laughing') {
-        put(x, 13, 'I');
-        put(x + 1, 12, 'I');
-        put(x + 2, 13, 'I');
-      } else if (blink) run(x, x + 1, 13, 'I');
-      else {
-        const pupil = aside ? x : x + 1;
-        put(pupil, 13, 'I');
-        if (mood === 'surprised') put(pupil, 12, 'I');
-      }
-    } else if (mood === 'laughing') {
-      // Eyes squeezed shut into arcs.
-      run(x, x + 1, 13, 'I');
-      put(x - 1, 14, 'I');
-      put(x + 2, 14, 'I');
-    } else if (blink) {
-      run(left, x + 1, 14, 'I');
-    } else {
-      // A shine in the same corner of both eyes, colour beside the pupil. Looking aside, away
-      // from where the face points, the pupil moves to the other side of the eye.
-      const pupil = aside ? x : x + 1;
-      const iris = aside ? x + 1 : x;
-      if (o.eyes === 'sleepy') run(x - 1, x + 1, top, 'I');
-      else {
-        put(iris, top, 'T');
-        put(pupil, top, 'I');
-      }
-      for (let y = top + 1; y <= 14; y++) {
-        put(iris, y, 'C');
-        put(pupil, y, 'I');
-      }
-      if (o.lashes) put(outer < 0 ? left - 1 : x + 2, top, 'I');
-    }
-    // Brows. Anger lowers a heavy brow onto the inner corner of the eye and sadness lets the
-    // outer corner droop; the lid is skin, so the eye itself changes shape. Both show even on a
-    // face that otherwise has no brows drawn, because the mood depends on them.
-    const outerX = outer < 0 ? x : x + 1;
-    const innerX = outer < 0 ? x + 1 : x;
-    // Thick brows are two rows high, the lower one over the top of the eye, and reach one pixel
-    // further the way the face looks, so only one pixel parts them.
-    const thick = o.brows === 'thick';
-    const brow = (x0: number, x1: number, y: number) => {
-      run(Math.min(x0, x1), Math.max(x0, x1), y, 'e');
-      if (thick) run(Math.min(x0, x1), Math.max(x0, x1), y + 1, 'e');
-    };
-    if (mood === 'angry' || mood === 'sad') {
-      if (!blink && !small) {
-        // No shine, and one corner of the top row closed by the lid.
-        run(left, x + 1, 12, 'I');
-        put(mood === 'angry' ? innerX : outerX, 12, '%');
-      }
-      if (mood === 'angry') brow(thick ? outerX + outer : outerX, innerX - outer, 11);
-      else {
-        brow(innerX, innerX, 11);
-        if (o.brows !== 'none') brow(innerX - outer, innerX - outer, 11);
-      }
-    } else if (o.brows !== 'none' || mood === 'surprised') {
-      const y = mood === 'surprised' ? 10 : 11;
-      brow(thick ? x - 1 : x, thick ? x + 2 : x + 1, y);
-    }
-  }
-  put(south ? 12 : 13, 15, '%');
-  if (o.blush) {
-    put(south ? 8 : 7, 15, 'B');
-    put(16, 15, 'B');
-  }
-  if (o.freckles) {
-    for (const [x, y] of [[6, 15], [8, 16], [8, 14], [17, 15], [16, 16]]) put(x, y, '%');
-  }
-  if (mood === 'laughing') {
-    for (const y of [16, 17]) {
-      put(10, y, 'M');
-      run(11, 14, y, 'T');
-      put(15, y, 'M');
-    }
-    run(11, 14, 18, 'M');
-  } else if (mood === 'happy') {
-    put(10, 16, 'M');
-    run(11, 14, 16, 'T');
-    put(15, 16, 'M');
-    run(11, 14, 17, 'M');
-  } else if (mood === 'smile') {
-    put(10, 16, 'M');
-    put(15, 16, 'M');
-    run(11, 14, 17, 'M');
-  } else if (mood === 'sad') {
-    run(11, 14, 16, 'M');
-    put(10, 17, 'M');
-    put(15, 17, 'M');
-  } else if (mood === 'angry') {
-    run(12, 14, 16, 'M');
-  } else if (mood === 'surprised') {
-    run(12, 13, 16, 'M');
-    run(12, 13, 17, 'M');
-  } else {
-    run(11, 14, 16, 'M');
-  }
-  if (o.glasses) {
-    for (const x of [8, 13]) {
-      run(x, x + 3, 11, 'G');
-      run(x, x + 3, 15, 'G');
-      for (const y of [12, 13, 14]) {
-        put(x, y, 'G');
-        put(x + 3, y, 'G');
-      }
-    }
-    put(12, 12, 'G');
-    if (!south) run(3, 7, 12, 'G');
-  }
-  return grid.map((row) => row.join(''));
-}
-
 // Straight front and back views: the head seen face on or from behind, symmetric about stamp
 // column 10, with both ears showing and the shade on the right, away from the light.
 const ROUND_SOUTH = [
@@ -316,6 +259,16 @@ const ROUND_SOUTH = [
 ];
 
 // Side on, facing right: the ear in the middle, the brow and nose breaking the outline in front.
+/**
+ * Side on the head is a pixel shallower than drawn below: one column in front of the ear is left
+ * out, so the face moves back a pixel and the back of the head and the neck stay. Hair drawn side
+ * on loses the same column.
+ */
+const FRONT_IN = 13;
+const shallow = (row: string) => row.slice(0, FRONT_IN) + row.slice(FRONT_IN + 1) + '.';
+/** The side head of a shape, a pixel shallower. Rows 14 and on are the neck. */
+const sideRows = (shape: HeadShape) => ROUND_EAST.map((row, i) => SHAPES[shape].side[i] ?? row).map((row, i) => (i < 14 ? shallow(row) : row));
+
 const ROUND_EAST = [
   '......#########......',
   '....#############....',
@@ -335,113 +288,160 @@ const ROUND_EAST = [
   '........%%%%%........',
 ];
 
-/** A head shape's row from behind, made symmetric about column 10 for the front and back views. */
-const symmetric = (row: string, i: number): string => {
-  const l = row.search(/[^.]/);
-  const w = row.trimEnd().replace(/\.+$/, '').length - l;
-  const a = 10 - Math.floor((w - 1) / 2);
-  return [...row].map((_, x) => (x < a || x >= a + w ? '.' : i >= 13 || (i >= 9 && x === a + w - 1) ? '%' : '#')).join('');
+
+// ------------------------------------------------------------------ eye and mouth shapes
+
+/**
+ * The eyes and mouths every character uses, drawn by hand in the wardrobe's shape editor and
+ * kept in face-shapes.json. Eyes come in pairs (one eye side on), per view, eye shape and state;
+ * mouths per view and mood. Letters: I ink, C eye colour, T white, M mouth, % shaded skin.
+ */
+export const FACE_VIEWS = ['diagonal', 'front', 'side'] as const;
+export type FaceView = (typeof FACE_VIEWS)[number];
+export const EYE_STATES = ['open', 'aside', 'blink', 'laughing', 'surprised', 'surprised-aside', 'angry', 'angry-aside', 'sad', 'sad-aside'] as const;
+export type EyeState = (typeof EYE_STATES)[number];
+export interface FaceShapes {
+  eyes: Record<FaceView, Record<(typeof EYE_SHAPES)[number], Record<EyeState, string[]>>>;
+  mouths: Record<FaceView, Record<Mood, string[]>>;
+}
+/** Live: the shape editor changes these in place and the faces are built again. */
+export const FACE_SHAPES = structuredClone(shapesFile) as FaceShapes;
+/** Where each stamp sits on the 21-wide head grid: column, row, width, height. */
+export const FACE_REGIONS: Record<'eyes' | 'mouths', Record<FaceView, [number, number, number, number]>> = {
+  eyes: { diagonal: [8, 11, 9, 4], front: [6, 11, 9, 4], side: [13, 11, 4, 4] },
+  mouths: { diagonal: [10, 16, 6, 3], front: [8, 16, 6, 3], side: [15, 16, 3, 3] },
 };
 
-/** The face side on: one eye near the front, the mouth under the nose. Columns as in faceRows. */
-function profileRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): string[] {
+/** The bare head's rows in a face view, on the 21-wide head grid: the shape editor draws its faces on it. */
+export function headRows(view: FaceView, shape: HeadShape = 'round'): string[] {
+  const { front, straight } = SHAPES[shape];
+  const rows = view === 'diagonal' ? ROUND_FRONT.map((row, i) => front[i] ?? row) : view === 'front' ? ROUND_SOUTH.map((row, i) => straight[i] ?? row) : sideRows(shape);
+  return [...Array<string>(6).fill('.'.repeat(HEAD_STAMP.w)), ...rows];
+}
+
+/** Which eye stamp a mood shows. A laugh squeezes the eyes shut even mid-blink; dark moods keep their lids looking aside. */
+export function eyeState(mood: Mood, blink: boolean, aside: boolean): EyeState {
+  if (mood === 'laughing') return 'laughing';
+  if (blink) return 'blink';
+  if (mood === 'surprised' || mood === 'angry' || mood === 'sad') return aside ? `${mood}-aside` : mood;
+  return aside ? 'aside' : 'open';
+}
+
+/** The face features of one view as rows on the head grid: eye and mouth stamps, then brows, nose, blush, freckles and glasses by rule. */
+export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: boolean, view: FaceView): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
-  const put = (x: number, y: number, ch: string) => {
+  const at = (x: number, y: number, ch: string) => {
     if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
   };
+  const place = (rows: string[] | undefined, [x0, y0]: [number, number, number, number]) =>
+    rows?.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && at(x0 + i, y0 + j, ch)));
+  const state = eyeState(mood, blink, aside);
+  const small = o.eyes === 'small';
+  const top = mood === 'surprised' ? 11 : 12;
+  const open = !small && state !== 'laughing' && state !== 'blink';
+  place(FACE_SHAPES.eyes[view][o.eyes][state], FACE_REGIONS.eyes[view]);
+  if (view === 'side') {
+    // Side on, the rules below are written for the deeper head: a column further forward.
+    const back = (x: number, y: number, ch: string) => at(x - 1, y, ch);
+    if (o.lashes && open) back(17, top, 'I');
+    sideRules(o, mood, back);
+  } else {
+    const shift = view === 'front' ? -2 : 0;
+    const put = (x: number, y: number, ch: string) => at(x + shift, y, ch);
+    if (o.lashes && open) {
+      put(8, top, 'I');
+      put(16, top, 'I');
+    }
+    frontRules(o, mood, put, view === 'front');
+  }
+  place(FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
+  if (o.glasses) view === 'side' ? sideGlasses((x, y, ch) => at(x - 1, y, ch)) : frontGlasses((x, y, ch) => at(x + (view === 'front' ? -2 : 0), y, ch), view === 'front');
+  return grid.map((row) => row.join(''));
+}
+
+type Put = (x: number, y: number, ch: string) => void;
+
+/** Brows, nose, blush and freckles in the diagonal and face-on views. */
+function frontRules(o: FaceOptions, mood: Mood, put: Put, south: boolean): void {
   const run = (x0: number, x1: number, y: number, ch: string) => {
     for (let x = x0; x <= x1; x++) put(x, y, ch);
   };
-  const top = mood === 'surprised' ? 11 : 12;
-  const small = o.eyes === 'small';
-  const pupil = aside ? 15 : 16;
-  const iris = aside ? 16 : 15;
-  if (small) {
-    if (mood === 'laughing') {
-      put(15, 13, 'I');
-      put(16, 12, 'I');
-      put(17, 13, 'I');
-    } else if (blink) run(15, 16, 13, 'I');
-    else {
-      put(pupil, 13, 'I');
-      if (mood === 'surprised') put(pupil, 12, 'I');
-    }
-  } else if (mood === 'laughing') {
-    run(15, 16, 13, 'I');
-    put(14, 14, 'I');
-    put(17, 14, 'I');
-  } else if (blink) run(15, 16, 14, 'I');
-  else {
-    if (o.eyes === 'sleepy') run(14, 16, top, 'I');
-    else {
-      put(iris, top, 'T');
-      put(pupil, top, 'I');
-    }
-    for (let y = top + 1; y <= 14; y++) {
-      put(iris, y, 'C');
-      put(pupil, y, 'I');
-    }
-    if (o.lashes) put(17, top, 'I');
+  const thick = o.brows === 'thick';
+  const brow = (x0: number, x1: number, y: number) => {
+    run(Math.min(x0, x1), Math.max(x0, x1), y, 'e');
+    if (thick) run(Math.min(x0, x1), Math.max(x0, x1), y + 1, 'e');
+  };
+  for (const [x, outer] of [[9, -1], [14, 1]] as const) {
+    const outerX = outer < 0 ? x : x + 1;
+    const innerX = outer < 0 ? x + 1 : x;
+    if (mood === 'angry') brow(thick ? outerX + outer : outerX, innerX - outer, 11);
+    else if (mood === 'sad') {
+      brow(innerX, innerX, 11);
+      if (o.brows !== 'none') brow(innerX - outer, innerX - outer, 11);
+    } else if (o.brows !== 'none' || mood === 'surprised') brow(thick ? x - 1 : x, thick ? x + 2 : x + 1, mood === 'surprised' ? 10 : 11);
   }
+  put(south ? 12 : 13, 15, '%');
+  if (o.blush) {
+    put(south ? 8 : 7, 15, 'B');
+    put(16, 15, 'B');
+  }
+  if (o.freckles) for (const [x, y] of [[6, 15], [8, 16], [8, 14], [17, 15], [16, 16]]) put(x, y, '%');
+}
+
+function frontGlasses(put: Put, south: boolean): void {
+  for (const x of [8, 13]) {
+    for (let i = x; i <= x + 3; i++) {
+      put(i, 11, 'G');
+      put(i, 15, 'G');
+    }
+    for (const y of [12, 13, 14]) {
+      put(x, y, 'G');
+      put(x + 3, y, 'G');
+    }
+  }
+  put(12, 12, 'G');
+  if (!south) for (let i = 3; i <= 7; i++) put(i, 12, 'G');
+}
+
+/** Brow, blush and freckles side on. */
+function sideRules(o: FaceOptions, mood: Mood, put: Put): void {
+  const run = (x0: number, x1: number, y: number, ch: string) => {
+    for (let x = x0; x <= x1; x++) put(x, y, ch);
+  };
   const thick = o.brows === 'thick';
   const brow = (x0: number, x1: number, y: number) => {
     run(x0, x1, y, 'e');
     if (thick) run(x0, x1, y + 1, 'e');
   };
-  // The inner corner of the eye is the front one, towards the nose.
-  if (mood === 'angry' || mood === 'sad') {
-    if (!blink && !small) {
-      run(15, 16, 12, 'I');
-      put(mood === 'angry' ? 16 : 15, 12, '%');
-    }
-    if (mood === 'angry') {
-      brow(thick ? 14 : 15, 16, 11);
-      put(17, thick ? 13 : 12, 'e');
-    } else {
-      brow(15, 16, 11);
-      put(14, thick ? 13 : 12, 'e');
-    }
-  } else if (o.brows !== 'none' || mood === 'surprised') {
-    brow(thick ? 14 : 15, thick ? 17 : 16, mood === 'surprised' ? 10 : 11);
-  }
+  if (mood === 'angry') {
+    brow(thick ? 14 : 15, 16, 11);
+    put(17, thick ? 13 : 12, 'e');
+  } else if (mood === 'sad') {
+    brow(15, 16, 11);
+    put(14, thick ? 13 : 12, 'e');
+  } else if (o.brows !== 'none' || mood === 'surprised') brow(thick ? 14 : 15, thick ? 17 : 16, mood === 'surprised' ? 10 : 11);
   if (o.blush) put(15, 15, 'B');
   if (o.freckles) for (const [x, y] of [[14, 15], [16, 15], [13, 16]]) put(x, y, '%');
-  if (mood === 'laughing') {
-    put(16, 16, 'M');
-    run(17, 18, 16, 'T');
-    run(17, 18, 17, 'T');
-    run(17, 18, 18, 'M');
-  } else if (mood === 'happy') {
-    put(16, 16, 'M');
-    run(17, 18, 16, 'T');
-    run(17, 18, 17, 'M');
-  } else if (mood === 'smile') {
-    put(16, 16, 'M');
-    run(17, 18, 17, 'M');
-  } else if (mood === 'sad') {
-    run(17, 18, 16, 'M');
-    put(16, 17, 'M');
-  } else if (mood === 'surprised') {
-    put(18, 16, 'M');
-    put(18, 17, 'M');
-  } else run(17, 18, 16, 'M');
-  if (o.glasses) {
-    run(14, 17, 11, 'G');
-    run(14, 17, 15, 'G');
-    for (const y of [12, 13, 14]) {
-      put(14, y, 'G');
-      put(17, y, 'G');
-    }
-    run(10, 13, 12, 'G');
-  }
-  return grid.map((row) => row.join(''));
 }
+
+function sideGlasses(put: Put): void {
+  for (let i = 14; i <= 17; i++) {
+    put(i, 11, 'G');
+    put(i, 15, 'G');
+  }
+  for (const y of [12, 13, 14]) {
+    put(14, y, 'G');
+    put(17, y, 'G');
+  }
+  for (let i = 10; i <= 13; i++) put(i, 12, 'G');
+}
+
 
 /** The bare head and its faces seen from the front, from behind and side on. */
 export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): NonNullable<Look['views']> {
-  const shape = SHAPES[options.shape ?? 'round'].back;
-  const straight = parseStamp(pad(ROUND_SOUTH.map((row, i) => (shape[i] ? symmetric(shape[i], i) : row)), 6), {}, skin);
-  const side = parseStamp(pad(ROUND_EAST, 6), {}, skin);
+  const shape = SHAPES[options.shape ?? 'round'];
+  const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
+  const side = parseStamp(pad(sideRows(options.shape ?? 'round'), 6), {}, skin);
   const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
   const set = (head: Stamp, rows: (as: Mood, blink: boolean, aside: boolean) => string[]) => {
@@ -453,9 +453,9 @@ export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
     };
   };
   return {
-    S: { head: straight, faces: set(straight, (as, blink, aside) => faceRows(options, as, blink, aside, true)) },
+    S: { head: straight, faces: set(straight, (as, blink, aside) => faceRows(options, as, blink, aside, 'front')) },
     N: { head: straight, faces: {} },
-    E: { head: side, faces: set(side, (as, blink, aside) => profileRows(options, as, blink, aside)) },
+    E: { head: side, faces: set(side, (as, blink, aside) => faceRows(options, as, blink, aside, 'side')) },
   };
 }
 
@@ -473,7 +473,7 @@ export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
   const head = parseStamp(shaped(ROUND_FRONT, SHAPES[options.shape ?? 'round'].front), {}, skin);
   const make = (as: Mood, blink: boolean, aside = false) =>
-    parseStamp(pad(faceRows(options, as, blink, aside), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
+    parseStamp(pad(faceRows(options, as, blink, aside, 'diagonal'), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
   // 'aside' looks away from where the face points: left on screen when the face points right.
   // 'smile' and 'surprised' are passing expressions; a dark mood keeps its own mouth for a smile.
@@ -754,7 +754,7 @@ const SHORT_HAIR_NORTH = pad([
 
 // Side on: the fringe over the forehead, the back of the head down to the nape, a sideburn in
 // front of the ear.
-const SHORT_HAIR_EAST = pad([
+const SHORT_HAIR_EAST = pad(([
   '.......H..HH.........',
   '......HHHHHHHH.......',
   '....HHHHLLLLHHHH.....',
@@ -770,7 +770,7 @@ const SHORT_HAIR_EAST = pad([
   '...hHH...............',
   '...hhH...............',
   '....h................',
-], 2);
+] as string[]).map(shallow), 2);
 
 // Long hair from the front: parted over the brow, falling either side of the face.
 const LONG_HAIR_SOUTH = pad([
@@ -834,7 +834,7 @@ const LONG_HAIR_NORTH = pad([
 ], 3);
 
 // Long hair side on: the fringe in front, the mass falling down the back to the shoulders.
-const LONG_HAIR_EAST = pad([
+const LONG_HAIR_EAST = pad(([
   '......HHHHHHHHH......',
   '....HHHHLLLLHHHHH....',
   '..HHHHHLLLHHHHHHHH...',
@@ -855,7 +855,7 @@ const LONG_HAIR_EAST = pad([
   '..hHHh...............',
   '..hhhh...............',
   '...hh................',
-], 3);
+] as string[]).map(shallow), 3);
 
 type HairViews = Partial<Record<OwnView, { head: string[]; behind?: string[] }>>;
 

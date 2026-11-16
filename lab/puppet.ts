@@ -715,12 +715,12 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   const faces = ownHead?.faces ?? look.faces;
   const face = headBack ? [] : across(faces[options.face ?? 'neutral'] ?? faces.neutral, 0);
   const headOf = () => ownHead?.head ?? hside(look.head);
-  // A beard without its hv stamp for the view moves with the face: two columns in face on, two
+  // A beard without its hv stamp for the view moves with the face: two columns in face on, one
   // forward side on, and stays on the head.
   const fallback = (item: Item): Stamp => {
     const stamp = hside(item.head!);
     if (item.slot !== 'beard' || (hv !== 'S' && hv !== 'E')) return stamp;
-    const dx = hv === 'S' ? -2 : 2;
+    const dx = hv === 'S' ? -2 : 1;
     const head = headOf();
     return stamp.map((row, y) => row.map((_, x) => (head[y]?.[x] ? (row[x - dx] ?? null) : null)));
   };

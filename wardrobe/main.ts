@@ -10,6 +10,7 @@ import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprit
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang, itemName, LANGS, missingItemNames, t, type Key } from './i18n.ts';
+import { shapeEditor } from './shapes.ts';
 
 // ------------------------------------------------------------------ state
 
@@ -513,6 +514,15 @@ function facePanel(): HTMLElement[] {
       face.glassesColor = key ?? 'black';
       changed();
     }),
+    section(t('shapes'), shapeEditor({
+      face, skin: state.skin, hair: state.hairColor, mood: state.mood,
+      live: () => version++,
+      done: () => {
+        version++;
+        render();
+      },
+      show: (view) => setFacing(view === 'front' ? 4 : view === 'side' ? 7 : 0),
+    })),
   ].filter((node): node is HTMLElement => !!node);
 }
 

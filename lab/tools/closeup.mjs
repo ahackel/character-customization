@@ -24,7 +24,7 @@ if (process.argv[1].endsWith('closeup.mjs')) {
   const a = person('skinB', 'hairBrown', 1, 'm', {}, ...outfit().filter((i) => i.slot !== 'tool'), axe);
   const b = person('skinC', 'hairBlack', 0, 'f', { lashes: true, eyeColor: 'green', freckles: true }, HAIR_STYLES[1].make('hairBlack'), pickAny('recipe-tops', 1), pickAny('recipe-bottoms', 3), pickAny('sprite-cap', 0));
   const c = person('skinA', 'hairRed', 2, 'm', { glasses: true, brows: 'thick', eyes: 'small' }, pickAny('recipe-tops', 3), pickAny('recipe-bottoms', 0), spear);
-  const d = person('skinD', 'hairBlack', 1, 'f', { eyes: 'wide', lashes: true, eyeColor: 'blue' }, HAIR_STYLES[1].make('hairBlack'), pickAny('sprite-hat', 0));
+  const d = person('skinD', 'hairBlack', 1, 'f', { eyes: 'round', lashes: true, eyeColor: 'blue' }, HAIR_STYLES[1].make('hairBlack'), pickAny('sprite-hat', 0));
   const four = (look, pose = STAND, o = {}) => [0, 1, 2, 3].map((f) => drawCharacter(look, pose, f, o));
   const rows = [
     [...four(a), ...four(b)],

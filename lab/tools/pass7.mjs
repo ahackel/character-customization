@@ -22,7 +22,7 @@ let rows = [];
 if (part === 'moods') {
   const faces = [
     ['skinB', 'hairBrown', 'm', {}],
-    ['skinD', 'hairBlack', 'f', { eyes: 'wide', eyeColor: 'green' }],
+    ['skinD', 'hairBlack', 'f', { eyes: 'round', eyeColor: 'green' }],
     ['skinA', 'hairBlond', 'm', { eyes: 'small', brows: 'thick', glasses: true, glassesColor: 'red' }],
     ['skinC', 'hairRed', 'f', { eyes: 'sleepy', brows: 'thin', freckles: true }],
   ];

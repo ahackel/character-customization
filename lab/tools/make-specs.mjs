@@ -1,7 +1,7 @@
 // Writes the two format descriptions given to the language model, with reference grids taken
 // from the real renderer so the text can never drift from the code.
 import fs from 'node:fs';
-import { PALETTE } from '../palette.ts';
+import { PALETTE, PLANT_KEYS, ANIMAL_KEYS } from '../palette.ts';
 import { drawCharacter, layoutOf, HEAD_STAMP as HEAD_FRAME, TOOL_STAMP as TOOL_FRAME, PAINT_W as SPRITE_W, PAINT_H as SPRITE_H, BODY_WINDOW } from '../puppet.ts';
 import { STAND } from '../poses.ts';
 import { baseLook } from '../base.ts';
@@ -9,8 +9,10 @@ import { compileRecipe } from '../items.ts';
 
 const look = baseLook('skinB', 'hairBrown');
 const symbol = new Map([
-  [PALETTE.skinB[0], '#'], [PALETTE.skinB[1], '%'], [PALETTE.hairBrown[0], '*'], [PALETTE.hairBrown[1], '*'],
-  [PALETTE.white[0], '='], [PALETTE.white[1], '='], [PALETTE.ink[0], 'o'], [PALETTE.mouth[0], '~'],
+  [PALETTE.skinB.base, '#'], [PALETTE.skinB.shade, '%'], [PALETTE.hairBrown.base, '*'], [PALETTE.hairBrown.shade, '*'],
+  [PALETTE.white.base, '='], [PALETTE.white.shade, '='], [PALETTE.ink.base, 'o'], [PALETTE.mouth.base, '~'],
+  // Highlights and the blush are still skin and hair to the reader.
+  [PALETTE.skinB.light, '#'], [PALETTE.blush.base, '#'], [PALETTE.hairBrown.light, '*'],
 ]);
 const asText = (sprite) => Array.from({ length: SPRITE_H }, (_, y) =>
   Array.from({ length: SPRITE_W }, (_, x) => symbol.get(sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) ?? '.').join(''));
@@ -22,7 +24,8 @@ const back = asText(drawCharacter(look, STAND, 3));
 const lf = layoutOf(STAND, 0);
 const lb = layoutOf(STAND, 3);
 
-const palette = Object.keys(PALETTE).filter((k) => !['ink', 'mouth', 'tooth', 'blush'].includes(k)).join(', ');
+// Face colours, plant colours and animal colours are not for clothing.
+const palette = Object.keys(PALETTE).filter((k) => ![...PLANT_KEYS, ...ANIMAL_KEYS, 'ink', 'mouth', 'tooth', 'blush'].includes(k)).join(', ');
 
 const common = `
 ## Style
@@ -86,7 +89,7 @@ const exampleSprite = (facing) => {
   return Array.from({ length: SPRITE_H }, (_, y) => Array.from({ length: SPRITE_W }, (_, x) => {
     const c = sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y);
     if (!c || c === bare.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) return '.';
-    return c === PALETTE.blue[0] ? 'B' : c === PALETTE.blue[1] ? 'b' : '.';
+    return c === PALETTE.blue.base ? 'B' : c === PALETTE.blue.shade ? 'b' : '.';
   }).join(''));
 };
 

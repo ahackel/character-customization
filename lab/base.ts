@@ -221,23 +221,27 @@ function faceRows(o: FaceOptions, mood: Mood, blink: boolean): string[] {
     // face that otherwise has no brows drawn, because the mood depends on them.
     const outerX = outer < 0 ? x : x + 1;
     const innerX = outer < 0 ? x + 1 : x;
+    // Thick brows are two rows high, the lower one over the top of the eye, and reach one pixel
+    // further the way the face looks, so only one pixel parts them.
+    const thick = o.brows === 'thick';
+    const brow = (x0: number, x1: number, y: number) => {
+      run(Math.min(x0, x1), Math.max(x0, x1), y, 'e');
+      if (thick) run(Math.min(x0, x1), Math.max(x0, x1), y + 1, 'e');
+    };
     if (mood === 'angry' || mood === 'sad') {
       if (!blink && !small) {
         // No shine, and one corner of the top row closed by the lid.
         run(left, x + 1, 12, 'I');
         put(mood === 'angry' ? innerX : outerX, 12, '%');
       }
-      if (mood === 'angry') {
-        run(Math.min(outerX, innerX - outer), Math.max(outerX, innerX - outer), 11, 'e');
-        if (o.brows === 'thick') put(outerX + outer, 11, 'e');
-      } else {
-        put(innerX, 11, 'e');
-        if (o.brows !== 'none') put(innerX - outer, 11, 'e');
+      if (mood === 'angry') brow(thick ? outerX + outer : outerX, innerX - outer, 11);
+      else {
+        brow(innerX, innerX, 11);
+        if (o.brows !== 'none') brow(innerX - outer, innerX - outer, 11);
       }
-    } else if (mood === 'surprised') {
-      run(o.brows === 'thick' ? x - 1 : x, x + 1, 10, 'e');
-    } else if (o.brows !== 'none') {
-      run(o.brows === 'thick' ? x - 1 : x, x + 1, 11, 'e');
+    } else if (o.brows !== 'none' || mood === 'surprised') {
+      const y = mood === 'surprised' ? 10 : 11;
+      brow(thick ? x - 1 : x, thick ? x + 2 : x + 1, y);
     }
   }
   put(13, 15, '%');

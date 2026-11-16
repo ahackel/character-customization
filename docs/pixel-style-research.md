@@ -67,7 +67,7 @@ This is the puppet's approach: an item is drawn once per drawn facing and carrie
 
 ## Quality pass, November 2026
 
-Weak points found by rendering every facing and the walk (`node lab/tools/review.mjs sheet.png`), what shipped games do about each, and what was changed. The game references are *practice* as described in the sections above, not newly read sources.
+Weak points found by rendering every facing and the walk (`node lab/tools/review.mjs sheet.png`) and by the parts check (`node lab/tools/parts-check.mjs`, below), what shipped games do about each, and what was changed. The game references are *practice* as described in the sections above, not newly read sources.
 
 | Problem | How games handle it | Change |
 |---|---|---|
@@ -77,8 +77,19 @@ Weak points found by rendering every facing and the walk (`node lab/tools/review
 | Side on, a carried spear ran through the face | Side-on sprites carry poles sloped forward | A long tool leans forward 45 degrees in the side view |
 | Outline-free sprites, white shirts and straw brims faded into sand | Selective outline ("sel-out"): the silhouette edge in a darker tone of its own colour, darker on the side away from the light | `rimmed` in `lab/puppet.ts`: outline pixels with empty space right or below go one tone down their own ramp (`darker` in `lab/palette.ts`). No new colours |
 | One-pixel seams between ground tiles let the open sea show through | — | `renderTerrain` fills a pixel left unpainted between two painted ones with the ground above it |
+| A bandana's knot tails showed beside the face face on; a braid became two; a mohawk was doubled from behind | Things that hang behind the head are hidden from the front; a braid over one shoulder stays on that shoulder | Face on, a hat's rows with nothing on the face side are left out; hanging hair that stays narrow all the way down (a braid, a ponytail) stays one strand on the same side, a broad mass falls on both sides; from behind each half keeps its own colours |
+| Hair drawn for 3/4 covered the face side on, and mirrored rows covered a cheek face on | Hair frames the face from every side | Hair is never drawn over the face's features or between them, in any view (`offFace` in `drawFigure`) |
+| Turning to the left swapped the tool to the left hand (the left views are mirror images), and a wave could be done with the hand holding the spear | Characters stay right-handed; a mirrored view mirrors the pose too | The left views draw the pose done the other way round and then flip the picture, so the right hand always holds and works, behind the body where it is the far hand |
+| A waving arm came loose: raised at a slant, its elbow was behind the head, and side on it did not show at all | A wave is drawn with the elbow out at shoulder height and the forearm up, clear of the head | A new wave pose; a raised near arm is drawn over the head; side on the near arm waves, raised forward in front of the face |
+| An arm held out sideways started a pixel or two away from the shoulder | — | `drawLimb` draws a joint block at the shoulder and hip too |
+| The waist was drawn in side on, where the body's outline is its depth | — | No hourglass in the side views |
+| A foot lifted behind the body was a flat block | A pushing-off foot tips toe down | Seen from the side or in 3/4 it narrows to the toes under the shin |
 | Coast waves followed the sea floor, which is drawn up to 11 pixels lower than the water surface over it | Waves belong to the surface | The terrain image keeps the depth under each pixel's point of the water surface (`depth`), and waves and wavelets are placed by it |
 | Open-sea ripples were long single-pixel lines that read as scan lines | Pixel-art seas use short, sparse wavelets: a pale crest with darker ends | Wavelets of up to 7 pixels with their ends turned down a row in the dark colour |
+
+### The parts check
+
+`lab/tools/parts-check.mjs` draws characters with the `parts` option, every part flat in a colour of its own (`PART_COLORS`: legs, torso, clothes, the working and the free arm, tool, head, face features, hair, hat, beard, hair behind), for every hairstyle, hat and tool and all builds, from all eight sides through their clips, and reports an arm piece not joined to the body, a tool out of the hand, hair or a hat over the face, hair floating off the head, a head off the body, and hair or a hat that mostly vanishes in one view. With a file name it draws the failing frames there, normal and in parts colours. It found the shoulder gap and the thin build's wave; it reports nothing now.
 
 ## Not yet applied
 
@@ -88,7 +99,8 @@ Weak points found by rendering every facing and the walk (`node lab/tools/review
 - Rotated versions of tools for swinging actions.
 - Judging the sprite on the game's real ground tiles.
 - Own front, back and side stamps for model-drawn hats and hair; the derived ones are a fallback.
-- Feet that tip toe-down when lifted behind.
+- A mohawk drawn off the middle in 3/4 stays a little off the middle from behind.
+- From behind, a tool in the far hand is mostly hidden during the use action.
 
 ## Sources
 

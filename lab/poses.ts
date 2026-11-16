@@ -110,14 +110,15 @@ const useFrames: PoseSpec[] = [
   { ...useStance, lean: 3, armR: { swing: 44, bend: 45, out: 32 } },
 ];
 
-// Wave: the raised hand swings from side to side, well clear of the head so that it also shows
-// from behind.
-const waveFrames: PoseSpec[] = [
-  { armL: { swing: 150, bend: 20, out: 40 } },
-  { armL: { swing: 154, bend: 0, out: 48 } },
-  { armL: { swing: 156, bend: -20, out: 56 } },
-  { armL: { swing: 154, bend: 0, out: 48 } },
-];
+// Wave: the elbow is lifted out to the side at shoulder height and the forearm stands up from
+// it, the hand swinging from side to side. Elbow and hand stay outside the head in every view, so
+// the arm reads as one piece joined at the shoulder, from the front, the back and in 3/4. Built
+// from joint positions, since the elbow and the hand go out by different amounts.
+const waveFrames: Pose[] = [-0.6, 0.6, 1.8, 0.6].map((sway) => {
+  const pose = buildPose();
+  const elbow = add(pose.shoulderL, [-4.6, 2, 0.6]);
+  return { ...pose, elbowL: elbow, handL: add(elbow, [-sway, 4.4, 0.6]) };
+});
 
 // Sit: on the floor, legs straight out in front, hands resting on the thighs. Lie: on the back,
 // arms at the sides; the renderer lays the figure down. Both only blink.
@@ -145,7 +146,7 @@ export const AUTHORED: Record<string, Clip> = {
   walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
   run: { name: 'Run', rate: 11, frames: [...runHalf, ...runHalf.map(mirrored)].map(buildPose) },
   // Only the arm moves; the body stays where it is.
-  wave: { name: 'Wave', rate: 7, frames: waveFrames.map(buildPose), faces: waveFrames.map(() => 'happy') },
+  wave: { name: 'Wave', rate: 7, frames: waveFrames, faces: waveFrames.map(() => 'happy') },
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
   sit: { name: 'Sit', ...resting(SIT) },
   lie: { name: 'Lie', ...resting(LIE) },

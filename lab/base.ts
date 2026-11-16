@@ -250,9 +250,9 @@ const ROUND_SOUTH = [
   '..%###############%..',
   '...###############...',
   '...##############%...',
-  '...##############%...',
   '....############%....',
   '.....##########%.....',
+  '......########%......',
   '.......%%%%%%%.......',
   '........%%%%%........',
   '........%%%%%........',
@@ -266,7 +266,16 @@ const ROUND_SOUTH = [
 const FRONT_IN = 13;
 const shallow = (row: string) => row.slice(0, FRONT_IN) + row.slice(FRONT_IN + 1) + '.';
 /** The side head of a shape, a pixel shallower. Rows 14 and on are the neck. */
-const sideRows = (shape: HeadShape) => ROUND_EAST.map((row, i) => SHAPES[shape].side[i] ?? row).map((row, i) => (i < 14 ? shallow(row) : row));
+const sideRows = (shape: HeadShape) =>
+  ROUND_EAST.map((row, i) => SHAPES[shape].side[i] ?? row).map((row, i) => (i < 14 ? shallow(i >= 6 && i <= 9 ? earForward(row) : row) : row));
+/** The ear drawn in a side row moved a pixel towards the face, next to the sideburn. */
+const earForward = (row: string) => {
+  const cells = [...row];
+  const ear = cells.flatMap((c, x) => (c === '%' && x < 11 ? [x] : []));
+  for (const x of ear) cells[x] = '#';
+  for (const x of ear) cells[x + 1] = '%';
+  return cells.join('');
+};
 
 // Side on, facing right: the ear in the middle, the brow and nose breaking the outline in front.
 const ROUND_EAST = [
@@ -464,9 +473,9 @@ const SHORT_HAIR_FRONT = pad([
   '..HHHHHHHHHHHHHHHHh..',
   '..HHHHhhHHHhhHHHHhh..',
   '..HHHh..hHh..hhHhh...',
-  '.hHHh.............h..',
-  '.hHh.................',
-  '..h..................',
+  '..hHh.............h..',
+  '....h................',
+  '....h................',
 ], 2);
 
 const SHORT_HAIR_BACK = pad([
@@ -562,12 +571,12 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
   stubble: {
     label: 'Stubble',
     short: true,
-    // Side on, facing right: the side head's ear is at columns 6 to 8, the mouth at 16 and 17.
+    // Side on, facing right: the side head's ear is at columns 7 to 9, the mouth at 16 and 17.
     side: [
-      '.........H...........',
-      '.........H...........',
-      '.........HH..........',
-      '.........HHHH...HH...',
+      '..........H..........',
+      '..........H..........',
+      '..........HH.........',
+      '..........HHH...HH...',
       '.........HHHHHHHHH...',
       '.........HHHHHHHHH...',
       '..........HHHHHHHH...',
@@ -632,10 +641,10 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
   chinstrap: {
     label: 'Chin strap',
     side: [
-      '.........HH..........',
-      '.........HH..........',
-      '.........HH..........',
-      '.........HHH.........',
+      '..........HH.........',
+      '..........HH.........',
+      '..........HH.........',
+      '..........HHH........',
       '..........HHH........',
       '...........HHH.......',
       '............HHHHHH...',
@@ -656,10 +665,10 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
   short: {
     label: 'Short beard',
     side: [
-      '.........H...........',
-      '.........H...........',
-      '.........HH..........',
-      '.........HHH..HHHH...',
+      '..........H..........',
+      '..........H..........',
+      '..........HH.........',
+      '..........HH..HHHH...',
       '.........HHHHHHHH....',
       '.........HHHHHHHHh...',
       '..........HHHHHHHh...',
@@ -744,9 +753,9 @@ const SHORT_HAIR_SOUTH = pad([
   '..HHHHHHHHHHHHHHHHh..',
   '..HHHHhhHHHHHhhHHhh..',
   '..HHh..hHHHHh..hHh...',
-  '..Hh.....hHh.....hh..',
-  '..H...............h..',
-  '..h...............h..',
+  '...h.....hHh.....h...',
+  '...H.............h...',
+  '...h.............h...',
 ], 2);
 
 // From behind, down to the nape, the ears showing.
@@ -859,13 +868,13 @@ const LONG_HAIR_EAST = pad(([
   '.HHHHHHHHHHHHHHHHhhh.',
   '.HHHHHHHHHHHHHHh.....',
   '.HHHHHHHHHHHhh.......',
-  '.HHHHH....h..........',
-  '.HHHHH....h..........',
-  '.HHHHHH..............',
-  '.HHHHHHh.............',
+  '.HHHHHHHHHHh.........',
+  '.HHHHHHHHHHh.........',
+  '.HHHHHHHHHHh.........',
+  '.HHHHHHHHHh..........',
+  '.hHHHHHHHh...........',
+  '.hHHHHHHh............',
   '.hHHHHHh.............',
-  '.hHHHHHh.............',
-  '.hHHHHh..............',
   '..hHHHh..............',
   '..hHHh...............',
   '..hhhh...............',

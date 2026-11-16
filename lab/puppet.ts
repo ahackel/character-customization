@@ -501,7 +501,7 @@ const EARS: Record<'front' | 'back' | OwnView, [number, number][]> = {
   back: [[18, 6], [17, 7], [18, 7]],
   S: [[2, 6], [2, 7], [18, 6], [18, 7]],
   N: [[2, 6], [2, 7], [18, 6], [18, 7]],
-  E: [[7, 6], [8, 6], [6, 7], [6, 8], [7, 9], [8, 9]],
+  E: [[8, 6], [9, 6], [7, 7], [7, 8], [8, 9], [9, 9]],
 };
 /** The ear cells of a view in the head frame, for a head stamp whose skull starts at row `top`. */
 const earCells = (view: keyof typeof EARS, top: number): [number, number][] =>
@@ -833,6 +833,9 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       if (feminine) shape(sturdy ? { 2: 1, 3: 2, 4: 2, 5: 1 } : { 2: 1, 3: 1, 4: 1 }, { 3: 1, 4: 1 });
       if (sturdy && feminine) shape({ 6: 1, 7: 2, 8: 2, 9: 2, 10: 1 }, { 7: 1, 8: 1, 9: 1 });
       if (sturdy && !feminine) shape({ 4: 1, 5: 1, 6: 2, 7: 2, 8: 2, 9: 2, 10: 1 }, { 6: 1, 7: 1, 8: 1, 9: 1 });
+      // A slimmer build is still rounded side on: chest and stomach a pixel out in one curve,
+      // from under the bust on a woman, so no waist shows in profile.
+      if (!sturdy) shape(feminine ? { 5: 1, 6: 1, 7: 1, 8: 1 } : { 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1 }, {});
       if (!back && (own === 'E' || own === null)) {
         for (const [row, depth] of profile) {
           const y = top + row;
@@ -975,10 +978,47 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     // Side on the beard moves forward with the face. Face on it is the half of the 3/4 beard
     // towards the face, mirrored about the middle of the face; from behind only what stands out
     // past the head shows, in shade.
-    if (hv === 'E') return stamp.map((row) => row.map((_, x) => row[x - 1] ?? null));
+    // Its back edge, the sideburn in 3/4, goes in front of the ear: the beard is narrowed to run
+    // from there to a pixel past where it ends in 3/4.
+    if (hv === 'E') {
+      const xs = stamp.flatMap((row) => row.flatMap((cell, x) => (cell ? [x] : [])));
+      if (!xs.length) return stamp;
+      const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1;
+      const start = Math.max(x0, Math.max(...earCells('E', 0).map(([x]) => x)) + 1);
+      const narrowed = stamp.map((row) => row.map((_, x) => (x < start || x > x1 ? null : row[Math.round(x0 + ((x - start) * (x1 - 1 - x0)) / Math.max(1, x1 - start))] ?? null)));
+      // Below the ear it covers the jaw back to under the ear.
+      const ear = earCells('E', skullTop(bareHead()));
+      const below = Math.max(...ear.map(([, y]) => y));
+      const back = Math.min(...ear.map(([x]) => x));
+      const head = bareHead();
+      return narrowed.map((row, y) => {
+        const first = row.findIndex(Boolean);
+        if (y <= below || first < 0) return row;
+        return row.map((cell, x) => cell ?? (x >= back && x < first && head[y]?.[x] ? row[first] : null));
+      });
+    }
     const front = item.head!.front;
     const straight = front.map((row) => row.map((_, x) => row[Math.max(x, 2 * HEAD_FRAME.ax + 1 - x) + 2] ?? null));
-    if (hv === 'S') return straight;
+    if (hv === 'S') {
+      // Where the 3/4 beard reaches the near edge of the face, as sideburns and over the cheek,
+      // it does so on both sides face on, as far in from the edge.
+      const near = look.head.front;
+      const head = bareHead();
+      return straight.map((row, y) => {
+        const out = [...row];
+        const edge = near[y]?.findIndex(Boolean) ?? -1;
+        const from = front[y]?.findIndex(Boolean) ?? -1;
+        const left = head[y]?.findIndex(Boolean) ?? -1;
+        if (edge < 0 || from < 0 || left < 0 || from > edge + 1) return out;
+        const right = head[y].length - 1 - [...head[y]].reverse().findIndex(Boolean);
+        for (let x = from; front[y][x]; x++) {
+          const d = x - edge;
+          if (left + d < HEAD_FRAME.ax) out[left + d] ??= front[y][x];
+          if (right - d > HEAD_FRAME.ax) out[right - d] ??= front[y][x];
+        }
+        return out;
+      });
+    }
     const head = headOf();
     return straight.map((row, y) => row.map((cell, x) => (cell && y <= HEAD_FRAME.ay && !head[y]?.[x] ? { ...cell, shade: true, light: false } : null)));
   };

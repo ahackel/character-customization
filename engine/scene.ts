@@ -120,7 +120,7 @@ export function cleanScene(input: unknown): Scene {
       animal: cleanAnimal(a.animal),
       i: num(a.i, 0, w, w / 2),
       j: num(a.j, 0, h, h / 2),
-      facing: Math.round(num(a.facing, 0, 3, 0)),
+      facing: Math.round(num(a.facing, 0, 7, 0)),
     }));
   return {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),

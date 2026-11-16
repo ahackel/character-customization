@@ -11,7 +11,7 @@ import {
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
-import type { Facing } from '../lab/puppet.ts';
+import { turnFacing, type Facing } from '../lab/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels, type PlacedDecor } from './decor.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
@@ -347,10 +347,10 @@ export class World {
   }
 
   /** The animals with their places and facings in view coordinates. */
-  viewAnimals(): (PlacedAnimal & { vi: number; vj: number; vf: 0 | 1 | 2 | 3 })[] {
+  viewAnimals(): (PlacedAnimal & { vi: number; vj: number; vf: Facing })[] {
     return this.scene.animals.map((a) => {
       const v = this.toView(a);
-      return { ...a, vi: v.i, vj: v.j, vf: ((a.facing + this.rot) % 4) as 0 | 1 | 2 | 3 };
+      return { ...a, vi: v.i, vj: v.j, vf: turnFacing(a.facing as Facing, this.rot * 2) };
     });
   }
 
@@ -368,7 +368,7 @@ export class World {
       const lag = ((Math.imul(Math.floor(placed.i * 97), 73856093) ^ Math.imul(Math.floor(placed.j * 89), 19349663)) >>> 0) % clip.frames;
       const n = (Math.floor(((ms - (pose?.started ?? 0)) / 1000) * clip.rate) + lag) % clip.frames;
       const v = this.toView(pose ?? placed);
-      const facing = (((pose ?? placed).facing + this.rot) % 4) as Facing;
+      const facing = turnFacing((pose ?? placed).facing as Facing, this.rot * 2);
       let frames = this.animalFrames.get(placed.animal);
       if (!frames) this.animalFrames.set(placed.animal, (frames = new Map()));
       const key = `${clipId}|${n}|${facing}`;

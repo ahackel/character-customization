@@ -127,12 +127,14 @@ const resting = (pose: Pose): Pick<Clip, 'rate' | 'frames' | 'faces'> => ({
   faces: Array.from({ length: 15 }, (_, i) => (i === 13 ? 'blink' : undefined)),
 });
 
-// Look around: the eyes glance aside, then the head turns to look the other way and back. A game
-// can turn the head on any pose with `turn` and move the eyes with the 'aside' face.
+// Look around: the eyes glance aside, then the head turns an eighth to the right, back and an
+// eighth to the left. A game can turn the head on any pose with `look` and move the eyes with
+// the 'aside' face.
+const toward = (look: number): Pose => ({ ...STAND, look });
 const LOOK_STEPS: [Pose, string | undefined][] = [
-  [STAND, undefined], [STAND, undefined], [STAND, 'aside'], [STAND, 'aside'],
-  [{ ...STAND, turn: true }, undefined], [{ ...STAND, turn: true }, undefined], [{ ...STAND, turn: true }, 'blink'], [{ ...STAND, turn: true }, 'aside'],
-  [STAND, undefined], [STAND, undefined], [STAND, 'smile'], [STAND, undefined],
+  [STAND, undefined], [STAND, undefined], [STAND, 'aside'], [toward(-1), undefined],
+  [toward(-1), 'blink'], [toward(-1), 'aside'], [STAND, undefined], [toward(1), undefined],
+  [toward(1), 'smile'], [toward(1), undefined], [STAND, undefined], [STAND, 'smile'], [STAND, undefined],
 ];
 
 export const AUTHORED: Record<string, Clip> = {

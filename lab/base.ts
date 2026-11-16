@@ -1,5 +1,5 @@
 import type { Cell, PaletteKey } from './palette.ts';
-import { HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type Slot, type Stamp, type StampPair } from './puppet.ts';
+import { HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
 
 // The foundation set: the bare head, its faces, a first hairstyle and the undershorts.
 // These stamps were written as text by a language model and corrected over several rounds by
@@ -164,10 +164,13 @@ export const DEFAULT_FACE: FaceOptions = {
   eyes: 'round', eyeColor: null, brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
 };
 
-function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): string[] {
+function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false, south = false): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
+  // Seen straight from the front the face sits in the middle of the head: two columns left of
+  // where it sits in the three-quarter view, which puts the eyes either side of the centre.
+  const shift = south ? -2 : 0;
   const put = (x: number, y: number, ch: string) => {
-    if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
+    if (grid[y]?.[x + shift] !== undefined) grid[y][x + shift] = ch;
   };
   const run = (x0: number, x1: number, y: number, ch: string) => {
     for (let x = x0; x <= x1; x++) put(x, y, ch);
@@ -240,9 +243,9 @@ function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): st
       brow(thick ? x - 1 : x, thick ? x + 2 : x + 1, y);
     }
   }
-  put(13, 15, '%');
+  put(south ? 12 : 13, 15, '%');
   if (o.blush) {
-    put(7, 15, 'B');
+    put(south ? 8 : 7, 15, 'B');
     put(16, 15, 'B');
   }
   if (o.freckles) {
@@ -286,9 +289,174 @@ function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): st
       }
     }
     put(12, 12, 'G');
-    run(3, 7, 12, 'G');
+    if (!south) run(3, 7, 12, 'G');
   }
   return grid.map((row) => row.join(''));
+}
+
+// Straight front and back views: the head seen face on or from behind, symmetric about stamp
+// column 10, with both ears showing and the shade on the right, away from the light.
+const ROUND_SOUTH = [
+  '......#########......',
+  '....#############....',
+  '...###############...',
+  '...###############...',
+  '...###############...',
+  '...###############...',
+  '..%###############%..',
+  '..%###############%..',
+  '...###############...',
+  '...##############%...',
+  '...##############%...',
+  '....############%....',
+  '.....##########%.....',
+  '.......%%%%%%%.......',
+  '........%%%%%........',
+  '........%%%%%........',
+];
+
+// Side on, facing right: the ear in the middle, the brow and nose breaking the outline in front.
+const ROUND_EAST = [
+  '......#########......',
+  '....#############....',
+  '...###############...',
+  '...###############...',
+  '...################..',
+  '...################..',
+  '...####%%##########..',
+  '...###%############..',
+  '...###%############..',
+  '...####%%###########.',
+  '....###############..',
+  '....###############..',
+  '.....#############%..',
+  '.......%%%%%%%%%%....',
+  '........%%%%%........',
+  '........%%%%%........',
+];
+
+/** A head shape's row from behind, made symmetric about column 10 for the front and back views. */
+const symmetric = (row: string, i: number): string => {
+  const l = row.search(/[^.]/);
+  const w = row.trimEnd().replace(/\.+$/, '').length - l;
+  const a = 10 - Math.floor((w - 1) / 2);
+  return [...row].map((_, x) => (x < a || x >= a + w ? '.' : i >= 13 || (i >= 9 && x === a + w - 1) ? '%' : '#')).join('');
+};
+
+/** The face side on: one eye near the front, the mouth under the nose. Columns as in faceRows. */
+function profileRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): string[] {
+  const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
+  const put = (x: number, y: number, ch: string) => {
+    if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
+  };
+  const run = (x0: number, x1: number, y: number, ch: string) => {
+    for (let x = x0; x <= x1; x++) put(x, y, ch);
+  };
+  const top = mood === 'surprised' ? 11 : 12;
+  const small = o.eyes === 'small';
+  const pupil = aside ? 15 : 16;
+  const iris = aside ? 16 : 15;
+  if (small) {
+    if (mood === 'laughing') {
+      put(15, 13, 'I');
+      put(16, 12, 'I');
+      put(17, 13, 'I');
+    } else if (blink) run(15, 16, 13, 'I');
+    else {
+      put(pupil, 13, 'I');
+      if (mood === 'surprised') put(pupil, 12, 'I');
+    }
+  } else if (mood === 'laughing') {
+    run(15, 16, 13, 'I');
+    put(14, 14, 'I');
+    put(17, 14, 'I');
+  } else if (blink) run(15, 16, 14, 'I');
+  else {
+    if (o.eyes === 'sleepy') run(14, 16, top, 'I');
+    else {
+      put(iris, top, 'T');
+      put(pupil, top, 'I');
+    }
+    for (let y = top + 1; y <= 14; y++) {
+      put(iris, y, 'C');
+      put(pupil, y, 'I');
+    }
+    if (o.lashes) put(17, top, 'I');
+  }
+  const thick = o.brows === 'thick';
+  const brow = (x0: number, x1: number, y: number) => {
+    run(x0, x1, y, 'e');
+    if (thick) run(x0, x1, y + 1, 'e');
+  };
+  // The inner corner of the eye is the front one, towards the nose.
+  if (mood === 'angry' || mood === 'sad') {
+    if (!blink && !small) {
+      run(15, 16, 12, 'I');
+      put(mood === 'angry' ? 16 : 15, 12, '%');
+    }
+    if (mood === 'angry') {
+      brow(thick ? 14 : 15, 16, 11);
+      put(17, thick ? 13 : 12, 'e');
+    } else {
+      brow(15, 16, 11);
+      put(14, thick ? 13 : 12, 'e');
+    }
+  } else if (o.brows !== 'none' || mood === 'surprised') {
+    brow(thick ? 14 : 15, thick ? 17 : 16, mood === 'surprised' ? 10 : 11);
+  }
+  if (o.blush) put(15, 15, 'B');
+  if (o.freckles) for (const [x, y] of [[14, 15], [16, 15], [13, 16]]) put(x, y, '%');
+  if (mood === 'laughing') {
+    put(16, 16, 'M');
+    run(17, 18, 16, 'T');
+    run(17, 18, 17, 'T');
+    run(17, 18, 18, 'M');
+  } else if (mood === 'happy') {
+    put(16, 16, 'M');
+    run(17, 18, 16, 'T');
+    run(17, 18, 17, 'M');
+  } else if (mood === 'smile') {
+    put(16, 16, 'M');
+    run(17, 18, 17, 'M');
+  } else if (mood === 'sad') {
+    run(17, 18, 16, 'M');
+    put(16, 17, 'M');
+  } else if (mood === 'surprised') {
+    put(18, 16, 'M');
+    put(18, 17, 'M');
+  } else run(17, 18, 16, 'M');
+  if (o.glasses) {
+    run(14, 17, 11, 'G');
+    run(14, 17, 15, 'G');
+    for (const y of [12, 13, 14]) {
+      put(14, y, 'G');
+      put(17, y, 'G');
+    }
+    run(10, 13, 12, 'G');
+  }
+  return grid.map((row) => row.join(''));
+}
+
+/** The bare head and its faces seen from the front, from behind and side on. */
+export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): NonNullable<Look['views']> {
+  const shape = SHAPES[options.shape ?? 'round'].back;
+  const straight = parseStamp(pad(ROUND_SOUTH.map((row, i) => (shape[i] ? symmetric(shape[i], i) : row)), 6), {}, skin);
+  const side = parseStamp(pad(ROUND_EAST, 6), {}, skin);
+  const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
+  const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
+  const set = (head: Stamp, rows: (as: Mood, blink: boolean, aside: boolean) => string[]) => {
+    const make = (as: Mood, blink: boolean, aside = false) =>
+      parseStamp(pad(rows(as, blink, aside), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
+    return {
+      neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false), aside: make(mood, false, true),
+      smile: make(cheerful ? 'smile' : mood, false), surprised: make('surprised', false),
+    };
+  };
+  return {
+    S: { head: straight, faces: set(straight, (as, blink, aside) => faceRows(options, as, blink, aside, true)) },
+    N: { head: straight, faces: {} },
+    E: { head: side, faces: set(side, (as, blink, aside) => profileRows(options, as, blink, aside)) },
+  };
 }
 
 export function headFor(skin: PaletteKey, shape: HeadShape = 'round'): StampPair {
@@ -549,7 +717,149 @@ export interface HairStyle {
   make: (color: PaletteKey) => Item;
 }
 
-const hairItem = (name: string, color: PaletteKey, front: string[], back: string[], behind?: string[]): Item => {
+// Short hair seen from the front: a fringe in clumps and both sideburns.
+const SHORT_HAIR_SOUTH = pad([
+  '.........HH..H.......',
+  '......HHHHHHHHH......',
+  '....HHHLLLLHHHHHH....',
+  '...HHLLLHHHHHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHhhHHHHHhhHHhh..',
+  '..HHh..hHHHHh..hHh...',
+  '..Hh.....hHh.....hh..',
+  '..H...............h..',
+  '..h...............h..',
+], 2);
+
+// From behind, down to the nape, the ears showing.
+const SHORT_HAIR_NORTH = pad([
+  '.........H..HH.......',
+  '......HHHHHHHHH......',
+  '....HHHHHLLLLHHHH....',
+  '...HHHHHHLLLHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..hHHHHHHHHHHHHHHHh..',
+  '...hHHHHHHHHHHHHHh...',
+  '...hhHHHHHHHHHHHhh...',
+  '....hhHHHhHHhHHhh....',
+  '......hh.hh..hh......',
+], 2);
+
+// Side on: the fringe over the forehead, the back of the head down to the nape, a sideburn in
+// front of the ear.
+const SHORT_HAIR_EAST = pad([
+  '.......H..HH.........',
+  '......HHHHHHHH.......',
+  '....HHHHLLLLHHHH.....',
+  '..HHHHHLLLHHHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHHH.',
+  '..HHHHHHHHHHHHHHHHHh.',
+  '..HHHHHHHHHHHHHHHhhh.',
+  '..HHHHHHHHHHHHHh.....',
+  '..hHHHHHHHHHh........',
+  '..hHHH....h..........',
+  '..hHHH....h..........',
+  '...hHH...............',
+  '...hhH...............',
+  '....h................',
+], 2);
+
+// Long hair from the front: parted over the brow, falling either side of the face.
+const LONG_HAIR_SOUTH = pad([
+  '......HHHHHHHHH......',
+  '....HHHHHLLLLHHHH....',
+  '...HHHHLLLHHHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '.HHHHHHHHHHHHHHHHHHH.',
+  '.HHHHHHHHHHHHHHHHHHh.',
+  '.HHHHHHHHhhhHHHHHHHh.',
+  '.HHHHhh.......hhHHHh.',
+  '.HHHh..........hHHhh.',
+  '.HHh............hHhh.',
+  '.HHh.............Hhh.',
+  '.HHh.............Hhh.',
+  '.HHh.............Hhh.',
+  '.HHH.............HHh.',
+  '.hHH.............HHh.',
+  '.hHH.............HHh.',
+  '.hHHh...........hHHh.',
+  '..hHh...........hHh..',
+  '..hhh...........hhh..',
+  '...h.............h...',
+], 3);
+
+const LONG_HAIR_BEHIND_SOUTH = pad([
+  '...hhhhhhhhhhhhhhh...',
+  '...hhhhhhhhhhhhhhh...',
+  '...hhhhhhhhhhhhhhh...',
+  '...hhhhhhhhhhhhhhh...',
+  '....hhhhhhhhhhhhh....',
+  '....hhhhhhhhhhhhh....',
+  '.....hhhhhhhhhhh.....',
+  '.....hh.hhhhh.hh.....',
+], 16);
+
+const LONG_HAIR_NORTH = pad([
+  '......HHHHHHHHH......',
+  '....HHHHHLLLLHHHH....',
+  '...HHHHHHLLLHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHH..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHHHHHHHHHHHHh..',
+  '..HHHHHhHHHHHhHHHHh..',
+  '..HHHHHhHHHHHhHHHHh..',
+  '..HHHHHhHHHHHhHHHHh..',
+  '..hHHHHhHHHHHhHHHHh..',
+  '...hHHHhHHHHHhHHHh...',
+  '...hHHHhHHHHHhHHHh...',
+  '...hhHHhHHHHHhHHhh...',
+  '....hHHhhHHHhhHHh....',
+  '....hhHh.hHh.hHhh....',
+  '.....hh...h...hh.....',
+], 3);
+
+// Long hair side on: the fringe in front, the mass falling down the back to the shoulders.
+const LONG_HAIR_EAST = pad([
+  '......HHHHHHHHH......',
+  '....HHHHLLLLHHHHH....',
+  '..HHHHHLLLHHHHHHHH...',
+  '..HHHHHHHHHHHHHHHHH..',
+  '.HHHHHHHHHHHHHHHHHHH.',
+  '.HHHHHHHHHHHHHHHHHHh.',
+  '.HHHHHHHHHHHHHHHHhhh.',
+  '.HHHHHHHHHHHHHHh.....',
+  '.HHHHHHHHHHHhh.......',
+  '.HHHHH....h..........',
+  '.HHHHH....h..........',
+  '.HHHHHH..............',
+  '.HHHHHHh.............',
+  '.hHHHHHh.............',
+  '.hHHHHHh.............',
+  '.hHHHHh..............',
+  '..hHHHh..............',
+  '..hHHh...............',
+  '..hhhh...............',
+  '...hh................',
+], 3);
+
+type HairViews = Partial<Record<OwnView, { head: string[]; behind?: string[] }>>;
+
+const hairItem = (name: string, color: PaletteKey, front: string[], back: string[], behind?: string[], views: HairViews = {}): Item => {
   const legend = { H: color, L: `${color}+` } as const;
   const empty = pad([], 0);
   return {
@@ -557,12 +867,26 @@ const hairItem = (name: string, color: PaletteKey, front: string[], back: string
     slot: 'hair',
     head: { front: parseStamp(front, legend), back: parseStamp(back, legend) },
     ...(behind ? { headBehind: { front: parseStamp(behind, legend), back: parseStamp(empty, legend) } } : {}),
+    views: Object.fromEntries(
+      Object.entries(views).map(([view, v]) => [view, { head: parseStamp(v.head, legend), ...(v.behind ? { behind: parseStamp(v.behind, legend) } : {}) }]),
+    ),
   };
 };
 
 export const HAIR_STYLES: HairStyle[] = [
-  { id: 'short', label: 'Short and unruly', make: (color) => hairItem('Short hair', color, SHORT_HAIR_FRONT, SHORT_HAIR_BACK) },
-  { id: 'long', label: 'Long', make: (color) => hairItem('Long hair', color, LONG_HAIR_FRONT, LONG_HAIR_BACK, LONG_HAIR_BEHIND) },
+  {
+    id: 'short',
+    label: 'Short and unruly',
+    make: (color) => hairItem('Short hair', color, SHORT_HAIR_FRONT, SHORT_HAIR_BACK, undefined, { S: { head: SHORT_HAIR_SOUTH }, N: { head: SHORT_HAIR_NORTH }, E: { head: SHORT_HAIR_EAST } }),
+  },
+  {
+    id: 'long',
+    label: 'Long',
+    make: (color) =>
+      hairItem('Long hair', color, LONG_HAIR_FRONT, LONG_HAIR_BACK, LONG_HAIR_BEHIND, {
+        S: { head: LONG_HAIR_SOUTH, behind: LONG_HAIR_BEHIND_SOUTH }, N: { head: LONG_HAIR_NORTH }, E: { head: LONG_HAIR_EAST },
+      }),
+  },
 ];
 
 export const shortHair = (color: PaletteKey): Item => HAIR_STYLES[0].make(color);

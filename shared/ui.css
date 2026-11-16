@@ -256,6 +256,13 @@ canvas {
 .seg--fit {
   align-self: flex-start;
 }
+/* Many choices: two rows of four rather than one row of clipped words. */
+.seg--wrap {
+  flex-wrap: wrap;
+}
+.seg--wrap button {
+  flex: 1 0 calc(25% - 2px);
+}
 .seg--fit button {
   flex: none;
   padding: 0 12px;

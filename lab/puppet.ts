@@ -17,9 +17,21 @@ export const PAINT_H = BODY_WINDOW.h;
 const ORIGIN_X = BODY_WINDOW.x + 16.5;
 const ORIGIN_Y = BODY_WINDOW.y + 44;
 
-/** 0 south-east, 1 south-west, 2 north-west, 3 north-east. 0 and 3 are drawn; 1 and 2 are their mirror images. */
-export type Facing = 0 | 1 | 2 | 3;
-export const FACING_NAMES = ['front right', 'front left', 'back left', 'back right'] as const;
+/**
+ * Eight facings. The diagonals keep their old numbers: 0 front right, 1 front left, 2 back left,
+ * 3 back right; then 4 front, 5 left, 6 back, 7 right. Drawn are 0, 3, 4, 6 and 7; 1, 2 and 5 are
+ * mirror images of 0, 3 and 7.
+ */
+export type Facing = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export const FACING_NAMES = ['front right', 'front left', 'back left', 'back right', 'front', 'left', 'back', 'right'] as const;
+/** The facings in order round the clock, from front right towards front left. */
+export const FACING_RING: Facing[] = [0, 4, 1, 5, 2, 6, 3, 7];
+/** The facing `steps` eighths of a turn round from `facing`. */
+export const turnFacing = (facing: Facing, steps: number): Facing => FACING_RING[(((FACING_RING.indexOf(facing) + steps) % 8) + 8) % 8];
+/** The views that are drawn, not mirrored: the two diagonals and front, back and right. */
+export type View = 0 | 3 | 'S' | 'N' | 'E';
+/** Views drawn from their own stamps where an item has them; otherwise the nearest diagonal's are used. */
+export type OwnView = 'S' | 'N' | 'E';
 
 /**
  * A pose: joint positions in the character's own space, in pixels.
@@ -35,13 +47,14 @@ export interface Pose {
   hipR: Vec3; kneeR: Vec3; footR: Vec3;
   /** Lying on the floor: the pose is drawn as if standing, then laid down a quarter turn. */
   lie?: boolean;
-  /** The head turned to look the other way, left instead of right: it stays on the body's side, front or back. */
-  turn?: boolean;
+  /** The head turned this many eighths of a turn to the character's left (negative: right), at most one. */
+  look?: number;
 }
 
-// Forward and right in ground coordinates, for the two drawn facings.
-const FORWARD: Record<0 | 3, [number, number]> = { 0: [1, 0], 3: [0, -1] };
-const RIGHT: Record<0 | 3, [number, number]> = { 0: [0, 1], 3: [1, 0] };
+// Forward and right in ground coordinates, for each drawn view. Front, back and side views keep
+// the diagonal views' sideways scale so the limbs keep their spacing.
+const FORWARD: Record<View, [number, number]> = { 0: [1, 0], 3: [0, -1], S: [0.7071, 0.7071], N: [-0.7071, -0.7071], E: [0.7071, -0.7071] };
+const RIGHT: Record<View, [number, number]> = { 0: [0, 1], 3: [1, 0], S: [-0.5, 0.5], N: [0.5, -0.5], E: [0.5, 0.5] };
 /** How far a step forward moves a point down the screen: the 2:1 isometric ratio. */
 const FORWARD_LIFT = 0.3536;
 /**
@@ -57,7 +70,7 @@ interface Point {
   depth: number;
 }
 
-function project(p: Vec3, facing: 0 | 3): Point {
+function project(p: Vec3, facing: View): Point {
   const f = FORWARD[facing];
   const r = RIGHT[facing];
   const forward = { x: (f[0] - f[1]) * 0.7071, down: f[0] + f[1] };
@@ -98,6 +111,8 @@ export interface Item {
   headBehind?: StampPair;
   /** A beard kept short, such as stubble: wear does not let it grow. */
   short?: boolean;
+  /** A head item seen from the front, back or side, and what of it hangs behind the body there. */
+  views?: Partial<Record<OwnView, { head: Stamp; behind?: Stamp }>>;
   /** Shirt body, waistband, skirt: rigid on the chest. */
   torso?: StampPair;
   /** Sleeve colours from shoulder (first) to hand (last). null leaves the arm bare. */
@@ -156,6 +171,8 @@ export interface Look {
   head: StampPair;
   /** Face expressions, drawn on the front of the head. 'neutral' is the default. */
   faces: Record<string, Stamp>;
+  /** The bare head and its faces seen from the front, back and side. */
+  views?: Partial<Record<OwnView, { head: Stamp; faces: Record<string, Stamp> }>>;
   items: Item[];
 }
 
@@ -330,13 +347,19 @@ const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
  * column on each side of the middle. Horizontal patterns are unaffected. Returns the stamp and
  * where its anchor column now is.
  */
-function fitted(stamp: Stamp, width: 7 | 9 | 11): { stamp: Stamp; ax: number } {
+function fitted(stamp: Stamp, width: number): { stamp: Stamp; ax: number } {
   if (width === 9) return { stamp, ax: TORSO_FRAME.ax };
-  const columns = [TORSO_FRAME.ax - 2, TORSO_FRAME.ax + 2];
-  const wide = width === 11;
+  // Each side gains or loses this many columns: gained by repeating the column two from the
+  // middle, lost from two and three out.
+  const more = (width - 9) / 2;
+  const ax = TORSO_FRAME.ax;
+  const dropped = more < 0 ? Array.from({ length: -more }, (_, k) => [ax - 2 - k, ax + 2 + k]).flat() : [];
   return {
-    stamp: stamp.map((row) => row.flatMap((cell, col) => (columns.includes(col) ? (wide ? [cell, cell] : []) : [cell]))),
-    ax: TORSO_FRAME.ax + (wide ? 1 : -1),
+    stamp: stamp.map((row) => row.flatMap((cell, col) => {
+      if (more > 0 && (col === ax - 2 || col === ax + 2)) return Array(more + 1).fill(cell);
+      return dropped.includes(col) ? [] : [cell];
+    })),
+    ax: ax + more,
   };
 }
 
@@ -414,14 +437,20 @@ function tucked(hair: Stamp, hat: Stamp): Stamp {
 
 /** Draws one frame of a character. Every pixel is placed by a rule or comes from a stamp. */
 export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
-  if (facing === 1) return drawCharacter(look, pose, 0, options).mirrored();
-  if (facing === 2) return drawCharacter(look, pose, 3, options).mirrored();
+  // A mirrored view turns the head the other way round too.
+  const across1 = (): Pose => (pose.look ? { ...pose, look: -pose.look } : pose);
+  if (facing === 1) return drawCharacter(look, across1(), 0, options).mirrored();
+  if (facing === 2) return drawCharacter(look, across1(), 3, options).mirrored();
+  if (facing === 5) return drawCharacter(look, across1(), 7, options).mirrored();
   if (pose.lie) return laidDown(drawCharacter(look, { ...pose, lie: false }, facing, options));
+  const view: View = facing === 4 ? 'S' : facing === 6 ? 'N' : facing === 7 ? 'E' : (facing as 0 | 3);
+  const own: OwnView | null = typeof view === 'string' ? view : null;
+  const diagonal = own === null;
 
   const sprite = new Sprite();
-  const back = facing === 3;
+  const back = view === 3 || view === 'N';
   const side = (pair: StampPair) => (back ? pair.back : pair.front);
-  const P = (v: Vec3) => project(v, facing);
+  const P = (v: Vec3) => project(v, view);
   const skin: Cell = { key: look.skin, shade: false };
   const tone = (cell: Cell, shade: boolean) => hexOf({ ...cell, shade: cell.shade || shade, light: shade ? false : cell.light });
   const layers: Layer[] = [];
@@ -431,11 +460,14 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   const build = look.build ?? BUILDS.find((b) => b.id === 'slim')!;
   // Poses are authored for the slim build. Wider builds move the limbs outwards so that arms
   // still sit just outside the torso and legs keep a one-pixel gap.
-  const armShift = ((build.torso - 9) / 2 + (build.arm - 3) / 2) / 0.7071;
+  // Face on and from behind the torso is two pixels wider and the arms move out with it; side on
+  // it is two narrower, its depth.
+  const torsoWidth = build.torso + (own === 'S' || own === 'N' ? 2 : own === 'E' ? -2 : 0);
+  const armShift = ((torsoWidth - 9) / 2 + (build.arm - 3) / 2) / 0.7071;
   const hat = ordered.find((i) => i.slot === 'hat' && i.head);
   // Under a hat that covers the crown, hair is drawn in its tucked form.
   const hairStamp = (item: Item, stamp: Stamp): Stamp =>
-    item.slot === 'hair' && hat && coversCrown(side(hat.head!)) ? tucked(stamp, side(hat.head!)) : stamp;
+    item.slot === 'hair' && hat && coversCrown(rawHead(hat)) ? tucked(stamp, rawHead(hat)) : stamp;
   const legShift = ((build.leg - 4) / 2) / 0.7071;
   const moved = (v: Vec3, s: 'L' | 'R', shift: number): Vec3 => [v[0] + (s === 'R' ? shift : -shift), v[1], v[2]];
 
@@ -489,11 +521,14 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         const upper = shoes?.foot ?? skin;
         const sole = shoes?.sole ?? upper;
         // Feet are wider than the legs and point the way the character faces.
+        // Seen from the front or back they point at or away from the viewer, so they stay as wide
+        // as the leg; side on they reach a pixel further forward.
         const left = Math.round(foot.x - build.leg / 2);
         const top = Math.round(foot.y);
-        for (let dx = 0; dx <= build.leg; dx++) {
+        const toe = own === 'S' || own === 'N' ? build.leg - 1 : own === 'E' ? build.leg + 1 : build.leg;
+        for (let dx = 0; dx <= toe; dx++) {
           // A sandal leaves the foot bare apart from one strap; a worn-out shoe shows the toes.
-          const bare = shoes?.footOpen === 'strap' ? dx !== Math.floor(build.leg / 2) : shoes?.footOpen === 'toe' && dx === build.leg;
+          const bare = shoes?.footOpen === 'strap' ? dx !== Math.floor(build.leg / 2) : shoes?.footOpen === 'toe' && dx === toe;
           sprite.set(left + dx, top, tone(bare ? skin : upper, far));
           sprite.set(left + dx, top + 1, tone(sole, far || dx === 0));
         }
@@ -510,7 +545,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     draw: () => {
       const top = Math.round(chest.y);
       const bottom = Math.round(hips.y) + 1;
-      const width = build.torso;
+      const width = torsoWidth;
       const feminine = look.frame === 'f';
       // The feminine shape is an hourglass. The waist is drawn in on both sides, far enough
       // that a gap shows between it and the hanging arm. A sturdy build stays straight.
@@ -539,7 +574,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         // A hint of the spine, so the back is not an empty block.
         for (let dy = 2; dy <= 5; dy++) sprite.set(mid, top + dy, tone(skin, true));
       } else {
-        sprite.set(mid + 1, top + 8, tone(skin, true));
+        if (own !== 'E') sprite.set(own === 'S' ? mid : mid + 1, top + 8, tone(skin, true));
       }
       const half = (width - 1) / 2;
       const hipRow = TORSO_FRAME.ay + 11;
@@ -595,7 +630,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     const far = shoulder.depth < chest.depth;
     let elbow = P(moved(pose[`elbow${s}`], s, armShift));
     let hand = P(moved(pose[`hand${s}`], s, armShift));
-    const holding = !far && tool;
+    const holding = !far && tool && (diagonal || own === 'E' || s === 'R');
     if (holding && tool.hold === 'pole' && !options.swing) {
       // A long tool is carried with the arm held out to the side, so the shaft clears the head.
       const side3 = s === 'R' ? 1 : -1;
@@ -647,8 +682,19 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // ---- head: rigid stamps. A wider build repeats the middle column of the head, hair and hat
   // stamps so they widen together and stay centred; the face keeps its size in the middle.
   const neck = P(pose.neck);
+  // The head turns up to an eighth either way of the body and is drawn in the view it then
+  // faces: that view's own stamps, mirrored for the left-hand views.
+  const headFacing = turnFacing(facing, -Math.max(-1, Math.min(1, pose.look ?? 0)));
+  const flip = headFacing === 1 || headFacing === 2 || headFacing === 5;
+  const headView = headFacing === 1 ? 0 : headFacing === 2 ? 3 : headFacing === 5 ? 7 : headFacing;
+  const hv: OwnView | null = headView === 4 ? 'S' : headView === 6 ? 'N' : headView === 7 ? 'E' : null;
+  const headBack = headView === 3 || headView === 6;
+  const hside = (pair: StampPair) => (headBack ? pair.back : pair.front);
   const extra = build.head ?? 0;
-  const hx = Math.floor(neck.x) - Math.floor(extra / 2);
+  // Mirroring the head moves it two pixels towards the body's front; a turned head is moved back
+  // one less, so it leans a pixel the way it now looks instead of seeming to pull back.
+  const nudge = flip ? -1 : 0;
+  const hx = Math.floor(neck.x) - Math.floor(extra / 2) + nudge;
   // The neck is one row shorter than the head stamps draw it: the head sits a row lower and the
   // neck's lowest row is left out, so it still ends on the shoulders. A double chin already
   // takes up that row.
@@ -660,31 +706,58 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     const wide = across(extra ? widened(stamp, HEAD_FRAME.ax, extra) : stamp, extra);
     return build.chin ? [...wide.slice(0, JAW + 1), wide[JAW], ...wide.slice(JAW + 1)] : wide;
   };
-  // A turned head looks the other way: the same stamps mirrored about the head's middle, between
-  // two columns. It never turns as far as the other side of the body.
-  const flip = !!pose.turn;
+  // A head facing a left-hand view: the same stamps mirrored about the head's middle, between two columns.
   const across = (stamp: Stamp, wider: number): Stamp =>
     flip ? stamp.map((row) => row.map((_, x) => row[2 * HEAD_FRAME.ax + wider + 1 - x] ?? null)) : stamp;
-  const face = across(look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, 0);
+  // Front, back and side views use the head's and the items' hv stamps for that view; an item
+  // without them falls back to its diagonal stamp on the same side.
+  const ownHead = hv ? look.views?.[hv] : undefined;
+  const faces = ownHead?.faces ?? look.faces;
+  const face = headBack ? [] : across(faces[options.face ?? 'neutral'] ?? faces.neutral, 0);
+  const headOf = () => ownHead?.head ?? hside(look.head);
+  // A beard without its hv stamp for the view moves with the face: two columns in face on, two
+  // forward side on, and stays on the head.
+  const fallback = (item: Item): Stamp => {
+    const stamp = hside(item.head!);
+    if (item.slot !== 'beard' || (hv !== 'S' && hv !== 'E')) return stamp;
+    const dx = hv === 'S' ? -2 : 2;
+    const head = headOf();
+    return stamp.map((row, y) => row.map((_, x) => (head[y]?.[x] ? (row[x - dx] ?? null) : null)));
+  };
+  function rawHead(item: Item): Stamp {
+    return hv && item.views?.[hv] ? item.views[hv]!.head : fallback(item);
+  }
+  const itemHead = (item: Item) => hairStamp(item, rawHead(item));
+  const itemBehind = (item: Item): Stamp | undefined => {
+    if (hv && item.views?.[hv]) return item.views[hv]!.behind && hairStamp(item, item.views[hv]!.behind!);
+    return item.headBehind && hv !== 'N' ? hairStamp(item, hside(item.headBehind)) : undefined;
+  };
+  // The face keeps its size on a wider head; side on it stays at the front of the head.
+  const fx = Math.floor(neck.x) + nudge + (hv === 'E' ? (flip ? -1 : 1) * (extra - Math.floor(extra / 2)) : 0);
   const bearded = ordered.some((item) => item.slot === 'beard' && item.head);
   layers.push({
     depth: back ? chest.depth + 0.5 : chest.depth - 0.5,
     draw: () => {
-      for (const item of ordered) if (item.headBehind) stampInto(sprite, headStamp(hairStamp(item, side(item.headBehind))), HEAD_FRAME, hx, hy);
+      for (const item of ordered) {
+        const behind = itemBehind(item);
+        if (behind) stampInto(sprite, headStamp(behind), HEAD_FRAME, hx, hy);
+      }
     },
   });
   layers.push({
     depth: chest.depth + 3,
     draw: () => {
-      stampInto(sprite, headStamp(side(look.head)).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
-      if (!back) stampInto(sprite, face, HEAD_FRAME, Math.floor(neck.x), hy);
+      stampInto(sprite, headStamp(headOf()).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
+      if (!headBack) stampInto(sprite, face, HEAD_FRAME, fx, hy);
       for (const item of ordered) {
-        if (item.head) stampInto(sprite, headStamp(back && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : hairStamp(item, side(item.head))), HEAD_FRAME, hx, hy);
+        // From straight behind a beard does not show.
+        if (!item.head || (hv === 'N' && item.slot === 'beard' && !item.views?.N)) continue;
+        stampInto(sprite, headStamp(headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : itemHead(item)), HEAD_FRAME, hx, hy);
       }
       // The mouth shows through any beard, in whatever shape the mood gives it.
-      if (bearded && !back) {
+      if (bearded && !headBack) {
         const mouth = face.map((row) => row.map((cell) => (cell && (cell.key === 'mouth' || cell.key === 'tooth') ? cell : null)));
-        stampInto(sprite, mouth, HEAD_FRAME, Math.floor(neck.x), hy);
+        stampInto(sprite, mouth, HEAD_FRAME, fx, hy);
       }
     },
   });

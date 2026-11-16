@@ -3,7 +3,8 @@
 // can take. Positions are in scene (data) coordinates, so turning the view does not move them.
 import type { ClipId } from '../lab/animal.ts';
 import { heightAt, SEA_LEVEL } from '../lab/terrain.ts';
-import { facingOf } from './actor.ts';
+import { facingOf, TURN_MS, turnToward } from './actor.ts';
+import type { Facing } from '../lab/puppet.ts';
 import type { World } from './world.ts';
 
 /**
@@ -12,22 +13,27 @@ import type { World } from './world.ts';
  */
 const WANDER = { walk: 0.6, run: 2, hop: 1.1, runs: 0.25, hops: 0.8, roam: 2.5, rest: [2, 7], graze: 0.3 };
 
-export interface AnimalPose { i: number; j: number; facing: 0 | 1 | 2 | 3; clip: ClipId; started: number }
+export interface AnimalPose { i: number; j: number; facing: Facing; clip: ClipId; started: number }
 
-interface State extends AnimalPose { hops: boolean; home: { i: number; j: number }; until: number; target: { i: number; j: number } | null }
+interface State extends AnimalPose { aim: Facing; turned: number; hops: boolean; home: { i: number; j: number }; until: number; target: { i: number; j: number } | null }
 
 export class Herd {
   poses: State[];
 
   constructor(world: World, ms: number) {
     this.poses = world.scene.animals.map((a) => ({
-      i: a.i, j: a.j, hops: a.animal.hops, facing: a.facing as 0 | 1 | 2 | 3, clip: 'idle', started: ms,
+      i: a.i, j: a.j, hops: a.animal.hops, facing: a.facing as Facing, aim: a.facing as Facing, turned: 0, clip: 'idle', started: ms,
       home: { i: a.i, j: a.j }, until: ms + rest(), target: null,
     }));
   }
 
   update(world: World, dt: number, ms: number): void {
     for (const a of this.poses) {
+      // A change of direction is turned through, an eighth of a turn at a time.
+      if (a.facing !== a.aim && ms - a.turned >= TURN_MS) {
+        a.facing = turnToward(a.facing, a.aim);
+        a.turned = ms;
+      }
       if (!a.target) {
         if (ms < a.until) continue;
         const angle = Math.random() * Math.PI * 2;
@@ -47,7 +53,7 @@ export class Herd {
         play(a, Math.random() < WANDER.graze ? 'eat' : 'idle', ms);
         continue;
       }
-      a.facing = facingOf(di, dj, a.facing);
+      a.aim = facingOf(di, dj, a.aim);
       a.i = to.i;
       a.j = to.j;
     }

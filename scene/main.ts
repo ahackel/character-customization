@@ -278,7 +278,7 @@ function placeAnimal(at: { i: number; j: number }): void {
   // An animal set down on another's tile takes its place.
   const seen = world.viewAnimals();
   world.scene.animals = world.scene.animals.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 4) });
+  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) });
 }
 
 /**

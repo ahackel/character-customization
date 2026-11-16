@@ -53,8 +53,9 @@ export const SYMPTOMS: Record<string, (px: Px, P: P, every: Every) => void> = {
 export function drawSymptom(sprite: AnimalSprite, name: string, anchors: Record<AnchorName, Anchor>, facing: number, seconds: number): void {
   const draw = SYMPTOMS[name];
   if (!draw) return;
-  // Forward is to the right in facings 0 and 3, to the left in their mirror images.
-  const fwd = facing === 0 || facing === 3 ? 1 : -1;
+  // Forward is to the right in facings 0, 3 and 7, to the left in their mirror images; face on
+  // and from behind it is taken as right.
+  const fwd = facing === 1 || facing === 2 || facing === 5 ? -1 : 1;
   const px: Px = (color, pt, dx = 0, dy = 0, bw = 1, bh = 1) => {
     const x = Math.round(pt.x + dx * fwd);
     const y = Math.round(pt.y + dy);
@@ -62,5 +63,5 @@ export function drawSymptom(sprite: AnimalSprite, name: string, anchors: Record<
     const hex = PALETTE[COLOR[color] ?? 'white'].base;
     for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) sprite.set(left + i, y + j, hex);
   };
-  draw(px, { ...anchors, face: facing === 0 || facing === 1, side: false }, (secs) => (seconds % secs) / secs);
+  draw(px, { ...anchors, face: facing === 0 || facing === 1 || facing === 4 || facing === 5 || facing === 7, side: false }, (secs) => (seconds % secs) / secs);
 }

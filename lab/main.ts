@@ -2,7 +2,7 @@ import './style.css';
 import { baseLook, wear } from './base.ts';
 import { compile } from './items.ts';
 import { AUTHORED, STAND, clipsFromSamples, type Clip, type SampledFrame } from './poses.ts';
-import { BODY_WINDOW, drawCharacter, FACING_NAMES, type Facing, type Item, type Look, type Sprite } from './puppet.ts';
+import { BODY_WINDOW, drawCharacter, FACING_NAMES, FACING_RING, type Facing, type Item, type Look, type Sprite } from './puppet.ts';
 
 // Every view on this page shows the 32 x 48 body window of the drawing canvas.
 const SPRITE_W = BODY_WINDOW.w;
@@ -16,7 +16,7 @@ import firstBaseUrl from './generated/base-v1.png?inline';
 const generated = import.meta.glob<unknown[]>('./generated/{sprite,recipe}-*.json', { eager: true, import: 'default' });
 const SAMPLED = clipsFromSamples(sampledData as unknown as Record<string, { name: string; rate: number; frames: SampledFrame[] }>);
 const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
-const FACINGS: Facing[] = [0, 1, 2, 3];
+const FACINGS: Facing[] = FACING_RING;
 type Format = 'sprite' | 'recipe';
 const FORMAT_NAMES: Record<Format, string> = { sprite: 'Whole-sprite paint', recipe: 'Recipes and stamps' };
 

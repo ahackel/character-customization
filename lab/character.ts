@@ -2,7 +2,7 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
+  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
@@ -150,6 +150,7 @@ export function lookOf(source: State, underwear = true): Look {
     frame: source.frame,
     head: headFor(source.skin, source.face.shape),
     faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
+    views: viewsFor(source.skin, source.face, source.hairColor, source.mood),
     items,
   };
 }

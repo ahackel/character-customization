@@ -6,7 +6,7 @@ import {
 } from '../lab/character.ts';
 import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import { BODY_WINDOW, BUILDS, drawCharacter, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
+import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang, itemName, LANGS, missingItemNames, t, type Key } from './i18n.ts';
@@ -39,8 +39,12 @@ let state = loadState();
 let tab: TabId = 'body';
 let facing: Facing = 0;
 let clipKey = 'idle';
+/** For trying it out: how far the preview's head is turned to its left (negative: right), in eighths, and whether the eyes look aside. */
+let gaze = 0;
+let eyesAside = false;
 /** Clips play even with reduced motion: picking one is asking to see it move. Pause stops on the frame shown. */
 let paused = false;
+// Prototype: show the straight front view in the preview instead of the facing's diagonal one.
 let version = 0;
 
 // All five are written by hand as key poses.
@@ -178,10 +182,11 @@ const root = document.getElementById('wardrobe')!;
 const stage = h('div', { class: 'stage' });
 const stageTag = h('span', { class: 'stage__tag' });
 // The sliders are built once and never replaced, so a drag is not interrupted.
-const sideSlider = h('input', { type: 'range', class: 'slider', min: '0', max: '3', step: '1' });
-const sideValue = h('b');
 const wearSlider = h('input', { type: 'range', class: 'slider', min: '0', max: String(WEAR_MAX), step: '0.25' });
 const wearValue = h('b');
+const gazeSlider = h('input', { type: 'range', class: 'slider', min: '-1', max: '1', step: '1', value: '0' });
+const gazeValue = h('b');
+const gazeName = (at: number) => t(`gaze.${at}` as Key);
 const wearName = (level: Wear) => t(`wear.${Math.round(level)}` as Key);
 const facingName = (at: Facing) => t(`facing.${at}` as Key);
 const previewRows = h('div', { class: 'sec__body' });
@@ -602,9 +607,7 @@ function shuffle(only?: TabId): void {
 
 function setFacing(next: Facing): void {
   facing = next;
-  sideSlider.value = String(facing);
-  sideSlider.setAttribute('aria-valuetext', facingName(facing));
-  sideValue.textContent = stageTag.textContent = facingName(facing);
+  stageTag.textContent = facingName(facing);
 }
 
 function render(): void {
@@ -631,7 +634,6 @@ function render(): void {
   wearValue.textContent = wearName(state.wear);
   const actions = Object.keys(CLIPS).map((id) => ({ id, label: t(`clip.${id}` as Key) }));
   previewRows.replaceChildren(
-    row(t('facing'), sideSlider, sideValue),
     row(t('wear'), wearSlider, wearValue),
     row(t('mood'), segmented(t('mood'), MOODS.map((mood) => ({ id: mood, label: t(`mood.${mood}` as Key), icon: `mood.${mood}` as IconName })), state.mood, (mood) => {
       state.mood = mood;
@@ -641,6 +643,10 @@ function render(): void {
       clipKey = id;
       paused = false;
       render();
+    }, 'seg seg--wrap')),
+    row(t('gaze'), gazeSlider, gazeValue),
+    row('', checkbox(t('gaze.aside'), eyesAside, (on) => {
+      eyesAside = on;
     })),
     // Unticked holds the frame shown.
     row('', checkbox(word('animate'), !paused, (on) => {
@@ -659,8 +665,9 @@ function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
   live.length = 0;
-  sideSlider.setAttribute('aria-label', t('facing'));
   wearSlider.setAttribute('aria-label', t('wear'));
+  gazeSlider.setAttribute('aria-label', t('gaze'));
+  setGaze(gaze);
   const hero = liveView('stage__sprite', () => facing, HERO);
   hero.style.cssText = `--w: ${HERO.w}; --h: ${HERO.h}`;
   stage.replaceChildren(hero, stageTag, name.el, snapButton(() => savePicture(hero, current()?.name ?? t('saved.default'))));
@@ -677,10 +684,18 @@ function mount(): void {
   );
 }
 
-sideSlider.addEventListener('input', () => setFacing(Number(sideSlider.value) as Facing));
-dragToTurn(stage, (step) => setFacing(((facing + step + 4) % 4) as Facing));
+// Dragging sideways on the preview turns the character round, an eighth of a turn at a time.
+dragToTurn(stage, (step) => setFacing(turnFacing(facing, step)));
 
 // While dragging, only the preview follows; the item pictures are redrawn on release.
+function setGaze(at: number): void {
+  gaze = at;
+  gazeSlider.value = String(at);
+  gazeSlider.setAttribute('aria-valuetext', gazeName(at));
+  gazeValue.textContent = gazeName(at);
+}
+gazeSlider.addEventListener('input', () => setGaze(Number(gazeSlider.value)));
+
 wearSlider.addEventListener('input', () => {
   state.wear = Number(wearSlider.value);
   version++;
@@ -691,7 +706,7 @@ wearSlider.addEventListener('change', changed);
 
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey) return;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setFacing(((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing);
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setFacing(turnFacing(facing, event.key === 'ArrowRight' ? 1 : -1));
 });
 undoKeys(undo.undo, undo.redo);
 
@@ -721,11 +736,16 @@ const tick = (ms: number) => {
   const frame = Math.floor((ticks / 1000) * clip.rate) % clip.frames.length;
   for (const view of live) {
     const at = view.facing();
-    const key = `${version}|${clipKey}|${at}|${frame}`;
+    const key = `${version}|${clipKey}|${at}|${frame}|${gaze}|${eyesAside}`;
     if (key === view.shown) continue;
     view.shown = key;
     let sprite = frames.get(key);
-    if (!sprite) frames.set(key, (sprite = drawCharacter(look, clip.frames[frame], at, { face: clip.faces?.[frame], swing: clip.swing })));
+    if (!sprite) {
+      // The gaze slider turns the head and moves the eyes over whatever the clip does; a blink still shows.
+      const pose = gaze ? { ...clip.frames[frame], look: gaze } : clip.frames[frame];
+      const face = clip.faces?.[frame] === 'blink' || !eyesAside ? clip.faces?.[frame] : 'aside';
+      frames.set(key, (sprite = drawCharacter(look, pose, at, { face, swing: clip.swing })));
+    }
     paint(view.canvas, sprite, view.crop);
   }
   requestAnimationFrame(tick);

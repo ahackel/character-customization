@@ -88,10 +88,10 @@ for (const file of fs.readdirSync(dir).filter((f) => /^plant-[\w-]+\.json$/.test
   });
 }
 
-// ---- a character: four facings, every clip
+// ---- a character: eight facings, every clip
 const look = { ...baseLook('skinB', 'hairBrown'), build: BUILDS[1] };
 for (const [clipId, clip] of Object.entries(AUTHORED)) {
-  for (const facing of [0, 1, 2, 3]) {
+  for (const facing of [0, 1, 2, 3, 4, 5, 6, 7]) {
     const list = clip.frames.map((pose, i) => {
       const sprite = drawCharacter(look, pose, facing, { face: clip.faces?.[i], swing: clip.swing });
       const name = `character/${clipId}/${facing}/${i}`;
@@ -109,7 +109,7 @@ for (const [clipId, clip] of Object.entries(AUTHORED)) {
 const anchors = {};
 for (const { id, animal } of PRESETS) {
   for (const clipId of CLIP_IDS) {
-    for (const facing of [0, 1, 2, 3]) {
+    for (const facing of [0, 1, 2, 3, 4, 5, 6, 7]) {
       const list = [];
       for (let i = 0; i < CLIPS[clipId].frames; i++) {
         const drawn = drawAnimal(animal, clipId, i, facing);

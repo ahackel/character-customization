@@ -9,7 +9,7 @@ import {
 import { PRESETS } from '../lab/animal-presets.ts';
 import { download, newId, pickFile } from '../lab/files.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
-import { FACING_NAMES, type Facing } from '../lab/puppet.ts';
+import { FACING_NAMES, turnFacing, type Facing } from '../lab/puppet.ts';
 import {
   checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word,
   type IconName,
@@ -449,8 +449,6 @@ const root = document.getElementById('animals')!;
 const stage = h('div', { class: 'stage' });
 const hero = h('canvas', { class: 'stage__sprite' });
 const stageTag = h('span', { class: 'stage__tag' });
-const sideSlider = h('input', { type: 'range', class: 'slider', min: '0', max: '3', step: '1' });
-const sideValue = h('b');
 const previewRows = h('div', { class: 'sec__body' });
 const tabSlot = h('div');
 const panel = h('div', { class: 'library__body', role: 'tabpanel' });
@@ -458,15 +456,12 @@ panel.addEventListener('click', (e) => (e.target as Element).closest('button') &
 const barSlot = h('div', { style: 'display: contents' });
 const name = nameTag();
 name.onRename(renameThing);
-const FACING_DE = ['vorne rechts', 'vorne links', 'hinten links', 'hinten rechts'];
+const FACING_DE = ['vorne rechts', 'vorne links', 'hinten links', 'hinten rechts', 'vorne', 'links', 'hinten', 'rechts'];
 const facingName = (at: Facing) => L(FACING_NAMES[at], FACING_DE[at]);
 let sizeText = '';
 
 function setFacing(next: Facing): void {
   facing = next;
-  sideSlider.value = String(facing);
-  sideSlider.setAttribute('aria-valuetext', facingName(facing));
-  sideValue.textContent = facingName(facing);
   stageTag.textContent = `${facingName(facing)} · ${sizeText}`;
 }
 
@@ -489,8 +484,8 @@ function renderBar(): void {
     tool: 'animals',
     title: word('animals'),
     about: [
-      L('Pick a species, then style its coat, markings, ears, tail and face. Rules draw it in the island look, in four facings and six actions. Made for Animal Hospital.',
-        'Wähle eine Tierart und gestalte Fell, Zeichnung, Ohren, Schwanz und Gesicht. Regeln zeichnen es im Insel-Stil, in vier Blickrichtungen und sechs Aktionen. Gemacht für Animal Hospital.'),
+      L('Pick a species, then style its coat, markings, ears, tail and face. Rules draw it in the island look, in eight facings and six actions. Made for Animal Hospital.',
+        'Wähle eine Tierart und gestalte Fell, Zeichnung, Ohren, Schwanz und Gesicht. Regeln zeichnen es im Insel-Stil, in acht Blickrichtungen und sechs Aktionen. Gemacht für Animal Hospital.'),
       L('Every part is a rounded mass, posed in 3D and drawn in the 2:1 view with the master palette and the light of the plants. Facings 1 and 2 are mirror images.',
         'Jedes Teil ist eine runde Masse, in 3D gestellt und in der 2:1-Ansicht mit der Hauptpalette und dem Licht der Pflanzen gezeichnet. Die Richtungen 1 und 2 sind Spiegelbilder.'),
       L(`Files are JSON of type "pixel-animal". The game draws them with drawAnimal() from lab/animal.ts, which also gives the anchor points ${ANCHORS.join(', ')} for every frame.`,
@@ -575,7 +570,6 @@ function render(): void {
   });
   const actions = CLIP_IDS.map((id) => ({ id: id as string, label: id === 'run' && animal.hops ? L('Hop', 'Hoppeln') : L(CLIPS[id].name, CLIP_DE[id]) }));
   previewRows.replaceChildren(
-    row(L('Side', 'Seite'), sideSlider, sideValue),
     row(L('Action', 'Aktion'), segmented(L('Action', 'Aktion'), actions, clip, (id) => {
       clip = id as ClipId;
       paused = false;
@@ -601,7 +595,6 @@ function render(): void {
 function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = L('Animal Editor', 'Tier-Editor');
-  sideSlider.setAttribute('aria-label', L('Side', 'Seite'));
   stage.replaceChildren(hero, stageTag, name.el, snapButton(() => savePicture(hero, current()?.name ?? L('Animal', 'Tier'))));
   const preview = h('details', { class: 'sec' }, h('summary', {}, word('preview')), previewRows);
   preview.open = true;
@@ -616,11 +609,11 @@ function mount(): void {
   );
 }
 
-sideSlider.addEventListener('input', () => setFacing(Number(sideSlider.value) as Facing));
-dragToTurn(stage, (step) => setFacing(((facing + step + 4) % 4) as Facing));
+// Dragging sideways on the preview turns the animal round, an eighth of a turn at a time.
+dragToTurn(stage, (step) => setFacing(turnFacing(facing, step)));
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.metaKey || event.ctrlKey) return;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setFacing(((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing);
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setFacing(turnFacing(facing, event.key === 'ArrowRight' ? 1 : -1));
 });
 undoKeys(undo.undo, undo.redo);
 

@@ -703,24 +703,47 @@ export interface AnimalFrame {
 }
 
 /**
- * View axes for the two drawn facings. Facing 0 looks at the animal's right side with its nose
- * to the lower right; facing 3 at its right side with its nose to the upper right.
+ * View axes for the drawn facings, from where the nose points on screen as (across, towards the
+ * viewer): facing 0 to the lower right, 3 to the upper right, 4 at the viewer, 6 away, 7 right.
  */
-const VIEW: Record<0 | 3, { right: [number, number]; toward: [number, number] }> = {
-  0: { right: [-Math.SQRT1_2, Math.SQRT1_2], toward: [Math.SQRT1_2, Math.SQRT1_2] },
-  3: { right: [Math.SQRT1_2, Math.SQRT1_2], toward: [Math.SQRT1_2, -Math.SQRT1_2] },
+const nose = (across: number, toward: number) => ({ right: [-toward, across] as [number, number], toward: [across, toward] as [number, number] });
+const VIEW: Record<0 | 3 | 4 | 6 | 7, { right: [number, number]; toward: [number, number] }> = {
+  0: nose(Math.SQRT1_2, Math.SQRT1_2),
+  3: nose(Math.SQRT1_2, -Math.SQRT1_2),
+  4: nose(0, 1),
+  6: nose(0, -1),
+  7: nose(1, 0),
 };
 
 const hash = (a: number, b: number, c: number) => ((Math.imul(a + 101, 73856093) ^ Math.imul(b + 37, 19349663) ^ Math.imul(c + 11, 83492791)) >>> 0) % 1000 / 1000;
 
-/** Draws one frame. Facings 1 and 2 are the mirror images of 0 and 3. */
+/**
+ * Side on, the head would sit as high as the back. In the diagonal views whatever is further forward
+ * also sits lower on screen, so there the head reads low and in front; side on, everything ahead of
+ * the front legs is lowered by as much.
+ */
+function lowerHead(model: Model): void {
+  const SIDE_DROP = 0.35;
+  const legs = model.prims.filter((p) => p.part === 'leg');
+  if (!legs.length) return;
+  const front = Math.max(...legs.map((p) => p.c[2]));
+  const drop = (q: V): V => (q[2] > front ? [q[0], q[1] - SIDE_DROP * (q[2] - front), q[2]] : q);
+  for (const p of model.prims) if (p.part !== 'leg' && p.part !== 'foot') p.c = drop(p.c);
+  for (const key of Object.keys(model.points) as (keyof Model['points'])[]) model.points[key] = drop(model.points[key]);
+}
+
+/** Per animal and facing, how many pixels each eye was pulled in on the standing frame; null when it did not fit. */
+const EYE_PULLS = new Map<string, (number | null | undefined)[]>();
+
+/** Draws one frame. Facings 1, 2 and 5 are the mirror images of 0, 3 and 7. */
 export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facing): AnimalFrame {
-  if (facing === 1 || facing === 2) {
-    const drawn = drawAnimal(a, clip, frame, facing === 1 ? 0 : 3);
+  if (facing === 1 || facing === 2 || facing === 5) {
+    const drawn = drawAnimal(a, clip, frame, facing === 1 ? 0 : facing === 2 ? 3 : 7);
     const anchors = Object.fromEntries(Object.entries(drawn.anchors).map(([k, p]) => [k, { ...p, x: ANIMAL_W - 1 - p.x }])) as Record<AnchorName, Anchor>;
     return { sprite: drawn.sprite.mirrored(), anchors };
   }
   const model = build(a, poseAt(a, clip, frame));
+  if (facing === 7) lowerHead(model);
   const view = VIEW[facing];
   // Animal space to view space: x across the screen, y up, z towards the viewer. One unit
   // across the screen is one pixel, one unit up is one pixel, one unit towards the viewer half a pixel down.
@@ -803,6 +826,8 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   model.prims.forEach((p, index) => {
     const { c, axes } = inView[index];
     const R = Math.max(...p.r);
+    // Legs and feet are never thinner than a pixel, or the rays slip between them and a foot floats.
+    const hitR = p.part === 'leg' || p.part === 'foot' ? p.r.map((r) => Math.max(r, 0.6)) : p.r;
     const cx = OX + c[0];
     const cy = OY - c[1] + 0.5 * c[2];
     for (let py = Math.floor(cy - R * 1.15) - 1; py <= Math.ceil(cy + R * 1.15) + 1; py++) {
@@ -816,8 +841,8 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
         let qa = 0, qb = 0, qc = -1;
         const ol: number[] = [], dl: number[] = [];
         for (let i = 0; i < 3; i++) {
-          ol[i] = dot(oc, axes[i]) / p.r[i];
-          dl[i] = dot(d, axes[i]) / p.r[i];
+          ol[i] = dot(oc, axes[i]) / hitR[i];
+          dl[i] = dot(d, axes[i]) / hitR[i];
           qa += dl[i] * dl[i];
           qb += ol[i] * dl[i];
           qc += ol[i] * ol[i];
@@ -836,7 +861,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   // Painted the way the people's hair is: a calm base, light only on the big masses, and on fur the
   // tone edges broken into diagonal strands so they read as hair, not as a band hugging the outline.
   const shag = a.fur;
-  const dir = facing === 0 ? 1 : -1;
+  const dir = facing === 0 || facing === 4 || facing === 7 ? 1 : -1;
   const hitAt: V[] = new Array(W * Hh);
   const upAt = new Float32Array(W * Hh);
   const thinPart = (o: number) => Math.min(...model.prims[o].r) < 1.3;
@@ -871,8 +896,10 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       spiny[at] = spines && role === 'fur' && (p.part === 'body' || p.part === 'hump' || (p.part === 'head' && dot(n, model.headDir) < 0.2)) && n[1] > -0.35;
       if (spiny[at]) {
         // Spines implied: broken diagonal strokes in shade, not a weave over the whole back.
-        const stroke = onStrand(px, py) && hash(Math.floor(P[0] / 1.6), Math.floor(P[1] / 1.6), Math.floor(P[2] / 1.6)) < 0.6;
-        tone = stroke || tone === 'shade' ? 'shade' : 'base';
+        // Each stroke has a pale tip beside it, so the spines stand out from the coat.
+        const cell = hash(Math.floor(P[0] / 1.6), Math.floor(P[1] / 1.6), Math.floor(P[2] / 1.6)) < 0.6;
+        const k = (px * dir + py + 3 * W) % 3;
+        tone = cell && k === 0 ? 'shade' : cell && k === 1 ? (tone === 'shade' ? 'base' : 'light') : tone === 'shade' ? 'shade' : 'base';
       }
       toneAt[at] = tone;
     }
@@ -1042,7 +1069,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
     if (!q.visible) return;
     sprite.set(q.x, q.y, color);
     if (tall) sprite.set(q.x, q.y - 1, color);
-    if (wide) sprite.set(q.x + (facing === 0 ? 1 : 1), q.y, color);
+    if (wide) sprite.set(q.x + 1, q.y, color);
   };
   const pose = poseAt(a, clip, frame);
   const big = model.headR >= 5;
@@ -1059,16 +1086,39 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   const tall = eyeR >= 2.2;
   const wide = eyeR >= 5.4; // (large heads: 2×2 with a glint, as big as Lop Hop's eye is on its smaller head)
   const middle = screen(toView(model.points.head));
+  // Eyes are placed at a rounded offset from the head's middle, not rounded on their own, so they
+  // move with the head as one and keep their spacing from frame to frame.
+  const exact = (p: V) => {
+    const q = toView(p);
+    return { x: q[0], y: -q[1] + 0.5 * q[2] };
+  };
+  const away = (d: number) => Math.sign(d) * Math.round(Math.abs(d));
   let eyeAt: Anchor | null = null;
-  for (const eye of [model.points.eye, model.points.eyeL]) {
+  const reference = clip === 'idle' && frame === 0;
+  const steadyKey = `${facing}|${JSON.stringify(a)}`;
+  if (!reference && !EYE_PULLS.has(steadyKey)) drawAnimal(a, 'idle', 0, facing);
+  const steady = reference ? undefined : EYE_PULLS.get(steadyKey);
+  const pulls: (number | null | undefined)[] = [];
+  for (const [side, eye] of [model.points.eye, model.points.eyeL].entries()) {
     const q = visible(eye);
     if (!q.visible) continue;
-    let { x, y } = q;
-    for (let k = 0; k < 4 && !inside(x, y, tall); k++) {
+    const e = exact(eye);
+    const m = exact(model.points.head);
+    let x = middle.x + away(e.x - m.x);
+    let y = middle.y + away(e.y - m.y);
+    // How far the eye is pulled in comes from the standing frame, so a bobbing outline does not
+    // move one eye and not the other.
+    const fixed = steady?.[side];
+    const pull = () => {
       x += Math.sign(middle.x - x);
       y += Math.sign(middle.y - y);
-    }
-    if (!inside(x, y, tall) || (wide && !inside(x + 1, y, tall)) || (eyeAt && Math.abs(eyeAt.x - x) < (wide ? 3 : 2))) continue;
+    };
+    let k = 0;
+    if (fixed === undefined) for (; k < 4 && !inside(x, y, tall); k++) pull();
+    else if (fixed !== null) for (; k < fixed; k++) pull();
+    const fits = fixed === undefined ? inside(x, y, tall) && (!wide || inside(x + 1, y, tall)) : fixed !== null && onFace(x, y);
+    pulls[side] = fits ? k : null;
+    if (!fits || (eyeAt && Math.abs(eyeAt.x - x) < (wide ? 3 : 2))) continue;
     if (pose.blink) for (let dx = 0; dx <= (wide ? 1 : 0); dx++) sprite.set(x + dx, y, PALETTE[keyAt[y * W + x]!].shade);
     else {
       sprite.set(x, y, PALETTE.ink.base);
@@ -1079,6 +1129,10 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       }
     }
     eyeAt ??= { x, y, visible: true };
+  }
+  if (reference) {
+    if (EYE_PULLS.size > 200) EYE_PULLS.clear();
+    EYE_PULLS.set(steadyKey, pulls);
   }
   if (model.hasNose) {
     // The nose may sit on the outline, but on the snout: pulled back onto it when the point falls just off.

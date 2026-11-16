@@ -1,7 +1,7 @@
 // A character walking around a world: position in metres, facing, which clip plays, and the
 // sprite for the current frame. Movement slides along whatever blocks it.
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import { drawCharacter, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
+import { drawCharacter, FACING_RING, turnFacing, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
 import { SHADOW } from '../lab/flora.ts';
 import type { Picture } from '../lab/island.ts';
 import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight } from '../lab/terrain.ts';
@@ -30,20 +30,24 @@ const SPLASH = { every: 0.08, per: 2, up: [4, 8], out: 0.7, gravity: 40 };
  * What a standing character does now and then so it does not look frozen: glance aside, turn its
  * head, smile, laugh or look surprised, for a moment, then rest again. Weights add up to 1.
  */
-const FIDGETS: { weight: number; turn?: boolean; face?: string; seconds: [number, number] }[] = [
-  { weight: 0.26, face: 'aside', seconds: [0.8, 1.8] },
-  { weight: 0.26, turn: true, seconds: [1, 2.4] },
-  { weight: 0.08, turn: true, face: 'aside', seconds: [0.8, 1.6] },
-  { weight: 0.08, turn: true, face: 'smile', seconds: [1.2, 2.4] },
-  { weight: 0.2, face: 'smile', seconds: [1.5, 3.5] },
-  { weight: 0.07, face: 'happy', seconds: [0.8, 1.4] },
+// A glance turns the whole body an eighth of a turn, into a straight view, for a moment.
+// `look` turns the head an eighth, left or right at random.
+const FIDGETS: { weight: number; look?: 1; glance?: boolean; face?: string; seconds: [number, number] }[] = [
+  { weight: 0.18, face: 'aside', seconds: [0.8, 1.8] },
+  { weight: 0.28, look: 1, seconds: [0.8, 2.4] },
+  { weight: 0.06, look: 1, face: 'smile', seconds: [1, 2] },
+  { weight: 0.08, glance: true, seconds: [0.8, 1.8] },
+  { weight: 0.07, look: 1, face: 'aside', seconds: [0.8, 1.6] },
+  { weight: 0.07, look: 1, face: 'smile', seconds: [1.2, 2.4] },
+  { weight: 0.15, face: 'smile', seconds: [1.5, 3.5] },
+  { weight: 0.06, face: 'happy', seconds: [0.8, 1.4] },
   { weight: 0.05, face: 'surprised', seconds: [0.5, 1] },
 ];
 /** Seconds of plain standing between two fidgets. */
 const REST: [number, number] = [1.5, 4.5];
 const between = ([a, b]: [number, number]) => (a + Math.random() * (b - a)) * 1000;
 
-interface Fidget { turn?: boolean; face?: string; until: number }
+interface Fidget { look?: number; glance?: 1 | -1; face?: string; until: number }
 
 interface Drop { i: number; j: number; z: number; vi: number; vj: number; vz: number; pale: boolean }
 
@@ -69,19 +73,32 @@ function wading(sprite: Picture, rows: number): Picture {
 }
 
 /**
- * The facing for a direction on the map. The four facings are the map axes: +i is front right
- * on screen, +j front left, -i back left, -j back right.
+ * The facing for a direction on the map, in eighths of a turn. +i is front right on screen, +j
+ * front left, -i back left, -j back right, and the facings between them lie between.
  */
 export function facingOf(di: number, dj: number, current: Facing): Facing {
   if (Math.abs(di) < 1e-6 && Math.abs(dj) < 1e-6) return current;
-  if (Math.abs(di) >= Math.abs(dj)) return di > 0 ? 0 : 2;
-  return dj > 0 ? 1 : 3;
+  return turnFacing(0, Math.round(Math.atan2(dj, di) / (Math.PI / 4)));
+}
+
+/** Milliseconds per eighth of a turn when a character or animal changes direction. */
+export const TURN_MS = 55;
+
+/** One eighth of a turn from `from` towards `to`, the short way round. */
+export function turnToward(from: Facing, to: Facing): Facing {
+  const d = (((FACING_RING.indexOf(to) - FACING_RING.indexOf(from)) % 8) + 8) % 8;
+  return d === 0 ? from : turnFacing(from, d <= 4 ? 1 : -1);
 }
 
 export class Actor {
   i: number;
   j: number;
   facing: Facing = 0;
+  /** The last direction walked, as an angle on the map. */
+  private heading = 0;
+  /** Where the character is turning to, a step at a time, and when it last stepped. */
+  private aim: Facing = 0;
+  private turned = 0;
   private clip: ClipId = 'idle';
   private started = 0;
   private look: Look;
@@ -128,7 +145,8 @@ export class Actor {
     if (!this.fidget && ms >= this.nextFidget) {
       let roll = Math.random();
       const pick = FIDGETS.find((f) => (roll -= f.weight) < 0) ?? FIDGETS[0];
-      this.fidget = { turn: pick.turn, face: pick.face, until: ms + between(pick.seconds) };
+      const side = Math.random() < 0.5 ? 1 : -1;
+      this.fidget = { look: pick.look && pick.look * side, glance: pick.glance ? side : undefined, face: pick.face, until: ms + between(pick.seconds) };
     }
     return this.fidget;
   }
@@ -140,13 +158,24 @@ export class Actor {
   update(world: World, dt: number, di: number, dj: number, run: boolean, ms: number): void {
     this.fly(Math.min(dt, 0.1));
     const length = Math.hypot(di, dj);
+    if (length > 1e-6) {
+      this.aim = facingOf(di, dj, this.aim);
+      this.heading = Math.atan2(dj, di);
+    } else {
+      // Standing, a character settles into the nearest of the four diagonal views, which read
+      // best; the straight views are for walking and glancing.
+      this.aim = turnFacing(0, 2 * Math.round(this.heading / (Math.PI / 2)));
+    }
+    if (this.facing !== this.aim && ms - this.turned >= TURN_MS) {
+      this.facing = turnToward(this.facing, this.aim);
+      this.turned = ms;
+    }
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
       const emoting = (EMOTES as readonly string[]).includes(this.clip);
       if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play('idle', ms);
       return;
     }
-    this.facing = facingOf(di, dj, this.facing);
     this.play(run ? 'run' : 'walk', ms);
     const depth = this.depth(world);
     const step = (run ? SPEED.run : SPEED.walk) * (depth > 0 ? WADING : 1) * Math.min(dt, 0.1);
@@ -215,12 +244,13 @@ export class Actor {
     const fidget = this.fidgetAt(ms);
     // Blinking goes on through a fidget.
     const face = clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
-    const turn = fidget?.turn;
-    const key = `${this.clip}|${n}|${this.facing}|${face}|${turn}`;
+    const look = fidget?.look ?? 0;
+    const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
+    const key = `${this.clip}|${n}|${facing}|${face}|${look}`;
     let sprite = this.frames.get(key);
     if (!sprite) {
-      const pose = turn ? { ...STAND, turn } : clip.frames[n];
-      this.frames.set(key, (sprite = drawCharacter(this.look, pose, this.facing, { face, swing: clip.swing })));
+      const pose = look ? { ...STAND, look } : clip.frames[n];
+      this.frames.set(key, (sprite = drawCharacter(this.look, pose, facing, { face, swing: clip.swing })));
     }
     const depth = this.depth(world);
     if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: 64, h: 64, foot: FEET };

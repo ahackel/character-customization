@@ -326,13 +326,26 @@ export function undoKeys(undo: () => void, redo: () => void): void {
 
 /** A sideways swipe on the stage turns the subject one side per swipe. */
 export function dragToTurn(el: HTMLElement, turn: (step: 1 | -1) => void): void {
+  // Every 24 pixels dragged sideways turns one step, while the drag goes on.
+  const STEP = 24;
   let x0: number | null = null;
-  el.addEventListener('pointerdown', (e) => (x0 = e.clientX));
-  el.addEventListener('pointerup', (e) => {
-    if (x0 !== null && Math.abs(e.clientX - x0) > 24) turn(e.clientX > x0 ? 1 : -1);
-    x0 = null;
+  el.style.touchAction = 'pan-y';
+  el.addEventListener('pointerdown', (e) => {
+    if ((e.target as HTMLElement).closest('button, input, [contenteditable]')) return;
+    x0 = e.clientX;
+    el.setPointerCapture(e.pointerId);
   });
-  el.addEventListener('pointercancel', () => (x0 = null));
+  el.addEventListener('pointermove', (e) => {
+    if (x0 === null) return;
+    while (Math.abs(e.clientX - x0) >= STEP) {
+      const step = e.clientX > x0 ? 1 : -1;
+      turn(step);
+      x0 += step * STEP;
+    }
+  });
+  const end = () => (x0 = null);
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
 }
 
 // ------------------------------------------------------------------ small joys

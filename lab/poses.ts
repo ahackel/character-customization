@@ -139,12 +139,7 @@ const LOOK_STEPS: [Pose, string | undefined][] = [
 
 export const AUTHORED: Record<string, Clip> = {
   // Standing still. The only movement is a blink every three seconds.
-  idle: {
-    name: 'Idle',
-    rate: 5,
-    frames: Array<Pose>(15).fill(STAND),
-    faces: Array.from({ length: 15 }, (_, i) => (i === 13 ? 'blink' : undefined)),
-  },
+  idle: { name: 'Idle', ...resting(STAND) },
   walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
   run: { name: 'Run', rate: 11, frames: [...runHalf, ...runHalf.map(mirrored)].map(buildPose) },
   // Only the arm moves; the body stays where it is.
@@ -157,7 +152,7 @@ export const AUTHORED: Record<string, Clip> = {
 
 // ------------------------------------------------------------------ poses sampled from 3D clips
 
-/** One frame as exported by tools/export-poses.mjs: a unit direction per bone, plus hip height. */
+/** One frame sampled from a clip of the 3D prototype: a unit direction per bone, plus hip height. */
 export interface SampledFrame {
   bob: number;
   spine: Vec3;

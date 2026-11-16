@@ -370,7 +370,7 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
   };
   const vary = (value: number, part: Common, spread: number) => value * (1 + (random() - 0.5) * part.jitter * spread);
 
-  type Anchor = { at: (t: number) => V3; heading: number };
+  type Anchor = { at: (t: number) => V3 };
   /** What a part inherits from the parts it grows on. */
   type Chain = { bend: number | null; rigid: boolean };
   // Hard plants do not move in the wind at all, whatever the description says: cacti, and any
@@ -397,8 +397,8 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
       const m = motion(part, chain);
       if (part.type === 'stem') growStem(part, origin, az, phase, m);
       else if (part.type === 'leaf') growLeaf(part, origin, az, phase, m);
-      else if (part.type === 'blob') growBlob(part, origin, az, phase, m);
-      else if (part.type === 'rock') growRock(part, origin, az, phase, m);
+      else if (part.type === 'blob') growBlob(part, origin, phase, m);
+      else if (part.type === 'rock') growRock(part, origin, phase, m);
       else growStamp(part, origin, phase, m);
     }
   };
@@ -426,7 +426,7 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     if (lying) for (let i = 0; i <= length; i += 2) shadow.push({ u: points[i][0], v: points[i][2], r: Math.max(2, widths[i] * 0.75), canopy: false });
     else if (onGround) shadow.push({ u: origin[0], v: origin[2], r: Math.max(2, widths[0] * 0.8), canopy: false });
     const at = (t: number): V3 => points[Math.round(t * length)];
-    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
+    for (const child of part.children) place(child, { at }, { bend: m.bend, rigid: m.rigid });
   };
 
   const growLeaf = (part: Leaf, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
@@ -457,7 +457,7 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     shadow.push({ u: mid[0], v: mid[2], r: length * 0.3, canopy: true });
   };
 
-  const growBlob = (part: Blob, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
+  const growBlob = (part: Blob, origin: V3, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     const size: [number, number] = [Math.max(2, vary(part.size[0], part, 0.3) * k), Math.max(2, vary(part.size[1], part, 0.3) * k)];
     // A blob sits on its attachment point, so a bush rests on the ground and a fruit hangs from its stalk.
     const center: V3 = [origin[0], origin[1] + size[1] / 2, origin[2]];
@@ -481,10 +481,10 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     });
     shadow.push({ u: center[0], v: center[2], r: size[0] * 0.55, canopy: true });
     const at = (t: number): V3 => [center[0], center[1] + (t - 0.5) * size[1], center[2]];
-    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
+    for (const child of part.children) place(child, { at }, { bend: m.bend, rigid: m.rigid });
   };
 
-  const growRock = (part: RockPart, origin: V3, az: number, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
+  const growRock = (part: RockPart, origin: V3, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
     const w = Math.max(3, vary(part.size[0], part, 0.3) * k);
     const hgt = Math.max(2, vary(part.size[1], part, 0.3) * k);
     // As deep as it is wide, give or take: a stone seen from above is not a disc on edge.
@@ -535,7 +535,7 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     });
     shadow.push({ u: origin[0], v: origin[2], r: w * 0.58, canopy: false });
     const at = (t: number): V3 => [apex[0] * t + origin[0] * (1 - t), origin[1] + hgt * t, apex[2] * t + origin[2] * (1 - t)];
-    for (const child of part.children) place(child, { at, heading: az }, { bend: m.bend, rigid: m.rigid });
+    for (const child of part.children) place(child, { at }, { bend: m.bend, rigid: m.rigid });
   };
 
   const growStamp = (part: StampPart, origin: V3, phase: number, m: { rigid: boolean; bend: number; flex: number }) => {
@@ -546,7 +546,7 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     elements.push({ kind: 'stamp', at: origin, cells, anchor, depth: origin[2] + 0.6, bend: m.bend, flex: m.flex, phase });
   };
 
-  const ground: Anchor = { at: () => [0, 0, 0], heading: 0 };
+  const ground: Anchor = { at: () => [0, 0, 0] };
   const root: Chain = { bend: null, rigid: plant.category === 'cactus' || LYING.includes(plant.category) };
   for (const part of plant.parts) place(part, ground, root);
   return { size: k, elements, shadow };
@@ -580,7 +580,6 @@ export class Raster {
   origin = { x: FLORA_ORIGIN.x, y: FLORA_ORIGIN.y };
   /** Pixels that fell outside the canvas. */
   lost = 0;
-  lastLost: [number, number] | null = null;
   readonly w: number;
   readonly h: number;
   constructor(w = FLORA_W, h = FLORA_H) {
@@ -594,7 +593,6 @@ export class Raster {
     y = Math.round(y);
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) {
       this.lost++;
-      this.lastLost = [x, y];
       return;
     }
     this.pixels[y * this.w + x] = color;
@@ -605,11 +603,6 @@ export class Raster {
   }
   shaded(x: number, y: number): boolean {
     return this.shadow[y * this.w + x] === 1;
-  }
-  clear(x: number, y: number): void {
-    x = Math.round(x);
-    y = Math.round(y);
-    if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.pixels[y * this.w + x] = null;
   }
   get(x: number, y: number): string | null {
     return this.pixels[y * this.w + x] ?? null;

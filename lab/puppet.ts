@@ -255,7 +255,7 @@ function laidDown(standing: Sprite): Sprite {
  * the face points to, above the shoulders, in shade. Worked out against the head actually worn,
  * so a narrow head shows the beard right up to its edge.
  */
-function beardBehind(front: Stamp, head: Stamp): Stamp {
+export function beardBehind(front: Stamp, head: Stamp): Stamp {
   return front.map((row, y) =>
     row.map((cell, x) => (cell && x >= HEAD_FRAME.ax && y <= HEAD_FRAME.ay && !head[y]?.[x] ? { ...cell, shade: true, light: false } : null)),
   );
@@ -558,7 +558,6 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       };
       /** First and last body column drawn in a torso row. Column 0 is the left edge of the block. */
       const span = (row: number): [number, number] => [inset(row), width - 1 - inset(row)];
-      const shaped = feminine;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
@@ -583,7 +582,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         if (!item.torso) continue;
         const fit = fitted(side(item.torso), width);
         let stamp = fit.stamp;
-        if (shaped) {
+        if (feminine) {
           // Clothing follows the waist, and gets a soft shadow under the chest.
           const first = fit.ax - half;
           stamp = stamp.map((row, r) => {

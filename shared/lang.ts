@@ -1,9 +1,9 @@
 // The language of every tool: one choice, kept on this device, and the helper the string tables share.
 
 export type Lang = 'en' | 'de';
-export const LANGS: { id: Lang; label: string; name: string }[] = [
-  { id: 'en', label: 'EN', name: 'English' },
-  { id: 'de', label: 'DE', name: 'Deutsch' },
+export const LANGS: { id: Lang; name: string }[] = [
+  { id: 'en', name: 'English' },
+  { id: 'de', name: 'Deutsch' },
 ];
 
 // The key is older than the other tools: the wardrobe was the first to have a language.

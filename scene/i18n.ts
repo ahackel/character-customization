@@ -3,8 +3,6 @@ import { currentLang, fill } from '../shared/lang.ts';
 
 const en = {
   'title': 'Scene Editor',
-  'home': 'All tools',
-  'language': 'Language',
   'scene': 'Scene',
   'scene.new': 'New',
   'scene.settings': 'Settings',
@@ -16,7 +14,6 @@ const en = {
   'scene.badFile': 'That file is not a scene.',
   'scene.imported': 'Imported “{name}”.',
   'scene.saveFailed': 'This browser refused to save. Export the scene to keep your changes.',
-  'mode': 'Mode',
   'mode.edit': 'Edit',
   'mode.play': 'Play',
   'zoom.in': 'Zoom in',
@@ -25,7 +22,6 @@ const en = {
   'rotate.right': 'Turn right (R)',
   'view': 'Scene view',
 
-  'tools': 'Tools',
   'tool.raise': 'Raise',
   'tool.lower': 'Lower',
   'tool.smooth': 'Smooth',
@@ -65,8 +61,6 @@ const en = {
   'paint.2': 'Grass',
   'paint.3': 'Rock',
   'brush': 'Brush',
-  'show': 'Show',
-  'show.grid': 'Grid',
   'plants': 'Plants',
   'plant.cannot': '{plant} does not grow on {ground}.',
   'surface.deep': 'deep water',
@@ -97,8 +91,6 @@ const en = {
 export type Key = keyof typeof en;
 const de: Record<Key, string> = {
   'title': 'Szenen-Editor',
-  'home': 'Alle Werkzeuge',
-  'language': 'Sprache',
   'scene': 'Szene',
   'scene.new': 'Neu',
   'scene.settings': 'Einstellungen',
@@ -110,7 +102,6 @@ const de: Record<Key, string> = {
   'scene.badFile': 'Diese Datei ist keine Szene.',
   'scene.imported': '„{name}“ importiert.',
   'scene.saveFailed': 'Dieser Browser hat das Speichern verweigert. Exportiere die Szene, um deine Änderungen zu behalten.',
-  'mode': 'Modus',
   'mode.edit': 'Bauen',
   'mode.play': 'Spielen',
   'zoom.in': 'Vergrößern',
@@ -119,7 +110,6 @@ const de: Record<Key, string> = {
   'rotate.right': 'Nach rechts drehen (R)',
   'view': 'Szenenansicht',
 
-  'tools': 'Werkzeuge',
   'tool.raise': 'Anheben',
   'tool.lower': 'Absenken',
   'tool.smooth': 'Glätten',
@@ -159,8 +149,6 @@ const de: Record<Key, string> = {
   'paint.2': 'Gras',
   'paint.3': 'Fels',
   'brush': 'Pinsel',
-  'show': 'Anzeigen',
-  'show.grid': 'Raster',
   'plants': 'Pflanzen',
   'plant.cannot': '{plant} wächst nicht auf {ground}.',
   'surface.deep': 'tiefem Wasser',

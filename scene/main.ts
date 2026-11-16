@@ -195,7 +195,6 @@ function cannotEdit(at: { i: number; j: number }): boolean {
     case 'plant':
       return !grows(world.map, prefs.plant, at.i + 0.5, at.j + 0.5);
     case 'spawn':
-      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'animal':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'decor':
@@ -311,12 +310,10 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       break;
     case 'erase': {
       const cells = new Set(brushCells(at));
-      const seen = world.viewPlants();
-      world.scene.plants = world.scene.plants.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
-      const lying = world.viewDecor();
-      world.scene.decor = world.scene.decor.filter((_, k) => !cells.has(Math.floor(lying[k].vj) * map.w + Math.floor(lying[k].vi)));
-      const standing = world.viewAnimals();
-      world.scene.animals = world.scene.animals.filter((_, k) => !cells.has(Math.floor(standing[k].vj) * map.w + Math.floor(standing[k].vi)));
+      const kept = <T>(list: T[], seen: { vi: number; vj: number }[]) => list.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
+      world.scene.plants = kept(world.scene.plants, world.viewPlants());
+      world.scene.decor = kept(world.scene.decor, world.viewDecor());
+      world.scene.animals = kept(world.scene.animals, world.viewAnimals());
       break;
     }
     case 'spawn':
@@ -737,6 +734,7 @@ function set(change: Partial<Prefs>): void {
 }
 
 function render(): void {
+  const other = prefs.mode === 'edit' ? 'play' : 'edit';
   sceneSelect.replaceChildren(...library.scenes.map((s) => h('option', { value: s.id }, s.name)));
   sceneSelect.value = library.current;
   const { bar, pops } = topBar({
@@ -753,8 +751,7 @@ function render(): void {
     ],
     status: h('span', { class: 'bar__status' }),
     // One button: it shows where it takes you, Play while editing and Edit while playing.
-    extra: tap({ class: 'ib mode', 'aria-label': prefs.mode === 'edit' ? t('mode.play') : t('mode.edit'), title: prefs.mode === 'edit' ? t('mode.play') : t('mode.edit') },
-      () => set({ mode: prefs.mode === 'edit' ? 'play' : 'edit' }), icon(prefs.mode === 'edit' ? 'play' : 'pencil')),
+    extra: tap({ class: 'ib mode', 'aria-label': t(`mode.${other}`), title: t(`mode.${other}`) }, () => set({ mode: other }), icon(other === 'play' ? 'play' : 'pencil')),
     relabel: mount,
   });
   barSlot.replaceChildren(bar, ...pops);

@@ -12,9 +12,9 @@ import {
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
 import { turnFacing, type Facing } from '../lab/puppet.ts';
 import type { Herd } from './herd.ts';
-import { decorById, decorPixels, type PlacedDecor } from './decor.ts';
+import { decorById, decorPixels } from './decor.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
-import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
+import { mapOf, TURNS, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export type { Thing };
@@ -255,13 +255,16 @@ export class World {
     this.ground = this.draw();
   }
 
-  /** The scene's plants with their positions in view coordinates. */
-  viewPlants(): (PlacedPlant & { vi: number; vj: number })[] {
-    return this.scene.plants.map((p) => {
+  /** Placed things with their positions in view coordinates. */
+  private seen<T extends { i: number; j: number }>(list: T[]): (T & { vi: number; vj: number })[] {
+    return list.map((p) => {
       const v = this.toView(p);
       return { ...p, vi: v.i, vj: v.j };
     });
   }
+  viewPlants() { return this.seen(this.scene.plants); }
+  viewDecor() { return this.seen(this.scene.decor); }
+  viewAnimals() { return this.seen(this.scene.animals); }
 
   /** The plant whose picture covers a pixel of the ground image, the front-most one, or null. */
   plantAt(x: number, y: number): PlacedPlant | null {
@@ -281,14 +284,6 @@ export class World {
       best = this.scene.plants[k];
     });
     return best;
-  }
-
-  /** The decorations with their places in view coordinates. */
-  viewDecor(): (PlacedDecor & { vi: number; vj: number })[] {
-    return this.scene.decor.map((d) => {
-      const v = this.toView(d);
-      return { ...d, vi: v.i, vj: v.j };
-    });
   }
 
   /**
@@ -342,14 +337,6 @@ export class World {
       if (raster) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
     }
     return out;
-  }
-
-  /** The animals with their places and facings in view coordinates. */
-  viewAnimals(): (PlacedAnimal & { vi: number; vj: number; vf: Facing })[] {
-    return this.scene.animals.map((a) => {
-      const v = this.toView(a);
-      return { ...a, vi: v.i, vj: v.j, vf: turnFacing(a.facing as Facing, this.rot * 2) };
-    });
   }
 
   private animalFrames = new WeakMap<Animal, Map<string, AnimalSprite>>();

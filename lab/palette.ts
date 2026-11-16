@@ -93,9 +93,9 @@ export const FIXED_KEYS = Object.keys(FIXED) as PaletteKey[];
 export const PAINT_KEYS = PALETTE_KEYS.filter((k) => !FIXED_KEYS.includes(k));
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
-/** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices. */
-/** Colours meant for animals only. They are left out of the clothing colour choices too. */
+/** Colours meant for animals only. They are left out of the clothing colour choices. */
 export const ANIMAL_KEYS: PaletteKey[] = ['piglet'];
+/** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices too. */
 export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark', 'stone', 'basalt', 'sandstone', 'driftwood'];
 
 /** One pixel of paint: a palette entry in one of its tones. */

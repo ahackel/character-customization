@@ -198,12 +198,7 @@ function persist(): void {
   }
 }
 
-function changed(rerender = true): void {
-  if (!rerender) {
-    // A slider drag: only the preview follows; the crop and panel wait for the release.
-    version++;
-    return;
-  }
+function changed(): void {
   undo.commit();
   message = '';
   persist();
@@ -348,16 +343,17 @@ function slider(key: NumberKey): HTMLElement {
   input.addEventListener('input', () => {
     animal[key] = Number(input.value);
     value.textContent = input.value;
-    changed(false);
+    // Only the preview follows a drag; the crop and the panel wait for the release.
+    version++;
   });
   input.addEventListener('change', () => changed());
   return row(text, input, value);
 }
 
-function toggles<T extends Feature | Mark>(list: 'features' | 'marks', values: readonly T[], text: (v: T) => string): HTMLElement {
-  const current = animal[list] as T[];
-  return h('div', { class: 'toggles' }, ...values.map((value) => toggle(text(value), current.includes(value), () => {
-    (animal[list] as T[]) = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+function featureToggles(values: readonly Feature[]): HTMLElement {
+  const current = animal.features;
+  return h('div', { class: 'toggles' }, ...values.map((value) => toggle(label(value), current.includes(value), () => {
+    animal.features = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
     changed();
   })));
 }
@@ -418,7 +414,7 @@ function panelFor(id: TabId): HTMLElement[] {
       return [section(L('Tail', 'Schwanz'), cards(TAILS, label, (t) => animal.tail === t, (a, t) => (a.tail = t)))];
     case 'face':
       return [
-        section(L('Face', 'Gesicht'), toggles('features', FACE_FEATURES, label)),
+        section(L('Face', 'Gesicht'), featureToggles(FACE_FEATURES)),
         section(L('Horns and tusks', 'Hörner und Stoßzähne'), cards(HORNS, label, (x) => animal.horns === x, (a, x) => {
           a.horns = x;
           // A horn needs a size to show; keep the one chosen, or start with a small one.
@@ -430,7 +426,7 @@ function panelFor(id: TabId): HTMLElement[] {
         section(L('Body plan', 'Körperbau'), segmented(L('Body plan', 'Körperbau'), PLANS.map((p) => ({ id: p, label: label(p) })), animal.plan, (p) => {
           animal.plan = p;
           changed();
-        }), toggles('features', ['spines', 'wings'] as Feature[], label), h('div', { class: 'toggles' }, toggle(L('Hops when running', 'Hoppelt beim Rennen'), animal.hops, () => {
+        }), featureToggles(['spines', 'wings']), h('div', { class: 'toggles' }, toggle(L('Hops when running', 'Hoppelt beim Rennen'), animal.hops, () => {
           animal.hops = !animal.hops;
           changed();
         }))),

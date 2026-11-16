@@ -285,10 +285,12 @@ const dryName = (d: number) => t(`dry.${Math.round(d * 2)}` as Key);
 const turnName = (n: number) => `${(n * 360) / TURNS}°`;
 const sizeName = (s: number) => `${Math.round(sizeStep(s) * 100)}%`;
 
+/** The plants of the group picked. */
+const pool = () => FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
+
 function cards(): HTMLElement {
   cardPictures.clear();
-  const entries = FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
-  return h('div', { class: 'grid' }, ...entries.map((entry) => {
+  return h('div', { class: 'grid' }, ...pool().map((entry) => {
     const picture = h('span', { class: 'card__picture' }, thumb(rasterOf(entry, 0, 0, 0, state.dryness, 1), 60));
     cardPictures.set(entry.id, picture);
     return button({ class: 'card', 'aria-pressed': String(entry.id === state.selected) }, () => {
@@ -383,8 +385,7 @@ function variants(): HTMLElement {
 
 /** A random plant from the open group, in a random variant. */
 function shuffle(): void {
-  const pool = FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
-  state.selected = pick(pool).id;
+  state.selected = pick(pool()).id;
   state.seed = Math.floor(Math.random() * VARIANTS);
   changed();
   cheer(stage);
@@ -440,9 +441,10 @@ function render(): void {
   const list: Panel[] = [...TABS, 'island'];
   // The die picks another plant from this group; the island tab rolls a new island.
   const die = tabTools(() => {
-    if (panelTab === 'island') state.sceneSeed++;
-    else shuffle();
-    changed();
+    if (panelTab === 'island') {
+      state.sceneSeed++;
+      changed();
+    } else shuffle();
   });
   tabSlot.replaceChildren(tabs(t('sections'), list.map((id) => ({ id, label: id === 'island' ? t('scene') : t(`cat.${id}` as Key), icon: TAB_ICONS[id] })), panelTab, (id) => {
     panelTab = id;
@@ -576,13 +578,13 @@ let placed: Scattered<PlantEntry>[] = [];
 
 /** Where things stand: each on ground it belongs on, clear of the others and of the survivor. */
 function layout(): Scattered<PlantEntry>[] {
-  const pool = FLORA.filter((e) => state.tab === 'all' || e.category === state.tab);
-  const key = `${state.sceneSeed}|${state.tab}|${state.density}|${pool.length}`;
+  const group = pool();
+  const key = `${state.sceneSeed}|${state.tab}|${state.density}|${group.length}`;
   if (key === layoutKey) return placed;
   layoutKey = key;
   const { map, person } = islandOf(state.sceneSeed);
   // Grass is common, so it is picked more often when every group is shown.
-  const weighted = pool.flatMap((e) => (state.tab === 'all' && e.category === 'grass' ? [e, e, e] : [e]));
+  const weighted = group.flatMap((e) => (state.tab === 'all' && e.category === 'grass' ? [e, e, e] : [e]));
   placed = scatter(map, weighted, DENSITY[state.density], state.sceneSeed, person);
   return placed;
 }

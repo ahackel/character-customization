@@ -164,12 +164,7 @@ function persist(): void {
   }
 }
 
-function changed(rerender = true): void {
-  if (!rerender) {
-    // A slider drag: only the preview follows; the crop and panel wait for the release.
-    version++;
-    return;
-  }
+function changed(): void {
   undo.commit();
   message = '';
   persist();
@@ -256,7 +251,8 @@ function slider(title: string, value: number, min: number, max: number, set: (v:
   input.addEventListener('input', () => {
     set(Number(input.value));
     out.textContent = input.value;
-    changed(false);
+    // Only the preview follows a drag; the crop and the panel wait for the release.
+    version++;
   });
   input.addEventListener('change', () => changed());
   return row(title, input, out);
@@ -568,14 +564,8 @@ hero.addEventListener('click', (event) => {
   render();
 });
 
-sideSlider.addEventListener('input', () => {
-  setTurn(Number(sideSlider.value) as Turn);
-  shown = '';
-});
-dragToTurn(stage, (step) => {
-  setTurn(((turn + step + 4) % 4) as Turn);
-  shown = '';
-});
+sideSlider.addEventListener('input', () => setTurn(Number(sideSlider.value) as Turn));
+dragToTurn(stage, (step) => setTurn(((turn + step + 4) % 4) as Turn));
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.metaKey || event.ctrlKey) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setTurn(((turn + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Turn);

@@ -8,13 +8,7 @@ import { HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, TORSO_FRAME, type Item, type OwnVie
  * drawing, so no item needs a second, ragged version.
  */
 export type Wear = number;
-/** The scale runs from 0 to 3 and may take any value in between. These are its named points. */
-export const WEAR_LEVELS: { id: number; label: string }[] = [
-  { id: 0, label: 'Neat' },
-  { id: 1, label: 'Worn' },
-  { id: 2, label: 'Ragged' },
-  { id: 3, label: 'Tattered' },
-];
+/** The scale runs from 0 (neat) to 3 (tattered) and may take any value in between. */
 export const WEAR_MAX = 3;
 
 /** A value from a table with one entry per named level, interpolated for levels in between. */

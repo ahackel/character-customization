@@ -3,9 +3,7 @@ import { currentLang, fill } from '../shared/lang.ts';
 
 const en = {
   'title': 'Island Flora',
-  'home': 'All tools',
   'lede': 'Plants, rocks and driftwood for the island, written by a language model as a few parts and grown by rules in the same pixel style as the characters. Everything comes in variants; plants sway in the wind and dry out on their own.',
-  'language': 'Language',
   'preview': 'Preview',
   'plants': 'Plants, rocks and driftwood',
   'sections': 'Plant groups',
@@ -49,7 +47,6 @@ const en = {
   'recipe.edited': 'edited',
   'scene': 'On the island',
   'scene.note': 'A new island from a height map, one value per metre with level 0 at the water line. Sea, beach, sand, grass and rock follow from the heights, and each group grows where it belongs: driftwood on the beach, palms near it, jungle on the grass. Size, wind and season apply here too.',
-  'scene.again': 'New island',
   'density': 'Density',
   'density.sparse': 'Sparse',
   'density.medium': 'Medium',
@@ -69,9 +66,7 @@ export type Key = keyof typeof en;
 
 const de: Record<Key, string> = {
   'title': 'Inselflora',
-  'home': 'Alle Werkzeuge',
   'lede': 'Pflanzen, Steine und Treibholz für die Insel, von einem Sprachmodell als wenige Teile beschrieben und nach Regeln im selben Pixelstil wie die Figuren gewachsen. Alles gibt es in Varianten; Pflanzen wiegen sich im Wind und trocknen von selbst aus.',
-  'language': 'Sprache',
   'preview': 'Vorschau',
   'plants': 'Pflanzen, Steine und Treibholz',
   'sections': 'Pflanzengruppen',
@@ -115,7 +110,6 @@ const de: Record<Key, string> = {
   'recipe.edited': 'bearbeitet',
   'scene': 'Auf der Insel',
   'scene.note': 'Eine neue Insel aus einer Höhenkarte, ein Wert pro Meter, Stufe 0 auf Höhe des Wassers. Meer, Strand, Sand, Gras und Fels ergeben sich aus den Höhen, und jede Gruppe wächst, wo sie hingehört: Treibholz am Strand, Palmen nahe dabei, Dschungel auf dem Gras. Größe, Wind und Jahreszeit gelten auch hier.',
-  'scene.again': 'Neue Insel',
   'density': 'Dichte',
   'density.sparse': 'Licht',
   'density.medium': 'Mittel',

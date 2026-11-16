@@ -8,7 +8,7 @@
 import { cleanAnimal, type Animal } from './animal.ts';
 
 type Preset = { id: string; name: string; animal: Animal };
-const make = (id: string, name: string, spec: Partial<Animal>): Preset => ({ id, name, animal: cleanAnimal({ ...cleanAnimal({}), ...spec }) });
+const make = (id: string, name: string, spec: Partial<Animal>): Preset => ({ id, name, animal: cleanAnimal(spec) });
 
 export const PRESETS: Preset[] = [
   // ---- small

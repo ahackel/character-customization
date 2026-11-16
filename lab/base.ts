@@ -1,6 +1,6 @@
 import type { Cell, PaletteKey } from './palette.ts';
 import shapesFile from './face-shapes.json' with { type: 'json' };
-import { HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
+import { beardBehind, HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
 
 // The foundation set: the bare head, its faces, a first hairstyle and the undershorts.
 // These stamps were written as text by a language model and corrected over several rounds by
@@ -258,7 +258,6 @@ const ROUND_SOUTH = [
   '........%%%%%........',
 ];
 
-// Side on, facing right: the ear in the middle, the brow and nose breaking the outline in front.
 /**
  * Side on the head is a pixel shallower than drawn below: one column in front of the ear is left
  * out, so the face moves back a pixel and the back of the head and the neck stay. Hair drawn side
@@ -269,6 +268,7 @@ const shallow = (row: string) => row.slice(0, FRONT_IN) + row.slice(FRONT_IN + 1
 /** The side head of a shape, a pixel shallower. Rows 14 and on are the neck. */
 const sideRows = (shape: HeadShape) => ROUND_EAST.map((row, i) => SHAPES[shape].side[i] ?? row).map((row, i) => (i < 14 ? shallow(row) : row));
 
+// Side on, facing right: the ear in the middle, the brow and nose breaking the outline in front.
 const ROUND_EAST = [
   '......#########......',
   '....#############....',
@@ -347,14 +347,13 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
   const top = mood === 'surprised' ? 11 : 12;
   const open = !small && state !== 'laughing' && state !== 'blink';
   place(FACE_SHAPES.eyes[view][o.eyes][state], FACE_REGIONS.eyes[view]);
+  // The rules below are written for the diagonal head; side on for the deeper one, a column further forward.
+  const shift = view === 'side' ? -1 : view === 'front' ? -2 : 0;
+  const put: Put = (x, y, ch) => at(x + shift, y, ch);
   if (view === 'side') {
-    // Side on, the rules below are written for the deeper head: a column further forward.
-    const back = (x: number, y: number, ch: string) => at(x - 1, y, ch);
-    if (o.lashes && open) back(17, top, 'I');
-    sideRules(o, back);
+    if (o.lashes && open) put(17, top, 'I');
+    sideRules(o, put);
   } else {
-    const shift = view === 'front' ? -2 : 0;
-    const put = (x: number, y: number, ch: string) => at(x + shift, y, ch);
     if (o.lashes && open) {
       put(8, top, 'I');
       put(16, top, 'I');
@@ -363,7 +362,7 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
   }
   place(FACE_SHAPES.brows[view][o.brows][browState(mood)], FACE_REGIONS.brows[view]);
   place(FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
-  if (o.glasses) view === 'side' ? sideGlasses((x, y, ch) => at(x - 1, y, ch)) : frontGlasses((x, y, ch) => at(x + (view === 'front' ? -2 : 0), y, ch), view === 'front');
+  if (o.glasses) view === 'side' ? sideGlasses(put) : frontGlasses(put, view === 'front');
   return grid.map((row) => row.join(''));
 }
 
@@ -418,20 +417,10 @@ export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
   const shape = SHAPES[options.shape ?? 'round'];
   const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
   const side = parseStamp(pad(sideRows(options.shape ?? 'round'), 6), {}, skin);
-  const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
-  const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
-  const set = (head: Stamp, rows: (as: Mood, blink: boolean, aside: boolean) => string[]) => {
-    const make = (as: Mood, blink: boolean, aside = false) =>
-      parseStamp(pad(rows(as, blink, aside), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
-    return {
-      neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false), aside: make(mood, false, true),
-      smile: make(cheerful ? 'smile' : mood, false), surprised: make('surprised', false),
-    };
-  };
   return {
-    S: { head: straight, faces: set(straight, (as, blink, aside) => faceRows(options, as, blink, aside, 'front')) },
+    S: { head: straight, faces: faceSet(straight, 'front', skin, options, hair, mood) },
     N: { head: straight, faces: {} },
-    E: { head: side, faces: set(side, (as, blink, aside) => faceRows(options, as, blink, aside, 'side')) },
+    E: { head: side, faces: faceSet(side, 'side', skin, options, hair, mood) },
   };
 }
 
@@ -445,11 +434,15 @@ export function headFor(skin: PaletteKey, shape: HeadShape = 'round'): StampPair
  * the mood is a dark one. Brows take the hair colour.
  */
 export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): Record<string, Stamp> {
+  return faceSet(headFor(skin, options.shape).front, 'diagonal', skin, options, hair, mood);
+}
+
+/** The faces of one view of the head, see `facesFor`. */
+function faceSet(head: Stamp, view: FaceView, skin: PaletteKey, options: FaceOptions, hair: PaletteKey, mood: Mood): Record<string, Stamp> {
   const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
-  const head = parseStamp(shaped(ROUND_FRONT, SHAPES[options.shape ?? 'round'].front), {}, skin);
   const make = (as: Mood, blink: boolean, aside = false) =>
-    parseStamp(pad(faceRows(options, as, blink, aside, 'diagonal'), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
+    parseStamp(pad(faceRows(options, as, blink, aside, view), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
   // 'aside' looks away from where the face points: left on screen when the face points right.
   // 'smile' and 'surprised' are passing expressions; a dark mood keeps its own mouth for a smile.
@@ -555,24 +548,16 @@ const LONG_HAIR_BACK = pad([
   '.....hh...hh...h.....',
 ], 3);
 
-/**
- * A beard seen from behind. Only what is wider than the head shows: the part that stands out
- * past the jaw on the side the face points to, above the shoulders. A small beard shows nothing.
- */
-export function beardFromBehind(front: Stamp): Stamp {
-  const head = parseStamp(shaped(ROUND_BACK, {}), {}, 'skinB');
-  return front.map((row, y) =>
-    row.map((cell, x) => (cell && x >= HEAD_FRAME.ax && y <= HEAD_FRAME.ay && !head[y][x] ? { ...cell, shade: true, light: false } : null)),
-  );
-}
+/** A beard seen from behind a round head: the back stamp an item carries. The renderer works it out again for the head worn. */
+export const beardFromBehind = (front: Stamp): Stamp => beardBehind(front, parseStamp(shaped(ROUND_BACK, {}), {}, 'skinB'));
+
+/** How strongly stubble and shaved hair tint the skin. */
+const STUBBLE = 0.4;
 
 /**
  * Beards drawn by hand, in the face grid (rows from 12, the eyes' top row). The mouth is drawn
  * over any beard by the renderer, so these cover the lips freely. H hair, L lit, h shaded.
  */
-/** How strongly stubble and shaved hair tint the skin. */
-const STUBBLE = 0.4;
-
 const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]; short?: boolean }> = {
   stubble: {
     label: 'Stubble',

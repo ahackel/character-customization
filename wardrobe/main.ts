@@ -5,7 +5,7 @@ import {
   WORN_SLOTS, type Saved, type State, type WornSlot,
 } from '../lab/character.ts';
 import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
-import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
+import { AUTHORED, STAND } from '../lab/poses.ts';
 import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
 import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
@@ -48,23 +48,8 @@ let gaze = 0;
 let eyesAside = false;
 /** Clips play even with reduced motion: picking one is asking to see it move. Pause stops on the frame shown. */
 let paused = false;
-// Prototype: show the straight front view in the preview instead of the facing's diagonal one.
 let version = 0;
 
-// All five are written by hand as key poses.
-const CLIPS: Record<string, Clip> = {
-  idle: AUTHORED.idle,
-  walk: AUTHORED.walk,
-  run: AUTHORED.run,
-  wave: AUTHORED.wave,
-  use: AUTHORED.use,
-  sit: AUTHORED.sit,
-  lie: AUTHORED.lie,
-  look: AUTHORED.look,
-};
-const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
-
-// ------------------------------------------------------------------ look
 // ------------------------------------------------------------------ drawing
 
 interface Rect {
@@ -99,21 +84,11 @@ function paint(canvas: HTMLCanvasElement, sprite: Sprite, crop: Rect): void {
   ctx.putImageData(image, 0, 0);
 }
 
-interface Live {
-  canvas: HTMLCanvasElement;
-  facing: () => Facing;
-  crop: Rect;
-  shown: string;
-}
-const live: Live[] = [];
+/** The animated preview. Built again with the page; `heroShown` is what it shows, so it is only repainted on a change. */
+let hero: HTMLCanvasElement | null = null;
+let heroShown = '';
 
-function liveView(className: string, at: () => Facing, crop: Rect): HTMLCanvasElement {
-  const canvas = h('canvas', { class: className, width: String(crop.w), height: String(crop.h) });
-  live.push({ canvas, facing: at, crop, shown: '' });
-  return canvas;
-}
-
-const standing = (source: State, underwear = true) => drawCharacter(lookOf(source, underwear), STILL.frames[0], 0);
+const standing = (source: State, underwear = true) => drawCharacter(lookOf(source, underwear), STAND, 0);
 
 /** Sizes a small picture so its art pixels are whole screen pixels and it fills the card. */
 function fit(canvas: HTMLCanvasElement, box = 60): HTMLCanvasElement {
@@ -607,9 +582,6 @@ function shuffle(only?: TabId): void {
   cheer(stage);
 }
 
-
-
-
 function setFacing(next: Facing): void {
   const turned = next !== facing;
   facing = next;
@@ -683,7 +655,7 @@ function renderPreview(): void {
   wearSlider.value = String(state.wear);
   wearSlider.setAttribute('aria-valuetext', wearName(state.wear));
   wearValue.textContent = wearName(state.wear);
-  const actions = Object.keys(CLIPS).map((id) => ({ id, label: t(`clip.${id}` as Key) }));
+  const actions = Object.keys(AUTHORED).map((id) => ({ id, label: t(`clip.${id}` as Key) }));
   previewRows.replaceChildren(
     row(t('wear'), wearSlider, wearValue),
     row(t('mood'), segmented(t('mood'), MOODS.map((mood) => ({ id: mood, label: t(`mood.${mood}` as Key), icon: `mood.${mood}` as IconName })), state.mood, (mood) => {
@@ -717,13 +689,13 @@ function renderPreview(): void {
 function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
-  live.length = 0;
   wearSlider.setAttribute('aria-label', t('wear'));
   gazeSlider.setAttribute('aria-label', t('gaze'));
   setGaze(gaze);
-  const hero = liveView('stage__sprite', () => facing, HERO);
-  hero.style.cssText = `--w: ${HERO.w}; --h: ${HERO.h}`;
-  stage.replaceChildren(hero, stageTag, name.el, snapButton(() => savePicture(hero, current()?.name ?? t('saved.default'))));
+  const canvas = (hero = h('canvas', { class: 'stage__sprite', width: String(HERO.w), height: String(HERO.h) }));
+  heroShown = '';
+  canvas.style.cssText = `--w: ${HERO.w}; --h: ${HERO.h}`;
+  stage.replaceChildren(canvas, stageTag, name.el, snapButton(() => savePicture(canvas, current()?.name ?? t('saved.default'))));
   const preview = h('details', { class: 'sec' }, h('summary', {}, word('preview')), previewRows);
   preview.open = true;
   root.replaceChildren(
@@ -784,22 +756,20 @@ const tick = (ms: number) => {
     lookVersion = version;
     frames.clear();
   }
-  const clip = CLIPS[clipKey];
+  const clip = AUTHORED[clipKey];
   if (!paused) ticks = ms;
   const frame = Math.floor((ticks / 1000) * clip.rate) % clip.frames.length;
-  for (const view of live) {
-    const at = view.facing();
-    const key = `${version}|${clipKey}|${at}|${frame}|${gaze}|${eyesAside}`;
-    if (key === view.shown) continue;
-    view.shown = key;
+  const key = `${version}|${clipKey}|${facing}|${frame}|${gaze}|${eyesAside}`;
+  if (hero && key !== heroShown) {
+    heroShown = key;
     let sprite = frames.get(key);
     if (!sprite) {
       // The gaze slider turns the head and moves the eyes over whatever the clip does; a blink still shows.
       const pose = gaze ? { ...clip.frames[frame], look: gaze } : clip.frames[frame];
       const face = clip.faces?.[frame] === 'blink' || !eyesAside ? clip.faces?.[frame] : 'aside';
-      frames.set(key, (sprite = drawCharacter(look, pose, at, { face, swing: clip.swing })));
+      frames.set(key, (sprite = drawCharacter(look, pose, facing, { face, swing: clip.swing })));
     }
-    paint(view.canvas, sprite, view.crop);
+    paint(hero, sprite, HERO);
   }
   requestAnimationFrame(tick);
 };

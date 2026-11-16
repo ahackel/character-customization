@@ -117,6 +117,24 @@ const waveFrames: PoseSpec[] = [
   { armL: { swing: 154, bend: 0, out: 48 } },
 ];
 
+// Sit: on the floor, legs straight out in front, hands resting on the thighs. Lie: on the back,
+// arms at the sides; the renderer lays the figure down. Both only blink.
+const SIT = buildPose({ bob: -9, legL: { swing: 90, out: 4 }, legR: { swing: 90, out: 4 }, armL: { swing: 35, bend: 25 }, armR: { swing: 35, bend: 25 } });
+const LIE: Pose = { ...buildPose({ armL: { swing: 0, out: 8 }, armR: { swing: 0, out: 8 }, legL: { swing: 0, out: 3 }, legR: { swing: 0, out: 3 } }), lie: true };
+const resting = (pose: Pose): Pick<Clip, 'rate' | 'frames' | 'faces'> => ({
+  rate: 5,
+  frames: Array<Pose>(15).fill(pose),
+  faces: Array.from({ length: 15 }, (_, i) => (i === 13 ? 'blink' : undefined)),
+});
+
+// Look around: the eyes glance aside, then the head turns to look the other way and back. A game
+// can turn the head on any pose with `turn` and move the eyes with the 'aside' face.
+const LOOK_STEPS: [Pose, string | undefined][] = [
+  [STAND, undefined], [STAND, undefined], [STAND, 'aside'], [STAND, 'aside'],
+  [{ ...STAND, turn: true }, undefined], [{ ...STAND, turn: true }, undefined], [{ ...STAND, turn: true }, 'blink'], [{ ...STAND, turn: true }, 'aside'],
+  [STAND, undefined], [STAND, undefined], [STAND, 'smile'], [STAND, undefined],
+];
+
 export const AUTHORED: Record<string, Clip> = {
   // Standing still. The only movement is a blink every three seconds.
   idle: {
@@ -130,6 +148,9 @@ export const AUTHORED: Record<string, Clip> = {
   // Only the arm moves; the body stays where it is.
   wave: { name: 'Wave', rate: 7, frames: waveFrames.map(buildPose), faces: waveFrames.map(() => 'happy') },
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
+  sit: { name: 'Sit', ...resting(SIT) },
+  lie: { name: 'Lie', ...resting(LIE) },
+  look: { name: 'Look around', rate: 3, frames: LOOK_STEPS.map(([pose]) => pose), faces: LOOK_STEPS.map(([, face]) => face) },
 };
 
 // ------------------------------------------------------------------ poses sampled from 3D clips

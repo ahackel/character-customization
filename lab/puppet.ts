@@ -33,6 +33,10 @@ export interface Pose {
   shoulderR: Vec3; elbowR: Vec3; handR: Vec3;
   hipL: Vec3; kneeL: Vec3; footL: Vec3;
   hipR: Vec3; kneeR: Vec3; footR: Vec3;
+  /** Lying on the floor: the pose is drawn as if standing, then laid down a quarter turn. */
+  lie?: boolean;
+  /** The head turned to look the other way, left instead of right: it stays on the body's side, front or back. */
+  turn?: boolean;
 }
 
 // Forward and right in ground coordinates, for the two drawn facings.
@@ -187,6 +191,56 @@ export class Sprite {
     }
     return out;
   }
+}
+
+/**
+ * A standing figure laid on the floor: turned a quarter so the head points left and the front
+ * faces up, centred on the character's spot, with a long shadow under it.
+ */
+function laidDown(standing: Sprite): Sprite {
+  const out = new Sprite();
+  let top = SPRITE_H;
+  let bottom = 0;
+  for (let y = 0; y < SPRITE_H; y++) {
+    for (let x = 0; x < SPRITE_W; x++) {
+      const c = standing.get(x, y);
+      if (c && c !== SHADOW) {
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  if (top > bottom) return out;
+  const middle = Math.round((top + bottom) / 2);
+  const cx = SPRITE_W / 2;
+  // The far side of the body (the back, seen from the front) rests on the floor.
+  const placed: [number, number, string][] = [];
+  for (let y = top; y <= bottom; y++) {
+    for (let x = 0; x < SPRITE_W; x++) {
+      const c = standing.get(x, y);
+      if (c && c !== SHADOW) placed.push([cx + (y - middle), ORIGIN_Y - 3 - (x - cx), c]);
+    }
+  }
+  const xs = placed.map((p) => p[0]);
+  const low = Math.max(...placed.map((p) => p[1]));
+  const left = Math.min(...xs) + 2;
+  const right = Math.max(...xs) - 2;
+  for (const [row, inset] of [[low - 1, 1], [low, 0], [low + 1, 0], [low + 2, 2]] as const) {
+    for (let x = left + inset; x <= right - inset; x++) out.set(x, row, SHADOW);
+  }
+  for (const [x, y, c] of placed) out.set(x, y, c);
+  return out;
+}
+
+/**
+ * A beard seen from behind: what of the front view stands out past this head's jaw on the side
+ * the face points to, above the shoulders, in shade. Worked out against the head actually worn,
+ * so a narrow head shows the beard right up to its edge.
+ */
+function beardBehind(front: Stamp, head: Stamp): Stamp {
+  return front.map((row, y) =>
+    row.map((cell, x) => (cell && x >= HEAD_FRAME.ax && y <= HEAD_FRAME.ay && !head[y]?.[x] ? { ...cell, shade: true, light: false } : null)),
+  );
 }
 
 interface Layer {
@@ -362,6 +416,7 @@ function tucked(hair: Stamp, hat: Stamp): Stamp {
 export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
   if (facing === 1) return drawCharacter(look, pose, 0, options).mirrored();
   if (facing === 2) return drawCharacter(look, pose, 3, options).mirrored();
+  if (pose.lie) return laidDown(drawCharacter(look, { ...pose, lie: false }, facing, options));
 
   const sprite = new Sprite();
   const back = facing === 3;
@@ -602,10 +657,15 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // The jaw row, in the head frame; a double chin repeats it, which moves the chin and neck down.
   const JAW = 21;
   const headStamp = (stamp: Stamp): Stamp => {
-    const wide = extra ? widened(stamp, HEAD_FRAME.ax, extra) : stamp;
+    const wide = across(extra ? widened(stamp, HEAD_FRAME.ax, extra) : stamp, extra);
     return build.chin ? [...wide.slice(0, JAW + 1), wide[JAW], ...wide.slice(JAW + 1)] : wide;
   };
-  const face = look.faces[options.face ?? 'neutral'] ?? look.faces.neutral;
+  // A turned head looks the other way: the same stamps mirrored about the head's middle, between
+  // two columns. It never turns as far as the other side of the body.
+  const flip = !!pose.turn;
+  const across = (stamp: Stamp, wider: number): Stamp =>
+    flip ? stamp.map((row) => row.map((_, x) => row[2 * HEAD_FRAME.ax + wider + 1 - x] ?? null)) : stamp;
+  const face = across(look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, 0);
   const bearded = ordered.some((item) => item.slot === 'beard' && item.head);
   layers.push({
     depth: back ? chest.depth + 0.5 : chest.depth - 0.5,
@@ -619,7 +679,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       stampInto(sprite, headStamp(side(look.head)).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
       if (!back) stampInto(sprite, face, HEAD_FRAME, Math.floor(neck.x), hy);
       for (const item of ordered) {
-        if (item.head) stampInto(sprite, headStamp(hairStamp(item, side(item.head))), HEAD_FRAME, hx, hy);
+        if (item.head) stampInto(sprite, headStamp(back && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : hairStamp(item, side(item.head))), HEAD_FRAME, hx, hy);
       }
       // The mouth shows through any beard, in whatever shape the mood gives it.
       if (bearded && !back) {

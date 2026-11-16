@@ -105,17 +105,9 @@ const SHAPES: Record<HeadShape, { front: Record<number, string>; back: Record<nu
       12: '......#########%.....',
       13: '........%%%%%%.......',
     },
+    // From behind the crown stays round, so hair drawn for the round head still meets it; only
+    // the jaw is narrower.
     back: {
-      0: '.......#######.......',
-      1: '.....###########.....',
-      2: '....#############....',
-      3: '....#############....',
-      4: '....#############....',
-      5: '....#############....',
-      6: '....#############%%..',
-      7: '....############%%%..',
-      8: '....#############....',
-      9: '....#############....',
       10: '....#############....',
       11: '.....###########.....',
       12: '......#########......',
@@ -172,7 +164,7 @@ export const DEFAULT_FACE: FaceOptions = {
   eyes: 'round', eyeColor: null, brows: 'none', blush: true, freckles: false, glasses: false, lashes: false,
 };
 
-function faceRows(o: FaceOptions, mood: Mood, blink: boolean): string[] {
+function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside = false): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
   const put = (x: number, y: number, ch: string) => {
     if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
@@ -193,8 +185,9 @@ function faceRows(o: FaceOptions, mood: Mood, blink: boolean): string[] {
         put(x + 2, 13, 'I');
       } else if (blink) run(x, x + 1, 13, 'I');
       else {
-        put(x + 1, 13, 'I');
-        if (mood === 'surprised') put(x + 1, 12, 'I');
+        const pupil = aside ? x : x + 1;
+        put(pupil, 13, 'I');
+        if (mood === 'surprised') put(pupil, 12, 'I');
       }
     } else if (mood === 'laughing') {
       // Eyes squeezed shut into arcs.
@@ -204,15 +197,18 @@ function faceRows(o: FaceOptions, mood: Mood, blink: boolean): string[] {
     } else if (blink) {
       run(left, x + 1, 14, 'I');
     } else {
-      // A shine in the same corner of both eyes, colour beside the pupil.
+      // A shine in the same corner of both eyes, colour beside the pupil. Looking aside, away
+      // from where the face points, the pupil moves to the other side of the eye.
+      const pupil = aside ? x : x + 1;
+      const iris = aside ? x + 1 : x;
       if (o.eyes === 'sleepy') run(x - 1, x + 1, top, 'I');
       else {
-        put(left, top, 'T');
-        run(left + 1, x + 1, top, 'I');
+        put(iris, top, 'T');
+        put(pupil, top, 'I');
       }
       for (let y = top + 1; y <= 14; y++) {
-        run(left, x, y, 'C');
-        put(x + 1, y, 'I');
+        put(iris, y, 'C');
+        put(pupil, y, 'I');
       }
       if (o.lashes) put(outer < 0 ? left - 1 : x + 2, top, 'I');
     }
@@ -308,9 +304,15 @@ export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
   const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
   const head = parseStamp(shaped(ROUND_FRONT, SHAPES[options.shape ?? 'round'].front), {}, skin);
-  const make = (as: Mood, blink: boolean) => parseStamp(pad(faceRows(options, as, blink), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
+  const make = (as: Mood, blink: boolean, aside = false) =>
+    parseStamp(pad(faceRows(options, as, blink, aside), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
-  return { neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false) };
+  // 'aside' looks away from where the face points: left on screen when the face points right.
+  // 'smile' and 'surprised' are passing expressions; a dark mood keeps its own mouth for a smile.
+  return {
+    neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false), aside: make(mood, false, true),
+    smile: make(cheerful ? 'smile' : mood, false), surprised: make('surprised', false),
+  };
 }
 
 // Short, slightly unruly hair: one tuft breaking the outline on top, a lit band across the

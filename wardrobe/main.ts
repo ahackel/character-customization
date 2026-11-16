@@ -50,6 +50,9 @@ const CLIPS: Record<string, Clip> = {
   run: AUTHORED.run,
   wave: AUTHORED.wave,
   use: AUTHORED.use,
+  sit: AUTHORED.sit,
+  lie: AUTHORED.lie,
+  look: AUTHORED.look,
 };
 const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
 
@@ -62,8 +65,8 @@ interface Rect {
   w: number;
   h: number;
 }
-/** The preview shows the body with room around it for swung tools and wide hats. */
-const HERO: Rect = { x: 10, y: 6, w: 44, h: 54 };
+/** The preview shows the body with room around it for swung tools, wide hats and lying down. */
+const HERO: Rect = { x: 4, y: 6, w: 56, h: 54 };
 const FACE: Rect = { x: BODY_WINDOW.x + 7, y: BODY_WINDOW.y + 12, w: 18, h: 11 };
 /** The whole head with the neck, for the head shape pictures. */
 const HEAD: Rect = { x: BODY_WINDOW.x + 3, y: BODY_WINDOW.y + 1, w: 26, h: 26 };

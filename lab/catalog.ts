@@ -1,5 +1,6 @@
 import { BEARD_STYLES, beardFromBehind, stubbled, tidyBeard } from './base.ts';
 import { compile } from './items.ts';
+import { JOB_ITEMS } from './jobs.ts';
 import { ANIMAL_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
 
@@ -122,6 +123,10 @@ function build(): Entry[] {
         colors: colorsOf(item),
       });
     });
+  }
+  // Job clothes for Animal Hospital's staff.
+  for (const job of JOB_ITEMS) {
+    entries.push({ id: `job-${job.id}`, label: job.label, slot: job.item.slot, format: 'recipe', island: false, item: job.item, colors: colorsOf(job.item) });
   }
   // Beards drawn by hand, for the everyday shapes the model did not make.
   for (const style of BEARD_STYLES) {

@@ -1,6 +1,6 @@
 // A character walking around a world: position in metres, facing, which clip plays, and the
 // sprite for the current frame. Movement slides along whatever blocks it.
-import { AUTHORED, type Clip } from '../lab/poses.ts';
+import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
 import { drawCharacter, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
 import { SHADOW } from '../lab/flora.ts';
 import type { Picture } from '../lab/island.ts';
@@ -25,6 +25,25 @@ const WADING = 0.6;
  * running), `per` at a time, falling back under `gravity`, in levels and tiles per second.
  */
 const SPLASH = { every: 0.08, per: 2, up: [4, 8], out: 0.7, gravity: 40 };
+
+/**
+ * What a standing character does now and then so it does not look frozen: glance aside, turn its
+ * head, smile, laugh or look surprised, for a moment, then rest again. Weights add up to 1.
+ */
+const FIDGETS: { weight: number; turn?: boolean; face?: string; seconds: [number, number] }[] = [
+  { weight: 0.26, face: 'aside', seconds: [0.8, 1.8] },
+  { weight: 0.26, turn: true, seconds: [1, 2.4] },
+  { weight: 0.08, turn: true, face: 'aside', seconds: [0.8, 1.6] },
+  { weight: 0.08, turn: true, face: 'smile', seconds: [1.2, 2.4] },
+  { weight: 0.2, face: 'smile', seconds: [1.5, 3.5] },
+  { weight: 0.07, face: 'happy', seconds: [0.8, 1.4] },
+  { weight: 0.05, face: 'surprised', seconds: [0.5, 1] },
+];
+/** Seconds of plain standing between two fidgets. */
+const REST: [number, number] = [1.5, 4.5];
+const between = ([a, b]: [number, number]) => (a + Math.random() * (b - a)) * 1000;
+
+interface Fidget { turn?: boolean; face?: string; until: number }
 
 interface Drop { i: number; j: number; z: number; vi: number; vj: number; vz: number; pale: boolean }
 
@@ -70,6 +89,9 @@ export class Actor {
   private wet = new Map<string, Picture>();
   private drops: Drop[] = [];
   private splashClock = 0;
+  /** The fidget playing while standing, and when the next one starts. */
+  private fidget: Fidget | null = null;
+  private nextFidget = 0;
 
   constructor(look: Look, at: { i: number; j: number }) {
     this.look = look;
@@ -91,6 +113,24 @@ export class Actor {
     if (clip === this.clip) return;
     this.clip = clip;
     this.started = ms;
+    this.fidget = null;
+    this.nextFidget = ms + between(REST);
+  }
+
+  /** Starts, ends or keeps the standing fidget. */
+  private fidgetAt(ms: number): Fidget | null {
+    if (this.clip !== 'idle') return null;
+    if (!this.nextFidget) this.nextFidget = ms + between(REST);
+    if (this.fidget && ms > this.fidget.until) {
+      this.fidget = null;
+      this.nextFidget = ms + between(REST);
+    }
+    if (!this.fidget && ms >= this.nextFidget) {
+      let roll = Math.random();
+      const pick = FIDGETS.find((f) => (roll -= f.weight) < 0) ?? FIDGETS[0];
+      this.fidget = { turn: pick.turn, face: pick.face, until: ms + between(pick.seconds) };
+    }
+    return this.fidget;
   }
 
   /**
@@ -172,9 +212,16 @@ export class Actor {
   thing(world: World, ms: number): Thing {
     const clip: Clip = AUTHORED[this.clip];
     const n = Math.floor(((ms - this.started) / 1000) * clip.rate) % clip.frames.length;
-    const key = `${this.clip}|${n}|${this.facing}`;
+    const fidget = this.fidgetAt(ms);
+    // Blinking goes on through a fidget.
+    const face = clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
+    const turn = fidget?.turn;
+    const key = `${this.clip}|${n}|${this.facing}|${face}|${turn}`;
     let sprite = this.frames.get(key);
-    if (!sprite) this.frames.set(key, (sprite = drawCharacter(this.look, clip.frames[n], this.facing, { face: clip.faces?.[n], swing: clip.swing })));
+    if (!sprite) {
+      const pose = turn ? { ...STAND, turn } : clip.frames[n];
+      this.frames.set(key, (sprite = drawCharacter(this.look, pose, this.facing, { face, swing: clip.swing })));
+    }
     const depth = this.depth(world);
     if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: 64, h: 64, foot: FEET };
     // In the shallows the feet stand on the sea floor, under the surface.

@@ -1,4 +1,4 @@
-import { hexOf, SHADOW, type Cell, type PaletteKey } from './palette.ts';
+import { darker, hexOf, SHADOW, type Cell, type PaletteKey } from './palette.ts';
 
 // ------------------------------------------------------------------ geometry
 
@@ -424,6 +424,50 @@ function coversCrown(hat: Stamp): boolean {
   return painted / total >= 0.4;
 }
 
+const faceOnCache = new WeakMap<Stamp, Stamp[]>();
+
+/**
+ * A head item drawn only in 3/4 seen face on (`front`) or from straight behind, worked out from
+ * its 3/4 stamp. In the 3/4 stamps the face sits a column and a half to the right of the head's
+ * middle, and the middle of the back of the head as far to the left. Face on, each row's half
+ * from that point to its right end is stretched to half the row's width and mirrored; from
+ * behind, the half to its left end. A row with nothing on that side is only mirrored. So a
+ * fringe's opening lands over the face, a cap's peak becomes a band across the brow, and a
+ * ponytail hangs down the middle of the back. With `keepColors` (hats) only the outline is
+ * mirrored and the other half keeps its own colours, so a badge on one side is not doubled.
+ */
+export function faceOn(stamp: Stamp, front: boolean, keepColors = false): Stamp {
+  let cached = faceOnCache.get(stamp);
+  if (!cached) faceOnCache.set(stamp, (cached = []));
+  const slot = (front ? 1 : 0) + (keepColors ? 2 : 0);
+  const hit = cached[slot];
+  if (hit) return hit;
+  const middle = HEAD_FRAME.ax + 1;
+  const turn = middle + (front ? 1.5 : -1.5);
+  const out = stamp.map((row) => {
+    const l = row.findIndex(Boolean);
+    if (l < 0) return row.map(() => null);
+    const r = row.length - 1 - [...row].reverse().findIndex(Boolean);
+    const reach = { left: Math.max(0, turn - l), right: Math.max(0, r + 1 - turn) };
+    const half = (reach.left + reach.right) / 2;
+    const own = front ? 'right' : 'left';
+    const sign = own === 'right' ? 1 : -1;
+    // A row with nothing on that side, such as hair hanging behind the far shoulder, keeps its
+    // place and is mirrored as it is.
+    if (!reach[own] || !row.some((cell, x) => cell && sign * (x + 0.5 - turn) > 0)) return row.map((cell, x) => cell ?? row[2 * middle - 1 - x] ?? null);
+    return row.map((_, x) => {
+      // Distance from the middle, the same for a column and its mirror image.
+      const d = Math.abs(x + 0.5 - middle);
+      const cell = row[Math.floor(turn + (sign * d * reach[own]) / half)] ?? null;
+      // A hat takes its colours on the other half from that half, so a badge is not doubled.
+      if (!cell || !keepColors || sign * (x + 0.5 - middle) > 0) return cell;
+      return row[Math.floor(turn - (sign * d * reach[own === 'right' ? 'left' : 'right']) / half)] ?? cell;
+    });
+  });
+  cached[slot] = out;
+  return out;
+}
+
 const tuckedCache = new WeakMap<Stamp, WeakMap<Stamp, Stamp>>();
 
 /**
@@ -450,12 +494,38 @@ function tucked(hair: Stamp, hat: Stamp): Stamp {
   return out;
 }
 
+/**
+ * A rim of shade on the edge of the figure turned away from the light: every pixel of the
+ * outline that has empty space to its right or below goes one tone down its own ramp. The
+ * hand-drawn way to keep an outline-free sprite apart from the ground without a black line,
+ * and it adds no colours. Done after mirroring, so the light stays at the upper left.
+ */
+function rimmed(sprite: Sprite): Sprite {
+  const empty = (x: number, y: number) => {
+    const c = x < SPRITE_W && y < SPRITE_H ? sprite.get(x, y) : null;
+    return !c || c === SHADOW;
+  };
+  const out = new Sprite();
+  for (let y = 0; y < SPRITE_H; y++) {
+    for (let x = 0; x < SPRITE_W; x++) {
+      const c = sprite.get(x, y);
+      if (!c) continue;
+      out.pixels[y * SPRITE_W + x] = c !== SHADOW && (empty(x + 1, y) || empty(x, y + 1)) ? darker(c) : c;
+    }
+  }
+  return out;
+}
+
 /** Draws one frame of a character. Every pixel is placed by a rule or comes from a stamp. */
 export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
+  return rimmed(drawFigure(look, pose, facing, options));
+}
+
+function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions): Sprite {
   // A mirrored view turns the head the other way round too.
   const across1 = (): Pose => (pose.look ? { ...pose, look: -pose.look } : pose);
-  if (FACING_VIEWS[facing].mirror) return drawCharacter(look, across1(), FACING_VIEWS[facing].drawn, options).mirrored();
-  if (pose.lie) return laidDown(drawCharacter(look, { ...pose, lie: false }, facing, options));
+  if (FACING_VIEWS[facing].mirror) return drawFigure(look, across1(), FACING_VIEWS[facing].drawn, options).mirrored();
+  if (pose.lie) return laidDown(drawFigure(look, { ...pose, lie: false }, facing, options));
   const view: View = facing === 4 ? 'S' : facing === 6 ? 'N' : facing === 7 ? 'E' : (facing as 0 | 3);
   const own: OwnView | null = typeof view === 'string' ? view : null;
   const diagonal = own === null;
@@ -664,6 +734,10 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
             // A long tool does not turn with the arm: it stays tilted the way the character
             // faces and is thrust with the hand, which also keeps it on the canvas.
             steps = tool.hold === 'pole' ? ahead : Math.max(-3, Math.min(3, steps));
+          } else if (tool.hold === 'pole' && own === 'E') {
+            // Side on, an upright shaft would run straight through the face: it leans forward,
+            // past the face, as a spear is carried on the march.
+            steps = ahead;
           }
           const pivotX = TOOL_FRAME.ax + (tool.gripDx?.[back ? 'back' : 'front'] ?? 0);
           for (const { dx, dy, cell } of turned(side(tool.tool!), pivotX, TOOL_FRAME.ay, steps)) {
@@ -728,6 +802,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // An item without its own stamp for the view falls back to its 3/4 stamp on the same side.
   const fallback = (item: Item): Stamp => {
     const stamp = hside(item.head!);
+    if ((item.slot === 'hat' || item.slot === 'hair') && (hv === 'S' || hv === 'N')) return faceOn(stamp, hv === 'S', item.slot === 'hat');
     if (item.slot !== 'beard' || !hv) return stamp;
     // Side on the beard moves forward with the face. Face on it is the half of the 3/4 beard
     // towards the face, mirrored about the middle of the face; from behind only what stands out
@@ -745,7 +820,8 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   const itemHead = (item: Item) => hairStamp(item, rawHead(item));
   const itemBehind = (item: Item): Stamp | undefined => {
     if (hv && item.views?.[hv]) return item.views[hv]!.behind && hairStamp(item, item.views[hv]!.behind!);
-    return item.headBehind && hv !== 'N' ? hairStamp(item, hside(item.headBehind)) : undefined;
+    if (!item.headBehind || hv === 'N') return undefined;
+    return hairStamp(item, hv === 'S' ? faceOn(hside(item.headBehind), true) : hside(item.headBehind));
   };
   // The face keeps its size on a wider head; side on it stays at the front of the head.
   const fx = Math.floor(neck.x) + nudge + (hv === 'E' ? (flip ? -1 : 1) * (extra - Math.floor(extra / 2)) : 0);

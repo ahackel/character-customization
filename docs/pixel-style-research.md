@@ -65,6 +65,21 @@ This is the puppet's approach: an item is drawn once per drawn facing and carrie
 - A lookup-texture technique stores, in each animation frame, where every pixel comes from in a source image painted once. It is flexible but each frame's mapping is authored by hand.
 - No technical evidence was found for Kairosoft's games, the closest visual match to the reference photo.
 
+## Quality pass, November 2026
+
+Weak points found by rendering every facing and the walk (`node lab/tools/review.mjs sheet.png`), what shipped games do about each, and what was changed. The game references are *practice* as described in the sections above, not newly read sources.
+
+| Problem | How games handle it | Change |
+|---|---|---|
+| Hats and model-drawn hair were drawn only in 3/4, so face on and from behind a cap's peak still pointed sideways and a fringe sat off the face | Stardew Valley and Habbo draw a hat and a hairstyle once per facing and keep front and back symmetric | `faceOn` in `lab/puppet.ts` works out the front and back view from the 3/4 stamp: the face side (or the back) is stretched to the full width and mirrored, so a peak becomes a visor band, a fringe opening centres over the face and a ponytail hangs down the middle. Hats keep each half's own colours so a badge is not doubled |
+| A recoloured beard turned brown side on, a recoloured shoe kept its old sole | — | `mapCells` in `lab/catalog.ts` now recolours the view stamps and the sole too |
+| Walk legs kicked far back and read as broken | Small sprites keep strides short: legs stay near upright, the passing foot lifts a pixel or two, it is not flung behind | Smaller leg swings and knee bends in the walk; the run's rear kick reduced |
+| Side on, a carried spear ran through the face | Side-on sprites carry poles sloped forward | A long tool leans forward 45 degrees in the side view |
+| Outline-free sprites, white shirts and straw brims faded into sand | Selective outline ("sel-out"): the silhouette edge in a darker tone of its own colour, darker on the side away from the light | `rimmed` in `lab/puppet.ts`: outline pixels with empty space right or below go one tone down their own ramp (`darker` in `lab/palette.ts`). No new colours |
+| One-pixel seams between ground tiles let the open sea show through | — | `renderTerrain` fills a pixel left unpainted between two painted ones with the ground above it |
+| Coast waves followed the sea floor, which is drawn up to 11 pixels lower than the water surface over it | Waves belong to the surface | The terrain image keeps the depth under each pixel's point of the water surface (`depth`), and waves and wavelets are placed by it |
+| Open-sea ripples were long single-pixel lines that read as scan lines | Pixel-art seas use short, sparse wavelets: a pale crest with darker ends | Wavelets of up to 7 pixels with their ends turned down a row in the dark colour |
+
 ## Not yet applied
 
 - A covered-hair variant under hats. Today a hat simply draws over the hair.
@@ -72,6 +87,8 @@ This is the puppet's approach: an item is drawn once per drawn facing and carrie
 - Behind and front layers for long hair, capes and backpacks.
 - Rotated versions of tools for swinging actions.
 - Judging the sprite on the game's real ground tiles.
+- Own front, back and side stamps for model-drawn hats and hair; the derived ones are a fallback.
+- Feet that tip toe-down when lifted behind.
 
 ## Sources
 

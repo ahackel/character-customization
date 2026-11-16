@@ -53,8 +53,8 @@ const sentence = (text: string) =>
     .replace(/^./, (c) => c.toUpperCase());
 
 /**
- * A copy of an item with every cell of its paint passed through `cell`: the stamps for the head,
- * the torso and a held tool, the limb strips and the foot. The one place that lists them.
+ * A copy of an item with every cell of its paint passed through `cell`: the stamps for the head
+ * (in every view), the torso and a held tool, the limb strips and the foot and sole. The one place that lists them.
  */
 function mapCells(item: Item, cell: (c: Cell | null) => Cell | null): Item {
   const stamp = (s: Stamp): Stamp => s.map((row) => row.map(cell));
@@ -65,9 +65,12 @@ function mapCells(item: Item, cell: (c: Cell | null) => Cell | null): Item {
     headBehind: pair(item.headBehind),
     torso: pair(item.torso),
     tool: pair(item.tool),
+    // The front, back and side views too, or a recoloured beard changes colour as the head turns.
+    views: item.views && Object.fromEntries(Object.entries(item.views).map(([view, v]) => [view, { head: stamp(v.head), ...(v.behind ? { behind: stamp(v.behind) } : {}) }])),
     arm: item.arm?.map(cell),
     leg: item.leg?.map(cell),
     foot: cell(item.foot ?? null),
+    sole: item.sole === undefined ? undefined : cell(item.sole),
   };
 }
 

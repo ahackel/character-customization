@@ -108,3 +108,12 @@ export interface Cell {
 }
 
 export const hexOf = (cell: Cell): string => PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];
+
+const lighter = new Map<string, string>(Object.values(PALETTE).flatMap((r) => (r.light !== r.base ? [[r.light, r.base] as const] : [])));
+const darkerCache = new Map<string, string>();
+/** The next tone down a colour's ramp: a highlight becomes its base, a base its shade, a shade darker still. */
+export function darker(hex: string): string {
+  let out = darkerCache.get(hex);
+  if (!out) darkerCache.set(hex, (out = lighter.get(hex) ?? ramp(hex).shade));
+  return out;
+}

@@ -818,27 +818,31 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
           }
         }
       }
-      // The front of the body side on and in front 3/4: the bust stands out over the chest rows
-      // and a sturdy build's belly lower down, in whatever is worn there, the lowest row of each
-      // in shade; a sturdy build's are two pixels deep in the middle. In 3/4 the front is half
-      // turned away, so the top row and a pixel of depth are left out. Face on and from behind the
-      // outline does not change; the shadow under the chest on clothing shows the bust face on.
+      // The front of the body side on and in front 3/4: the bust, and a sturdy build's belly,
+      // stand out at the front in whatever is worn there. Each is given as how far it stands out
+      // row by row, side on and in 3/4, where the front is half turned away. The belly starts
+      // under the chest and swells to two pixels over most of the stomach before it rounds back
+      // in at the hips; on a woman it starts under the bust, a row in at the waist between them.
+      // A pixel that overhangs the row below is the underside, in shade. Face on and from behind
+      // the outline does not change; the shadow under the chest on clothing shows the bust face on.
       const sturdy = !!build.straight;
-      const front: [number, number][] = [];
-      if (feminine) front.push(...((sturdy ? [[2, 1], [3, 2], [4, 2], [5, 1]] : [[2, 1], [3, 1], [4, 1]]) as [number, number][]));
-      if (sturdy) front.push([7, 1], [8, 2], [9, 2], [10, 1]);
+      const profile = new Map<number, number>();
+      const shape = (side: Record<number, number>, threeQuarter: Record<number, number>) => {
+        for (const [row, out] of Object.entries(own === 'E' ? side : threeQuarter)) profile.set(Number(row), out);
+      };
+      if (feminine) shape(sturdy ? { 2: 1, 3: 2, 4: 2, 5: 1 } : { 2: 1, 3: 1, 4: 1 }, { 3: 1, 4: 1 });
+      if (sturdy && feminine) shape({ 6: 1, 7: 2, 8: 2, 9: 2, 10: 1 }, { 7: 1, 8: 1, 9: 1 });
+      if (sturdy && !feminine) shape({ 4: 1, 5: 1, 6: 2, 7: 2, 8: 2, 9: 2, 10: 1 }, { 6: 1, 7: 1, 8: 1, 9: 1 });
       if (!back && (own === 'E' || own === null)) {
-        for (const [row, out] of front) {
-          if (own === null && (row === 2 || row === 7)) continue;
-          const depth = own === null ? Math.max(1, out - 1) : out;
+        for (const [row, depth] of profile) {
           const y = top + row;
-          const last = front.every(([r]) => r !== row + 1);
           // The front edge of the torso in this row, as the block above drew it.
           const k = bottom === top ? 0 : row / (bottom - top);
           const edge = Math.round(chest.x + (hips.x - chest.x) * k - width / 2) + span(row)[1];
           const color = sprite.get(edge, y);
           if (!color) continue;
-          for (let d = 1; d <= depth; d++) sprite.set(edge + d, y, last ? darker(color) : color);
+          const below = profile.get(row + 1) ?? 0;
+          for (let d = 1; d <= depth; d++) sprite.set(edge + d, y, d > below ? darker(color) : color);
         }
       }
     },

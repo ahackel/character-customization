@@ -187,27 +187,29 @@ function card(tool: ToolId, href: string, picture: HTMLElement, kind: string): H
 
 /** Something made in a tool. `pick` makes it the one the tool opens on. */
 interface Made { name: string; tool: ToolId; href: string; pick: () => void; picture: HTMLCanvasElement }
-/** The size of a thing's picture on its card. */
+/** The size of a thing's picture on its card, and how many things are shown. */
 const THING_BOX = 72;
+const SHOWN = 12;
 /** The newest few from every tool, newest last in each list, shown newest first. */
 function madeThings(): Made[] {
-  const people: Made[] = loadRoster().map((c) => {
+  // At most twelve are shown, so no list needs more than its newest twelve drawn.
+  const people: Made[] = loadRoster().slice(-SHOWN).map((c) => {
     const sprite = drawCharacter(lookOf(c.state), AUTHORED.idle.frames[0], 0);
     return { name: c.name, tool: 'wardrobe', href: './wardrobe/', pick: () => pickCharacter(c.id), picture: trimmed(sprite, SPRITE_W, SPRITE_H, THING_BOX) };
   });
-  const animals: Made[] = savedAnimals().map((s) => {
+  const animals: Made[] = savedAnimals().slice(-SHOWN).map((s) => {
     const { sprite } = drawAnimal(s.animal, 'idle', 0, 0);
     return { name: s.name, tool: 'animals', href: './animals/', pick: () => writeStore(ANIMAL_STORE.current, s.id), picture: trimmed(sprite, ANIMAL_W, ANIMAL_H, THING_BOX, isShadow, true) };
   });
-  const objects: Made[] = savedProps().map((s) => {
+  const objects: Made[] = savedProps().slice(-SHOWN).map((s) => {
     const { sprite } = drawObject(s.prop, 0);
     return { name: s.name, tool: 'objects', href: './objects/', pick: () => writeStore(OBJECT_STORE.current, s.id), picture: trimmed(sprite, OBJECT_W, OBJECT_H, THING_BOX, isShadow, true) };
   });
   const out: Made[] = [];
-  for (let i = 1; out.length < 12 && i <= Math.max(people.length, animals.length, objects.length); i++) {
+  for (let i = 1; out.length < SHOWN && i <= Math.max(people.length, animals.length, objects.length); i++) {
     for (const l of [people, animals, objects]) if (l.length >= i) out.push(l[l.length - i]);
   }
-  return out.slice(0, 12);
+  return out.slice(0, SHOWN);
 }
 let made: Made[] | null = null;
 

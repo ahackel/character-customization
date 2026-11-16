@@ -95,15 +95,47 @@ export function blend(image: Pixels, x: number, y: number, hex: string): void {
   d[o + 2] = Math.round(b * k + d[o + 2] * (1 - k));
 }
 
+/**
+ * A picture's painted pixels, shadow aside, with their colours parsed: stamping walks these, not
+ * the whole canvas, which is mostly empty. Worked out at a picture's first stamp, so a picture
+ * must not change once it has been stamped.
+ */
+interface Packed { n: number; xy: Int16Array; rgba: Uint8Array }
+const packed = new WeakMap<Picture, Packed>();
+function packedOf(picture: Picture, w: number, h: number): Packed {
+  let p = packed.get(picture);
+  if (p) return p;
+  const xy: number[] = [];
+  const rgba: number[] = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const hex = picture.get(x, y);
+    if (!hex || hex === SHADOW) continue;
+    xy.push(x, y);
+    rgba.push(...rgbaOf(hex));
+  }
+  packed.set(picture, (p = { n: xy.length / 2, xy: Int16Array.from(xy), rgba: Uint8Array.from(rgba) }));
+  return p;
+}
+
 /** Paints a picture's pixels, leaving out its ground shadow; `hide` can veto single pixels. */
 export function stamp(image: Pixels, picture: Picture, w: number, h: number, dx: number, dy: number, hide?: (x: number, y: number) => boolean): void {
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const hex = picture.get(x, y);
-      if (!hex || hex === SHADOW) continue;
-      if (hide?.(x + dx, y + dy)) continue;
-      blend(image, x + dx, y + dy, hex);
+  const { n, xy, rgba } = packedOf(picture, w, h);
+  const d = image.data;
+  for (let k = 0; k < n; k++) {
+    const x = xy[2 * k] + dx;
+    const y = xy[2 * k + 1] + dy;
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) continue;
+    if (hide?.(x, y)) continue;
+    const r = rgba[4 * k], g = rgba[4 * k + 1], b = rgba[4 * k + 2], a = rgba[4 * k + 3];
+    const o = (y * image.width + x) * 4;
+    if (a === 255 || d[o + 3] === 0) {
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = Math.max(a, d[o + 3]);
+      continue;
     }
+    const t = a / 255;
+    d[o] = Math.round(r * t + d[o] * (1 - t));
+    d[o + 1] = Math.round(g * t + d[o + 1] * (1 - t));
+    d[o + 2] = Math.round(b * t + d[o + 2] * (1 - t));
   }
 }
 

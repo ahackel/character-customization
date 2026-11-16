@@ -48,3 +48,25 @@ export function trimmed(sprite: Picture, w: number, h: number, box: number, skip
   paintSprite(canvas, shown, { x: x0, y: y0, w: Math.max(1, x1 - x0 + 1), h: Math.max(1, y1 - y0 + 1) });
   return fitWhole(canvas, box);
 }
+
+/**
+ * Keeps small pictures that take long to draw, by a key that says what they show. Each call gives
+ * a new canvas with the kept picture on it, so a picture can be on the page more than once.
+ */
+export function pictureCache(className: string, limit = 200): { of(key: string, draw: () => HTMLCanvasElement): HTMLCanvasElement } {
+  const kept = new Map<string, HTMLCanvasElement>();
+  return {
+    of(key, draw) {
+      let made = kept.get(key);
+      if (!made) {
+        if (kept.size >= limit) kept.clear();
+        kept.set(key, (made = draw()));
+      }
+      const copy = document.createElement('canvas');
+      Object.assign(copy, { width: made.width, height: made.height, className });
+      copy.style.cssText = made.style.cssText;
+      copy.getContext('2d')!.drawImage(made, 0, 0);
+      return copy;
+    },
+  };
+}

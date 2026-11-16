@@ -73,15 +73,23 @@ function mannequin(): State {
   return { ...structuredClone(state), hair: null, worn: { top: null, bottom: null, shoes: null, hat: null, beard: null, tool: null }, colors: {} };
 }
 
+let bare: Sprite | null = null;
+let bareShown = '';
+
 /**
  * A picture of just one item: the pixels that change when the mannequin puts it on, cropped to
  * the item. Nothing is drawn specially for the wardrobe.
  */
 function itemPicture(wear: (draft: State) => void): HTMLCanvasElement | null {
-  const bare = mannequin();
   const dressed = mannequin();
+  // A panel shows many items on the same bare mannequin, which is drawn once for all of them.
+  const bareKey = `${version}|${JSON.stringify(dressed)}`;
+  if (bareKey !== bareShown) {
+    bareShown = bareKey;
+    bare = standing(dressed, false);
+  }
+  const before = bare!;
   wear(dressed);
-  const before = standing(bare, false);
   const after = standing(dressed, false);
   const pixels: { x: number; y: number; hex: string }[] = [];
   for (let y = 0; y < 64; y++) {

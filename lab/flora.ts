@@ -618,6 +618,9 @@ export interface DrawPlantOptions {
 
 const tone = (key: PaletteKey, t: 'base' | 'shade' | 'light') => PALETTE[key][t];
 
+/** Whether the wind leaves a grown plant alone, as it does cacti, rocks and driftwood: every frame of it is the same picture. */
+export const isStill = (grown: Grown): boolean => grown.elements.every((el) => !el.bend && !el.flex);
+
 /** Paints a grown plant for one frame of the wind loop. */
 export function drawPlant(grown: Grown, options: DrawPlantOptions = {}, raster = new Raster(canvasFor(grown.size).w, canvasFor(grown.size).h)): Raster {
   const frame = options.frame ?? 0;

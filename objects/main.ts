@@ -14,7 +14,7 @@ import {
   type IconName,
 } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
-import { fitWhole, paintSprite, trimmed, type Rect } from '../shared/pixels.ts';
+import { fitWhole, paintSprite, pictureCache, trimmed, type Rect } from '../shared/pixels.ts';
 
 // ------------------------------------------------------------------ words
 
@@ -79,10 +79,10 @@ function cropFor(p: Prop): Rect {
 
 /** A small picture of an object, trimmed to what it paints. */
 function thumbnail(p: Prop, box = 60): HTMLCanvasElement {
-  const canvas = trimmed(drawObject(p, 0).sprite, OBJECT_W, OBJECT_H, box, isShadow);
-  canvas.className = 'thumb';
-  return canvas;
+  return thumbs.of(`${box}|${JSON.stringify(p)}`, () => trimmed(drawObject(p, 0).sprite, OBJECT_W, OBJECT_H, box, isShadow));
 }
+/** The panel is rebuilt on every change and shows the same presets and saved objects again: their pictures are drawn once. */
+const thumbs = pictureCache('thumb');
 
 // ------------------------------------------------------------------ saving
 

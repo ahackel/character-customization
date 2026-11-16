@@ -209,14 +209,18 @@ const WATER: [number, string][] = [[0, '#8ff2de'], [0.8, '#3fe0d4'], [1.8, '#1fb
 /** Replaces the five water colours, shore to deep; the next `renderTerrain` uses them. */
 export function setWater(colors: string[]): void {
   colors.forEach((c, k) => (WATER[k][1] = c));
+  waterSteps = [];
 }
-/** The water colour at a depth, blended between the colours above; steps of a twentieth keep the colour cache small. */
+/** The blends `waterAt` has worked out, by colour pair and step. */
+let waterSteps: string[] = [];
+/** The water colour at a depth, blended between the colours above in steps of a twentieth. */
 function waterAt(depth: number): string {
   for (let k = 1; k < WATER.length; k++) {
     const [d1, hi] = WATER[k];
     if (depth >= d1) continue;
     const [d0, lo] = WATER[k - 1];
-    return mixHex(lo, hi, Math.round(((depth - d0) / (d1 - d0)) * 20) / 20);
+    const step = Math.round(((depth - d0) / (d1 - d0)) * 20);
+    return (waterSteps[k * 21 + step] ??= mixHex(lo, hi, step / 20));
   }
   return WATER[WATER.length - 1][1];
 }
@@ -379,6 +383,8 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
       const x1 = Math.ceil(Math.max(s[0].x, s[1].x, s[2].x));
       const y0 = Math.floor(Math.min(s[0].y, s[1].y, s[2].y));
       const y1 = Math.ceil(Math.max(s[0].y, s[1].y, s[2].y));
+      // The colour of each kind of ground on this triangle, plain and with a grain: the light is the same all over it.
+      const tones: Partial<Record<Ground, [string, string]>> = {};
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const px = x + 0.5;
         const py = y + 0.5;
@@ -387,16 +393,20 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         const w2 = 1 - w0 - w1;
         if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
         const level = w0 * p[0][2] + w1 * p[1][2] + w2 * p[2][2];
-        let color: string = COLORS[groundAt(surface, level, painted)];
-        if (lit > 0.06) color = mixHex(color, LIT, Math.min(0.22, lit * 0.9));
-        else if (lit < -0.06) color = mixHex(color, DIM, Math.min(0.22, -lit * 0.9));
-        // Tiles alternate faintly so the one-metre grid reads; the ground gets a few grains.
-        if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
-        // Grains: darker green on grass, the side colour elsewhere; sand gets fewer, fainter ones.
         const kind = groundAt(surface, level, painted);
         const sandy = kind === 'sand' || kind === 'wet';
-        const grain = kind === 'grass' ? GRASS_LIP : SIDES[kind][1];
-        if (hash(x, y) < (sandy ? 0.01 : 0.035)) color = mixHex(color, grain, sandy ? 0.3 : 0.5);
+        let tone = tones[kind];
+        if (!tone) {
+          let color: string = COLORS[kind];
+          if (lit > 0.06) color = mixHex(color, LIT, Math.min(0.22, lit * 0.9));
+          else if (lit < -0.06) color = mixHex(color, DIM, Math.min(0.22, -lit * 0.9));
+          // Tiles alternate faintly so the one-metre grid reads.
+          if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
+          // Grains: darker green on grass, the side colour elsewhere; sand gets fewer, fainter ones.
+          const grain = kind === 'grass' ? GRASS_LIP : SIDES[kind][1];
+          tone = tones[kind] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
+        }
+        const color = hash(x, y) < (sandy ? 0.01 : 0.035) ? tone[1] : tone[0];
         put(x, y, color, index, level);
       }
     }
@@ -436,6 +446,10 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   // Then shadows from higher ground, on land only: the water stays bright.
   const horizon = horizons(map);
   const shade = new Uint8Array(w * h);
+  // Few colours fill many pixels: each one's shaded version is mixed once, and a run of one colour is parsed once.
+  const shaded = new Map<string, string>();
+  let lastColor = '';
+  let lastRgb: number[] = [0, 0, 0];
   for (let p = 0; p < w * h; p++) {
     const depth = SEA_LEVEL - height[p];
     let color = colors[p];
@@ -452,11 +466,13 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
       const j = (sy / (TILE_H / 2) - sx / (TILE_W / 2)) / 2;
       if (horizon.at(i, j) > level + 0.15) {
         shade[p] = 1;
-        color = mixHex(color, SHADE, SHADE_ALPHA);
+        let dark = shaded.get(color);
+        if (!dark) shaded.set(color, (dark = mixHex(color, SHADE, SHADE_ALPHA)));
+        color = dark;
       }
     }
-    const [r, g, b] = rgbOf(color);
-    rgba[p * 4] = r; rgba[p * 4 + 1] = g; rgba[p * 4 + 2] = b; rgba[p * 4 + 3] = 255;
+    if (color !== lastColor) lastRgb = rgbOf((lastColor = color));
+    rgba[p * 4] = lastRgb[0]; rgba[p * 4 + 1] = lastRgb[1]; rgba[p * 4 + 2] = lastRgb[2]; rgba[p * 4 + 3] = 255;
   }
   return { w, h, rgba, cell, height, origin, shade };
 }

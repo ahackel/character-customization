@@ -2,7 +2,7 @@
 // pictures. The body sliders that make new species live in the Shape tab, behind Expert tools.
 // Built on the shared editor shell, like the wardrobe.
 import {
-  ANCHORS, ANIMAL_H, ANIMAL_STORE, ANIMAL_W, animalFile, CLIP_IDS, CLIPS, COLOR_KEYS, cleanAnimal, DEFAULT_ANIMAL, drawAnimal, EARS, heightOf, HORNS,
+  ANCHORS, ANIMAL_H, ANIMAL_STORE, ANIMAL_W, AnimalSprite, animalFile, CLIP_IDS, CLIPS, COLOR_KEYS, cleanAnimal, DEFAULT_ANIMAL, drawAnimal, EARS, heightOf, HORNS,
   isShadow, MARKS, NUMBERS, PLANS, readAnimalFile, ROLES, savedAnimals, sizeClassOf, TAILS,
   type Animal, type AnimalFrame, type ClipId, type Feature, type Mark, type NumberKey,
 } from '../lab/animal.ts';
@@ -15,7 +15,7 @@ import {
   type IconName,
 } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
-import { fitWhole, paintSprite, trimmed, type Rect } from '../shared/pixels.ts';
+import { fitWhole, paintSprite, pictureCache, trimmed, type Rect } from '../shared/pixels.ts';
 import { drawSymptom, SYMPTOMS } from './symptoms.ts';
 
 // ------------------------------------------------------------------ words
@@ -114,10 +114,10 @@ function cropFor(a: Animal): Rect {
 
 /** A small standing picture of an animal, trimmed to what it paints. */
 function thumbnail(a: Animal, box = 60): HTMLCanvasElement {
-  const canvas = trimmed(drawAnimal(a, 'idle', 0, 0).sprite, ANIMAL_W, ANIMAL_H, box, isShadow);
-  canvas.className = 'thumb';
-  return canvas;
+  return thumbs.of(`${box}|${JSON.stringify(a)}`, () => trimmed(drawAnimal(a, 'idle', 0, 0).sprite, ANIMAL_W, ANIMAL_H, box, isShadow));
 }
+/** The panel is rebuilt on every change and shows the same presets and saved animals again: their pictures are drawn once. */
+const thumbs = pictureCache('thumb');
 
 // ------------------------------------------------------------------ saving
 
@@ -587,8 +587,14 @@ const tick = (ms: number) => {
   const key = `${version}|${clip}|${facing}|${frame}|${symptom}|${showPoints}|${symptom ? Math.floor(ms / 100) : 0}|${stage.clientWidth}`;
   if (key !== shown) {
     shown = key;
-    // Symptoms and points are drawn on a fresh copy, not on the cached frame.
-    const { sprite, anchors } = symptom || showPoints ? drawAnimal(animal, clip, frame, facing) : frameOf(facing, frame);
+    const cached = frameOf(facing, frame);
+    const { anchors } = cached;
+    let { sprite } = cached;
+    if (symptom || showPoints) {
+      // Symptoms and points are drawn on a copy, not on the cached frame.
+      sprite = new AnimalSprite();
+      cached.sprite.pixels.forEach((c, i) => (sprite.pixels[i] = c));
+    }
     if (symptom) drawSymptom(sprite, symptom, anchors, facing, ms / 1000);
     if (showPoints) for (const n of ANCHORS) sprite.set(anchors[n].x, anchors[n].y, anchors[n].visible ? '#ff00ff' : '#ff00ff66');
     paintSprite(hero, sprite, crop);

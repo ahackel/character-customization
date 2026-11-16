@@ -496,6 +496,7 @@ canvas.addEventListener('wheel', (e) => {
 
 let last = performance.now();
 let shown = '';
+let shownThings: Thing[] = [];
 function frame(ms: number): void {
   const dt = Math.min(0.1, (ms - last) / 1000);
   last = ms;
@@ -536,13 +537,18 @@ function frame(ms: number): void {
   const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
   const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
-    shown = key;
     const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined)];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
       things.push({ spot: { i: s.i, j: s.j, level: Math.max(SEA_LEVEL, levelAt(world.map, Math.floor(s.i), Math.floor(s.j))) }, picture: FLAG, w: 6, h: 13, foot: { x: 0, y: 12 } });
     }
+    // In Play the key alone does not say whether anyone moved: the picture is the same while every thing shows the same frame in the same place.
+    const still = key === shown && things.length === shownThings.length
+      && things.every((t, k) => t.picture === shownThings[k].picture && t.spot.i === shownThings[k].spot.i && t.spot.j === shownThings[k].spot.j && t.spot.level === shownThings[k].spot.level);
+    if (still) return void requestAnimationFrame(frame);
+    shown = key;
+    shownThings = things;
     const blocked = prefs.mode === 'edit' && !!hover && cannotEdit(hover);
     const highlight = prefs.mode === 'edit' && hover ? { cells: new Set(brushCells(hover)), color: blocked ? '#e0332e99' : '#ffffff66' } : undefined;
     canvas.style.cursor = blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';

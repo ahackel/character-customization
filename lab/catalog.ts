@@ -54,15 +54,19 @@ const sentence = (text: string) =>
 
 /**
  * A copy of an item with every cell of its paint passed through `cell`: the stamps for the head,
- * the torso and a held tool, the limb strips and the foot. The one place that lists them.
+ * its own front, back and side views, the torso and a held tool, the limb strips and the foot.
+ * The one place that lists them.
  */
 function mapCells(item: Item, cell: (c: Cell | null) => Cell | null): Item {
   const stamp = (s: Stamp): Stamp => s.map((row) => row.map(cell));
   const pair = (p?: StampPair): StampPair | undefined => p && { front: stamp(p.front), back: stamp(p.back) };
+  const views = (v: Item['views']): Item['views'] =>
+    v && Object.fromEntries(Object.entries(v).map(([view, own]) => [view, { head: stamp(own.head), ...(own.behind ? { behind: stamp(own.behind) } : {}) }]));
   return {
     ...item,
     head: pair(item.head),
     headBehind: pair(item.headBehind),
+    views: views(item.views),
     torso: pair(item.torso),
     tool: pair(item.tool),
     arm: item.arm?.map(cell),

@@ -1,7 +1,11 @@
-import '../wardrobe/style.css';
 import './style.css';
 import { baseLook, DEFAULT_FACE, facesFor, wear, type Mood } from '../lab/base.ts';
 import { entryById } from '../lab/catalog.ts';
+import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, cleanAnimal, CLIPS, drawAnimal, isShadow as isAnimalShadow, type AnimalSprite, type ClipId } from '../lab/animal.ts';
+import { loadRoster, lookOf as characterLook } from '../lab/character.ts';
+import { presetById } from '../lab/animal-presets.ts';
+import { cleanProp, drawObject, isShadow as isObjectShadow, LOOP_FRAMES, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_W, type ObjectSprite, type Turn } from '../lab/object.ts';
+import { objectPresetById } from '../lab/object-presets.ts';
 import { drawPlant, FRAMES, grow, type Raster } from '../lab/flora.ts';
 import { FLORA } from '../lab/flora-catalog.ts';
 import { middleOf, paintIsland, scatter, stamp, type Pixels, type Thing } from '../lab/island.ts';
@@ -10,7 +14,8 @@ import { AUTHORED, type Clip } from '../lab/poses.ts';
 import { drawCharacter, type Facing, type Item, type Look, type Sprite } from '../lab/puppet.ts';
 import { weathered } from '../lab/wear.ts';
 import { generateIsland, renderTerrain } from '../lab/terrain.ts';
-import { currentLang, LANGS, setLang } from '../wardrobe/i18n.ts';
+import { h, topBar, word, type ToolId } from '../shared/shell.ts';
+import { currentLang } from '../wardrobe/i18n.ts';
 
 // The start page of the published site: what the tools are, each with a small live picture
 // drawn by the same code as the tool itself.
@@ -22,12 +27,26 @@ const en = {
   'tools': 'Tools',
   'wardrobe': 'Castaway Wardrobe',
   'wardrobe.text': 'Dress a small pixel person, then choose how long they have been on the island and how they feel. Every item follows the body in every action and facing.',
+  'animals': 'Animal Editor',
+  'animals.text': 'Build an animal from a body plan, sizes and parts: four legs, two legs or an upright ape. The 21 Lop Hop animals are in as presets, drawn in every facing as they walk, run, sit, eat and lie down.',
+  'objects': 'Object Editor',
+  'objects.text': 'Furniture, devices, a fountain and cars, built from boxes, cylinders and balls on a tile footprint and drawn in all four camera turns, with points for the game and a few running loops.',
   'flora': 'Island Flora',
   'flora.text': 'Palms, grass, cacti, jungle, rocks and driftwood, grown by rule from short recipes. With wind, seasons and sizes, on islands made from a height map.',
   'scene': 'Scene Editor',
   'scene.text': 'Build an island: raise and lower the ground, paint sand, grass and rock, place the plants. Then walk around it with a character from the wardrobe.',
   'open': 'Open',
+  'wardrobe.short': 'Dress up a castaway.',
+  'animals.short': 'Make your own animal.',
+  'objects.short': 'Build furniture and cars.',
+  'flora.short': 'Grow palms and cacti.',
+  'scene.short': 'Shape an island.',
+  'things': 'My things',
+  'things.note': 'Pick up where you left off.',
+  'things.none': 'Things you make show up here.',
   'note': 'All tools are in English and German and keep your changes in this browser.',
+  'pause': 'Pause',
+  'play': 'Play',
 };
 type Key = keyof typeof en;
 const de: Record<Key, string> = {
@@ -37,25 +56,29 @@ const de: Record<Key, string> = {
   'tools': 'Werkzeuge',
   'wardrobe': 'Garderobe der Gestrandeten',
   'wardrobe.text': 'Kleide eine kleine Pixelfigur ein und lege fest, wie lange sie schon auf der Insel ist und wie sie sich fühlt. Jedes Teil folgt dem Körper in jeder Aktion und Blickrichtung.',
+  'animals': 'Tier-Editor',
+  'animals.text': 'Baue ein Tier aus Körperbau, Maßen und Teilen: vier Beine, zwei Beine oder ein aufrechter Affe. Die 21 Tiere aus Lop Hop sind als Vorlagen dabei, in jeder Blickrichtung beim Gehen, Rennen, Sitzen, Fressen und Liegen.',
+  'objects': 'Objekt-Editor',
+  'objects.text': 'Möbel, Geräte, ein Brunnen und Autos, aus Quadern, Zylindern und Kugeln auf einer Grundfläche aus Feldern gebaut und in allen vier Kameradrehungen gezeichnet, mit Punkten für das Spiel und ein paar laufenden Schleifen.',
   'flora': 'Inselflora',
   'flora.text': 'Palmen, Gräser, Kakteen, Dschungel, Steine und Treibholz, nach Regeln aus kurzen Rezepten gewachsen. Mit Wind, Jahreszeiten und Größen, auf Inseln aus einer Höhenkarte.',
   'scene': 'Szenen-Editor',
   'scene.text': 'Baue eine Insel: Boden anheben und absenken, Sand, Gras und Fels malen, Pflanzen setzen. Dann lauf mit einer Figur aus der Garderobe darauf herum.',
   'open': 'Öffnen',
+  'wardrobe.short': 'Zieh eine Figur an.',
+  'animals.short': 'Mach dein eigenes Tier.',
+  'objects.short': 'Baue Möbel und Autos.',
+  'flora.short': 'Lass Palmen wachsen.',
+  'scene.short': 'Forme eine Insel.',
+  'things': 'Meine Sachen',
+  'things.note': 'Mach weiter, wo du warst.',
+  'things.none': 'Was du machst, erscheint hier.',
   'note': 'Alle Werkzeuge gibt es auf Deutsch und Englisch; deine Änderungen bleiben in diesem Browser gespeichert.',
+  'pause': 'Anhalten',
+  'play': 'Abspielen',
 };
 const t = (key: Key) => (currentLang() === 'de' ? de : en)[key];
 
-type Child = Node | string | null | undefined | false;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (key === 'class') node.className = value;
-    else node.setAttribute(key, value);
-  }
-  for (const child of children) if (child) node.append(child);
-  return node;
-}
 
 // ------------------------------------------------------------------ the castaways
 
@@ -82,6 +105,53 @@ function castAt(ms: number): Pixels {
     if (!sprite) castFrames.set(key, (sprite = drawCharacter(c.look, c.clip.frames[i], c.facing, { face: c.clip.faces?.[i], swing: c.clip.swing })));
     stamp(image, sprite, 64, 64, c.x, 0);
   });
+  return image;
+}
+
+// ------------------------------------------------------------------ the animals
+
+/** Four of the animal presets on the move. `x` is where each stands on the ground row. */
+const HERD: { id: string; clip: ClipId; facing: Facing; x: number }[] = [
+  { id: 'rabbit', clip: 'run', facing: 0, x: 22 },
+  { id: 'fox', clip: 'walk', facing: 0, x: 52 },
+  { id: 'pig', clip: 'idle', facing: 1, x: 86 },
+  { id: 'elephant', clip: 'walk', facing: 1, x: 136 },
+];
+const HERD_SIZE = { w: 168, h: 60, ground: 54 };
+const herdFrames = new Map<string, AnimalSprite>();
+function herdAt(ms: number): Pixels {
+  const image: Pixels = { data: new Uint8ClampedArray(HERD_SIZE.w * HERD_SIZE.h * 4), width: HERD_SIZE.w, height: HERD_SIZE.h };
+  for (const c of HERD) {
+    const clip = CLIPS[c.clip];
+    const i = Math.floor((ms / 1000) * clip.rate) % clip.frames;
+    const key = `${c.id}|${i}`;
+    let sprite = herdFrames.get(key);
+    if (!sprite) herdFrames.set(key, (sprite = drawAnimal(presetById(c.id)!.animal, c.clip, i, c.facing).sprite));
+    stamp(image, sprite, ANIMAL_W, ANIMAL_H, c.x - ANIMAL_ORIGIN.x, HERD_SIZE.ground - ANIMAL_ORIGIN.y);
+  }
+  return image;
+}
+
+// ------------------------------------------------------------------ the objects
+
+/** A few of the object presets in a row, the fountain running. */
+const SET: { id: string; turn: Turn; x: number }[] = [
+  { id: 'car', turn: 1, x: 26 },
+  { id: 'fountain', turn: 0, x: 76 },
+  { id: 'examTable', turn: 0, x: 124 },
+  { id: 'plant', turn: 0, x: 152 },
+];
+const SET_SIZE = { w: 172, h: 60, ground: 50 };
+const setFrames = new Map<string, ObjectSprite>();
+function setAt(ms: number): Pixels {
+  const image: Pixels = { data: new Uint8ClampedArray(SET_SIZE.w * SET_SIZE.h * 4), width: SET_SIZE.w, height: SET_SIZE.h };
+  const i = Math.floor((ms / 1000) * LOOP_RATE) % LOOP_FRAMES;
+  for (const c of SET) {
+    const key = `${c.id}|${i}`;
+    let sprite = setFrames.get(key);
+    if (!sprite) setFrames.set(key, (sprite = drawObject(objectPresetById(c.id)!.prop, c.turn, i).sprite));
+    stamp(image, sprite, OBJECT_W, OBJECT_H, c.x - OBJECT_ORIGIN.x, SET_SIZE.ground - OBJECT_ORIGIN.y);
+  }
   return image;
 }
 
@@ -123,6 +193,8 @@ const sceneIsle = smallIsland(11, AUTHORED.wave, 1);
 // ------------------------------------------------------------------ page
 
 const castCanvas = h('canvas', { class: 'tool__canvas', width: String(CAST_SIZE.w), height: String(CAST_SIZE.h) });
+const herdCanvas = h('canvas', { class: 'tool__canvas', width: String(HERD_SIZE.w), height: String(HERD_SIZE.h) });
+const setCanvas = h('canvas', { class: 'tool__canvas', width: String(SET_SIZE.w), height: String(SET_SIZE.h) });
 const islandCanvas = h('canvas', { class: 'tool__canvas', width: String(floraIsle.ground.w), height: String(floraIsle.ground.h) });
 const sceneCanvas = h('canvas', { class: 'tool__canvas', width: String(sceneIsle.ground.w), height: String(sceneIsle.ground.h) });
 
@@ -130,42 +202,131 @@ function paint(canvas: HTMLCanvasElement, image: Pixels): void {
   canvas.getContext('2d')!.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
 }
 
-function card(href: string, title: string, text: string, picture: HTMLElement, kind: string): HTMLElement {
-  return h('a', { class: 'tool', href },
-    h('span', { class: `tool__picture tool__picture--${kind}` }, picture),
-    h('span', { class: 'tool__body' },
-      h('h2', {}, title),
-      h('p', {}, text),
-      h('span', { class: 'button button--primary tool__open' }, t('open')),
+let paused = false;
+
+function card(tool: ToolId, href: string, picture: HTMLElement, kind: string): HTMLElement {
+  return h('a', { class: 'tile', href },
+    h('span', { class: `tile__picture tile__picture--${kind}` }, picture),
+    h('span', { class: 'tile__cap' },
+      h('span', {}, h('b', {}, word(tool)), h('span', {}, t(`${tool}.short` as Key))),
+      h('span', { class: 'tile__go', 'aria-hidden': 'true' }, '→'),
     ),
   );
+}
+
+// ------------------------------------------------------------------ my things
+
+interface Made { name: string; tool: ToolId; href: string; currentKey: string; id: string; picture: HTMLCanvasElement }
+const read = (key: string): unknown => {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? 'null');
+  } catch {
+    // Without storage there is nothing to show.
+    return null;
+  }
+};
+/** A picture of a sprite, trimmed to what it paints and enlarged by whole numbers to fit the box. */
+function trimmed(get: (x: number, y: number) => string | null | undefined, w: number, hh: number, skip: (hex: string) => boolean, box = 72): HTMLCanvasElement {
+  let x0 = w, y0 = hh, x1 = 0, y1 = 0;
+  for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) {
+    const hex = get(x, y);
+    if (!hex || skip(hex)) continue;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const cw = Math.max(1, x1 - x0 + 1), ch = Math.max(1, y1 - y0 + 1);
+  const canvas = h('canvas', { width: String(cw), height: String(ch) });
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(cw, ch);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const hex = get(x + x0, y + y0);
+    if (!hex || skip(hex)) continue;
+    const o = (y * cw + x) * 4;
+    for (let k = 0; k < 3; k++) image.data[o + k] = parseInt(hex.slice(1 + k * 2, 3 + k * 2), 16);
+    image.data[o + 3] = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const scale = Math.max(1, Math.floor(box / Math.max(cw, ch)));
+  canvas.style.width = `${cw * scale}px`;
+  canvas.style.height = `${ch * scale}px`;
+  return canvas;
+}
+const list = (key: string): { id: string; name: string; [k: string]: unknown }[] => {
+  const raw = read(key);
+  return Array.isArray(raw) ? raw.filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string') : [];
+};
+/** The newest few from every tool, newest last in each list, shown newest first. */
+function madeThings(): Made[] {
+  const people: Made[] = loadRoster().map((c) => {
+    const sprite = drawCharacter(characterLook(c.state), AUTHORED.idle.frames[0], 0);
+    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', currentKey: 'castaway-characters-current', id: c.id, picture: trimmed((x, y) => sprite.get(x, y), 64, 64, () => false) };
+  });
+  const animals: Made[] = list('pixel-animals').map((s) => {
+    const { sprite } = drawAnimal(cleanAnimal(s.animal), 'idle', 0, 0);
+    return { name: s.name, tool: 'animals', href: './animals/', currentKey: 'pixel-animals-current', id: s.id, picture: trimmed((x, y) => sprite.get(x, y), ANIMAL_W, ANIMAL_H, isAnimalShadow) };
+  });
+  const objects: Made[] = list('pixel-objects').map((s) => {
+    const { sprite } = drawObject(cleanProp(s.prop), 0);
+    return { name: s.name, tool: 'objects', href: './objects/', currentKey: 'pixel-objects-current', id: s.id, picture: trimmed((x, y) => sprite.get(x, y), OBJECT_W, OBJECT_H, isObjectShadow) };
+  });
+  const out: Made[] = [];
+  for (let i = 1; out.length < 12 && i <= Math.max(people.length, animals.length, objects.length); i++) {
+    for (const l of [people, animals, objects]) if (l.length >= i) out.push(l[l.length - i]);
+  }
+  return out.slice(0, 12);
+}
+let made: Made[] | null = null;
+
+function thingsRow(): HTMLElement {
+  made ??= madeThings();
+  if (!made.length) return h('p', { class: 'note' }, t('things.none'));
+  return h('div', { class: 'things' }, ...made.map((m) => {
+    const a = h('a', { class: 'card', href: m.href },
+      h('span', { class: 'card__picture' }, m.picture),
+      h('span', { class: 'card__label' }, m.name),
+      h('span', { class: 'card__label', style: 'font-weight: 500; opacity: .7' }, word(m.tool)));
+    // Opening it picks it in its tool.
+    a.addEventListener('click', () => {
+      try {
+        localStorage.setItem(m.currentKey, m.currentKey === 'castaway-characters-current' ? m.id : JSON.stringify(m.id));
+      } catch {
+        // The tool then opens on what it had.
+      }
+    });
+    return a;
+  }));
 }
 
 function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
-  const languages = h('div', { class: 'langs', role: 'group', 'aria-label': t('language') },
-    ...LANGS.map((l) => {
-      const button = h('button', { type: 'button', class: 'lang', 'aria-pressed': String(l.id === currentLang()), lang: l.id, title: l.name }, l.label);
-      button.addEventListener('click', () => {
-        setLang(l.id);
-        mount();
-      });
-      return button;
-    }),
-  );
+  const { bar, pops } = topBar({
+    tool: 'home',
+    title: t('title'),
+    about: [t('lede'), t('note')],
+    // The pictures move even with reduced motion (they show what the tools animate); this stops them.
+    more: [{ label: t(paused ? 'play' : 'pause'), icon: 'pause', run: () => {
+      paused = !paused;
+      mount();
+    } }],
+    status: h('span', { class: 'bar__status' }),
+    relabel: mount,
+  });
   document.getElementById('home')!.replaceChildren(
-    h('main', { class: 'app home' },
-      h('header', { class: 'top' },
-        h('div', { class: 'top__text' }, h('h1', {}, t('title')), h('p', { class: 'lede' }, t('lede'))),
-        h('div', { class: 'top__actions' }, languages),
+    h('div', { class: 'shell' },
+      bar, ...pops,
+      h('main', { class: 'home' },
+        h('section', { class: 'tiles', 'aria-label': t('tools') },
+          card('wardrobe', './wardrobe/', castCanvas, 'cast'),
+          card('animals', './animals/', herdCanvas, 'cast'),
+          card('objects', './objects/', setCanvas, 'cast'),
+          card('flora', './flora/', islandCanvas, 'island'),
+          card('scene', './scene/', sceneCanvas, 'island'),
+        ),
+        h('section', { class: 'mine', 'aria-label': t('things') },
+          h('div', { class: 'mine__head' }, h('h2', {}, t('things')), h('p', {}, t('things.note'))),
+          thingsRow(),
+        ),
       ),
-      h('section', { class: 'tools', 'aria-label': t('tools') },
-        card('./wardrobe/', t('wardrobe'), t('wardrobe.text'), castCanvas, 'cast'),
-        card('./flora/', t('flora'), t('flora.text'), islandCanvas, 'island'),
-        card('./scene/', t('scene'), t('scene.text'), sceneCanvas, 'island'),
-      ),
-      h('p', { class: 'home__note' }, t('note')),
     ),
   );
   fit();
@@ -173,7 +334,7 @@ function mount(): void {
 
 /** Whole-number enlargement that fits the card, so the pixels stay square. */
 function fit(): void {
-  for (const canvas of [castCanvas, islandCanvas, sceneCanvas]) {
+  for (const canvas of [castCanvas, herdCanvas, setCanvas, islandCanvas, sceneCanvas]) {
     const box = canvas.parentElement;
     if (!box) continue;
     const room = box.clientWidth - 16;
@@ -186,19 +347,21 @@ function fit(): void {
 mount();
 window.addEventListener('resize', fit);
 
-const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let shown = '';
+let time = 0;
 const tick = (ms: number) => {
-  const time = still ? 0 : ms;
+  if (!paused) time = ms;
   const frame = Math.floor((time / 1000) * 6) % FRAMES;
   const key = `${frame}|${Math.floor((time / 1000) * 10)}`;
   if (key !== shown) {
     shown = key;
     paint(castCanvas, castAt(time));
+    paint(herdCanvas, herdAt(time));
+    paint(setCanvas, setAt(time));
     paint(islandCanvas, floraIsle.at(time, frame));
     paint(sceneCanvas, sceneIsle.at(time, frame));
   }
-  if (!still) requestAnimationFrame(tick);
+  requestAnimationFrame(tick);
 };
 requestAnimationFrame(tick);
 document.body.dataset.ready = '1';

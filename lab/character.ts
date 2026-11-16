@@ -2,13 +2,16 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
+  BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
 import { HAIR_KEYS, PALETTE, SKIN_KEYS, type PaletteKey } from './palette.ts';
 import { BUILDS, type Item, type Look, type Slot } from './puppet.ts';
+import { newId } from './files.ts';
 import { WEAR_MAX, weathered, type Wear } from './wear.ts';
+
+export { download, newId, pickFile } from './files.ts';
 
 
 export type WornSlot = Exclude<Slot, 'hair'>;
@@ -87,6 +90,7 @@ export function cleanState(input: unknown): State {
     if (saved.beardColor && saved.beardColor in PALETTE) state.beardColor = saved.beardColor;
     const face = saved.face;
     if (face) {
+      if ((HEAD_SHAPES as readonly string[]).includes(face.shape ?? '')) state.face.shape = face.shape;
       if ((EYE_SHAPES as readonly string[]).includes(face.eyes)) state.face.eyes = face.eyes;
       if (EYE_COLORS.includes(face.eyeColor)) state.face.eyeColor = face.eyeColor;
       if ((BROWS as readonly string[]).includes(face.brows)) state.face.brows = face.brows;
@@ -144,7 +148,7 @@ export function lookOf(source: State, underwear = true): Look {
     skin: source.skin,
     build: BUILDS.find((b) => b.id === source.build),
     frame: source.frame,
-    head: headFor(source.skin),
+    head: headFor(source.skin, source.face.shape),
     faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
     items,
   };
@@ -160,7 +164,6 @@ const ROSTER_KEY = 'castaway-characters';
 const DRAFT_KEY = 'castaway-wardrobe';
 const FILE_TYPE = 'castaway-character';
 
-export const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** Characters saved on this device. The first time, the wardrobe's working character becomes the first one. */
 export function loadRoster(): Saved[] {
@@ -201,24 +204,4 @@ export function readCharacterFile(text: string): Saved {
   const data = JSON.parse(text);
   if (data?.type !== FILE_TYPE || typeof data.name !== 'string') throw new Error('not a character file');
   return { id: newId(), name: data.name.slice(0, 40), state: cleanState(data.state) };
-}
-
-/** Lets the browser save some text as a file. */
-export function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: name });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-/** Asks for a file and gives its text. */
-export function pickFile(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      if (file) file.text().then(resolve, reject);
-    });
-    input.click();
-  });
 }

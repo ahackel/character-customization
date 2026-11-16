@@ -45,6 +45,8 @@ const BASES = {
   basalt: '#5f5961',
   sandstone: '#d4a272',
   driftwood: '#bfae98',
+  // Animal colours: the pig's and the ostrich's light pink skin.
+  piglet: '#efb4ae',
 } as const;
 
 /** Colours with one fixed meaning, used by faces. They do not get derived tones. */
@@ -85,6 +87,8 @@ export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];
 export const SKIN_KEYS: PaletteKey[] = ['skinA', 'skinB', 'skinC', 'skinD', 'skinE'];
 export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', 'hairRed', 'hairGrey'];
 /** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices. */
+/** Colours meant for animals only. They are left out of the clothing colour choices too. */
+export const ANIMAL_KEYS: PaletteKey[] = ['piglet'];
 export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark', 'stone', 'basalt', 'sandstone', 'driftwood'];
 
 /** One pixel of paint: a palette entry in one of its tones. */
@@ -92,6 +96,8 @@ export interface Cell {
   key: PaletteKey;
   shade: boolean;
   light?: boolean;
+  /** Drawn see-through over what is already there, at this strength from 0 to 1: stubble. */
+  mix?: number;
 }
 
 export const hexOf = (cell: Cell): string => PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];

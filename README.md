@@ -2,7 +2,7 @@
 
 Tools for a pixel-art game in isometric view about a shipwreck survivor on an island: stylized characters with good animation, plants, rocks and terrain, with the content written by a language model and drawn by rules. People only review and touch up.
 
-The tools are published at [andreashackel.de/pixel-art](https://andreashackel.de/pixel-art/): a start page, the [wardrobe](https://andreashackel.de/pixel-art/wardrobe/), the [flora tool](https://andreashackel.de/pixel-art/flora/) and the [scene editor](https://andreashackel.de/pixel-art/scene/).
+The tools are published at [andreashackel.de/pixel-art](https://andreashackel.de/pixel-art/): a start page, the [wardrobe](https://andreashackel.de/pixel-art/wardrobe/), the [animal editor](https://andreashackel.de/pixel-art/animals/), the [object editor](https://andreashackel.de/pixel-art/objects/) ([`docs/animal-spec.md`](docs/animal-spec.md), [`docs/object-spec.md`](docs/object-spec.md), made for Animal Hospital), the [flora tool](https://andreashackel.de/pixel-art/flora/) and the [scene editor](https://andreashackel.de/pixel-art/scene/).
 
 The repository started as an exploration of customizable characters, and the earlier work is still here:
 
@@ -33,7 +33,7 @@ builds every page, the lab included, into `dist/`.
 npm run build:site
 ```
 
-builds only the published site (start page, wardrobe, flora, scene editor) into `dist-site/`.
+builds only the published site (start page, wardrobe, animal and object editors, flora, scene editor) into `dist-site/`.
 
 ## Publishing
 

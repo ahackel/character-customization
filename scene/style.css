@@ -13,27 +13,6 @@ body {
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100dvh;
 }
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  padding: 8px 16px;
-  padding-top: max(8px, env(safe-area-inset-top));
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-}
-.bar h1 {
-  font-size: 1.2rem;
-  margin: 0;
-}
-.bar__scene select {
-  max-width: 12em;
-}
-.bar .langs {
-  margin-left: auto;
-}
-
 .viewport {
   position: relative;
   overflow: hidden;
@@ -55,70 +34,12 @@ body {
   flex-direction: column;
   gap: 4px;
 }
-.zoom .chip {
-  min-width: 36px;
-  min-height: 36px;
-  justify-content: center;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.25rem;
+.zoom .stage__button {
+  position: static;
 }
-.sea {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  max-height: calc(100% - 24px);
-  max-width: calc(100% - 80px);
-  overflow: auto;
-}
-.sea summary {
-  list-style: none;
-  cursor: pointer;
-}
-.sea summary::-webkit-details-marker {
-  display: none;
-}
-.sea__body {
-  display: grid;
-  gap: 6px;
-  width: 260px;
-  max-width: 100%;
-  margin-top: 4px;
-  padding: 8px 12px 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-}
-.sea__body h3 {
-  margin: 6px 0 0;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.sea__field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 0.82rem;
-}
-.sea__field input[type='color'] {
-  width: 36px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--line);
-  background: none;
-}
-.sea__range {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sea__range input {
-  width: 96px;
-}
-.sea__range output {
-  min-width: 2.5em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.zoom .stage__button[aria-pressed='true'] {
+  background: var(--sand);
+  color: var(--sand-ink);
 }
 .status {
   position: absolute;
@@ -133,19 +54,125 @@ body {
   font-size: 0.88rem;
 }
 
-.dock {
-  display: grid;
-  gap: 8px;
-  max-height: 38dvh;
-  overflow: auto;
-  padding: 8px 16px;
+/* One line of tool icons under the scene; in Play, the emotes. */
+.toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 8px 12px;
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--bar);
 }
-.dock .row h3:empty {
-  display: none;
+.toolbar__btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
 }
+.toolbar__btn .icon {
+  width: 24px;
+  height: 24px;
+}
+.toolbar__btn[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.toolbar__btn--text {
+  width: auto;
+  padding: 0 18px;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* The chosen tool's options float over the scene, top left. */
+.opts {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 300px;
+  max-width: calc(100% - 88px);
+  max-height: calc(100% - 88px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.3);
+}
+.opts__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
+.opts__head b {
+  font: 700 18px var(--font-display);
+  color: var(--fg);
+}
+.opts__tip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.opts__brush {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.opts__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.opts__label b {
+  display: block;
+  color: var(--fg);
+}
+.opts__link {
+  font-size: 13px;
+  color: var(--accent);
+}
+.opts .plants {
+  flex-wrap: wrap;
+  max-height: 200px;
+  overflow: auto;
+}
+.brush {
+  display: grid;
+  grid-template-columns: repeat(7, 5px);
+  gap: 1px;
+}
+.brush__cell {
+  width: 5px;
+  height: 5px;
+  background: var(--well);
+}
+.brush__cell--on {
+  background: var(--accent);
+}
+@media (max-width: 699px) {
+  .toolbar {
+    justify-content: flex-start;
+  }
+  .opts {
+    width: auto;
+    max-height: 40%;
+  }
+}
+
 .chip {
   min-height: 32px;
   color: inherit;
@@ -227,4 +254,11 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Edit and Play share one button: the accent marks the way into Play. */
+.ib.mode {
+  background: var(--accent);
+  color: var(--accent-ink);
+  margin-right: 2px;
 }

@@ -140,7 +140,7 @@ const inFace = (col: number, row: number) => col >= FACE.x0 && col <= FACE.x1 &&
 function unkempt(stamp: Stamp, seed: number, level: Wear, front: boolean, strays = true): Stamp {
   const out = stamp.map((row) => row.map((cell) => (cell && level >= 2 ? { ...cell, light: false } : cell)));
   const width = out[0]?.length ?? 0;
-  const plain = (cell: Cell): Cell => ({ key: cell.key, shade: false });
+  const plain = (cell: Cell): Cell => ({ key: cell.key, shade: false, ...(cell.mix ? { shade: true, mix: cell.mix } : {}) });
   if (strays) {
     const limit = at([0, 0.12, 0.2, 0.3], level);
     for (let row = 0; row < stamp.length; row++) {
@@ -199,7 +199,7 @@ export function weathered(item: Item, level: Wear): Item {
   } else if (item.slot === 'hair') {
     out.head = pair(item.head, (stamp, front) => unkempt(stamp, seed, level, front));
     out.headBehind = pair(item.headBehind, (stamp) => unkempt(stamp, seed, level, false, false));
-  } else if (item.slot === 'beard' && level >= 2) {
+  } else if (item.slot === 'beard' && level >= 2 && !item.short) {
     // A beard only grows longer. It has no back view.
     out.head = item.head && { front: unkempt(item.head.front, seed, level, false, false), back: item.head.back };
   }

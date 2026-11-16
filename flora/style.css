@@ -1,20 +1,11 @@
-/* The flora page builds on the wardrobe's styles; these are its own parts. */
+/* The flora tool's own parts; the shell comes from shared/ui.css. */
 
-.flora-view {
-  /* The plant preview is too tall to stay pinned on a phone. */
-  position: static;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.flora-stage {
-  padding: 6px 10px 8px;
-}
 .flora-preview {
   width: 256px;
   height: 288px;
 }
 
+/* Four variants of the chosen plant, as small pictures in one row. */
 .variants {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -23,23 +14,22 @@
 .variant {
   display: grid;
   place-items: center;
-  height: 68px;
-  padding: 4px;
+  height: 52px;
+  padding: 2px;
   border: 2px solid transparent;
-  background: #e9d9a0;
+  background: var(--sand);
   min-width: 0;
   overflow: hidden;
 }
-.variant[aria-pressed='true'] {
+.variant[aria-checked='true'] {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
 }
-
 .card__picture {
   overflow: hidden;
 }
 
-/* The recipe editor. */
+/* The recipe editor, behind Expert tools. */
 .recipe {
   display: flex;
   flex-direction: column;
@@ -51,6 +41,7 @@
   min-height: 18em;
   padding: 10px 12px;
   border: 1px solid var(--line);
+  border-radius: 8px;
   background: var(--well);
   color: var(--fg);
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -76,26 +67,7 @@
 :root[data-theme='dark'] .recipe__status[data-kind='warn'] { color: #e0b060; }
 :root[data-theme='dark'] .recipe__status[data-kind='error'] { color: #ff8a8a; }
 
-/* The island scene spans the page. */
-.scene {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-.scene__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 10px 20px;
-}
-.scene__head h2 {
-  font-family: var(--font-display);
-  font-size: 1.4rem;
-  font-weight: 700;
-  line-height: 1.1;
-}
+/* The island, in its own tab. */
 .scene__frame {
   display: grid;
   place-items: center;
@@ -105,17 +77,4 @@
 }
 .scene__canvas {
   max-width: 100%;
-}
-
-@media (min-width: 820px) {
-  /* Pinned, the preview would slide over the island scene below it. */
-  .stage {
-    position: static;
-  }
-  .scene {
-    grid-column: 1 / -1;
-  }
-  .flora-stage {
-    padding: 12px 10px 14px;
-  }
 }

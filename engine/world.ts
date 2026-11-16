@@ -10,9 +10,12 @@ import {
   heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
+import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
+import type { Facing } from '../lab/puppet.ts';
+import type { Herd } from './herd.ts';
 import { decorById, decorPixels, type PlacedDecor } from './decor.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
-import { mapOf, TURNS, type PlacedPlant, type Scene } from './scene.ts';
+import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 /** Something drawn standing on the ground: `foot` is the pixel of its picture that touches the spot. */
@@ -341,6 +344,38 @@ export class World {
       if (raster) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
     }
     return out;
+  }
+
+  /** The animals with their places and facings in view coordinates. */
+  viewAnimals(): (PlacedAnimal & { vi: number; vj: number; vf: 0 | 1 | 2 | 3 })[] {
+    return this.scene.animals.map((a) => {
+      const v = this.toView(a);
+      return { ...a, vi: v.i, vj: v.j, vf: ((a.facing + this.rot) % 4) as 0 | 1 | 2 | 3 };
+    });
+  }
+
+  private animalFrames = new WeakMap<Animal, Map<string, AnimalSprite>>();
+
+  /**
+   * The animals as things: standing where placed and idling, each a little out of step with the
+   * others, or as the herd has them in Play.
+   */
+  animalThings(ms: number, herd?: Herd): Thing[] {
+    return this.scene.animals.map((placed, k) => {
+      const pose = herd?.poses[k];
+      const clipId: ClipId = pose?.clip ?? 'idle';
+      const clip = CLIPS[clipId];
+      const lag = ((Math.imul(Math.floor(placed.i * 97), 73856093) ^ Math.imul(Math.floor(placed.j * 89), 19349663)) >>> 0) % clip.frames;
+      const n = (Math.floor(((ms - (pose?.started ?? 0)) / 1000) * clip.rate) + lag) % clip.frames;
+      const v = this.toView(pose ?? placed);
+      const facing = (((pose ?? placed).facing + this.rot) % 4) as Facing;
+      let frames = this.animalFrames.get(placed.animal);
+      if (!frames) this.animalFrames.set(placed.animal, (frames = new Map()));
+      const key = `${clipId}|${n}|${facing}`;
+      let sprite = frames.get(key);
+      if (!sprite) frames.set(key, (sprite = drawAnimal(placed.animal, clipId, n, facing).sprite));
+      return { spot: { i: v.i, j: v.j, level: standingHeight(this.map, v.i, v.j) }, picture: sprite, w: ANIMAL_W, h: ANIMAL_H, foot: ANIMAL_ORIGIN };
+    });
   }
 
   /**

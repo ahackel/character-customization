@@ -1,5 +1,4 @@
-import './style.css';
-import { BROWS, EYE_COLORS, EYE_SHAPES, GLASSES_COLORS, HAIR_STYLES, MOODS, type FaceOptions } from '../lab/base.ts';
+import { BROWS, EYE_COLORS, EYE_SHAPES, GLASSES_COLORS, HAIR_STYLES, HEAD_SHAPES, MOODS, type FaceOptions } from '../lab/base.ts';
 import { CATALOG, CLOTH_KEYS, entryById, type Entry } from '../lab/catalog.ts';
 import {
   characterFile, cleanState, defaultState, download, GROUNDS, HAIR_COLORS, loadRoster, lookOf, newId, pickFile, readCharacterFile, saveRoster,
@@ -7,9 +6,10 @@ import {
 } from '../lab/character.ts';
 import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import { BODY_WINDOW, BUILDS, drawCharacter, FACING_NAMES, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
+import { BODY_WINDOW, BUILDS, drawCharacter, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
-import { currentLang, itemName, LANGS, missingItemNames, setLang, t, type Key } from './i18n.ts';
+import { checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
+import { currentLang, itemName, LANGS, missingItemNames, t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ state
 
@@ -39,6 +39,8 @@ let state = loadState();
 let tab: TabId = 'body';
 let facing: Facing = 0;
 let clipKey = 'idle';
+/** Clips play even with reduced motion: picking one is asking to see it move. Pause stops on the frame shown. */
+let paused = false;
 let version = 0;
 
 // All five are written by hand as key poses.
@@ -54,17 +56,6 @@ const STILL: Clip = { name: 'Stand', rate: 1, frames: [STAND] };
 // ------------------------------------------------------------------ look
 // ------------------------------------------------------------------ drawing
 
-type Child = Node | string | null | undefined | false;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (key === 'class') node.className = value;
-    else node.setAttribute(key, value);
-  }
-  for (const child of children) if (child) node.append(child);
-  return node;
-}
-
 interface Rect {
   x: number;
   y: number;
@@ -74,6 +65,8 @@ interface Rect {
 /** The preview shows the body with room around it for swung tools and wide hats. */
 const HERO: Rect = { x: 10, y: 6, w: 44, h: 54 };
 const FACE: Rect = { x: BODY_WINDOW.x + 7, y: BODY_WINDOW.y + 12, w: 18, h: 11 };
+/** The whole head with the neck, for the head shape pictures. */
+const HEAD: Rect = { x: BODY_WINDOW.x + 3, y: BODY_WINDOW.y + 1, w: 26, h: 26 };
 
 function setPixel(image: ImageData, x: number, y: number, hex: string): void {
   const o = (y * image.width + x) * 4;
@@ -168,33 +161,40 @@ function fromPixels(pixels: { x: number; y: number; hex: string }[]): HTMLCanvas
 }
 
 /** A picture of the current character with one thing changed, cropped to a region. */
-function regionPicture(change: (draft: State) => void, crop: Rect, underwear = true): HTMLCanvasElement {
+function regionPicture(change: (draft: State) => void, crop: Rect, underwear = true, box = crop === BODY_WINDOW ? 96 : 60): HTMLCanvasElement {
   const draft = structuredClone(state);
   change(draft);
   const canvas = h('canvas', { class: 'thumb', width: String(crop.w), height: String(crop.h) });
   paint(canvas, standing(draft, underwear), crop);
-  return fit(canvas, crop === BODY_WINDOW ? 96 : 60);
+  return fit(canvas, box);
 }
 
 // ------------------------------------------------------------------ interface
 
 const root = document.getElementById('wardrobe')!;
-const stage = h('div', { class: 'stage__ground' });
-const facingRow = h('div', { class: 'facings', role: 'group' });
-const actionRow = h('div', { class: 'chips', role: 'group' });
-const groundRow = h('div', { class: 'chips', role: 'group' });
-// The condition is a slider. It is built once and never replaced, so a drag is not interrupted.
+const stage = h('div', { class: 'stage' });
+const stageTag = h('span', { class: 'stage__tag' });
+// The sliders are built once and never replaced, so a drag is not interrupted.
+const sideSlider = h('input', { type: 'range', class: 'slider', min: '0', max: '3', step: '1' });
+const sideValue = h('b');
 const wearSlider = h('input', { type: 'range', class: 'slider', min: '0', max: String(WEAR_MAX), step: '0.25' });
-const wearValue = h('output', { class: 'slider__value' });
+const wearValue = h('b');
 const wearName = (level: Wear) => t(`wear.${Math.round(level)}` as Key);
-const moodRow = h('div', { class: 'chips', role: 'group' });
-const tabRow = h('nav', { class: 'tabs', role: 'tablist' });
-const panel = h('div', { class: 'panel__body', role: 'tabpanel' });
+const facingName = (at: Facing) => t(`facing.${at}` as Key);
+const previewRows = h('div', { class: 'sec__body' });
+const tabSlot = h('div');
+const panel = h('div', { class: 'library__body', role: 'tabpanel' });
+// A little hop for every pick in the library.
+panel.addEventListener('click', (e) => (e.target as Element).closest('button') && cheer(stage));
+const barSlot = h('div', { style: 'display: contents' });
+const name = nameTag();
+name.onRename((value) => renameThing(value));
+let message = '';
 
-// Saved characters: a list on this device, shared with the scene editor. The working character
-// above is saved on every change as before; the list keeps named copies of it.
-const rosterRow = h('div', { class: 'chips', role: 'group' });
-const rosterStatus = h('p', { class: 'note', 'aria-live': 'polite' });
+const TAB_ICONS: Record<TabId, IconName> = { body: 'body', face: 'face', hair: 'scissors', beard: 'beard', hat: 'hat', top: 'shirt', bottom: 'trousers', shoes: 'shoes', tool: 'hand' };
+
+// My things: saved characters on this device, shared with the scene editor. The working character
+// is kept on every change as before; while a saved one is picked, changes go straight into it.
 const CURRENT_KEY = 'castaway-characters-current';
 let roster = loadRoster();
 let currentId: string | null = null;
@@ -204,6 +204,9 @@ try {
   // Without storage nothing is selected.
 }
 if (!roster.some((c) => c.id === currentId)) currentId = roster.length === 1 ? roster[0].id : null;
+const current = () => roster.find((c) => c.id === currentId);
+// Opening the wardrobe shows the character picked in My things, even if the draft moved on.
+if (current()) state = cleanState(structuredClone(current()!.state));
 
 function setCurrent(id: string | null): void {
   currentId = id;
@@ -215,53 +218,115 @@ function setCurrent(id: string | null): void {
   }
 }
 
-function storeRoster(message: string): void {
-  rosterStatus.textContent = saveRoster(roster) ? message : t('saved.fail');
+/** Stores the list; a refusal is shown in the bar, since it is the one thing that loses work. */
+function storeRoster(note = ''): void {
+  message = saveRoster(roster) ? note : t('saved.fail');
+}
+
+const undo = history(() => state, (value) => {
+  state = value;
+  persist();
+  render();
+});
+
+/** Keeps the working character and, if one is picked, its entry in My things. */
+function persist(): void {
+  version++;
+  saveState();
+  const saved = current();
+  if (saved) {
+    saved.state = structuredClone(state);
+    storeRoster(message === t('saved.fail') ? '' : message);
+  }
+}
+
+function changed(): void {
+  undo.commit();
+  message = '';
+  persist();
   render();
 }
 
-function saveAs(): void {
-  const name = prompt(t('saved.name'), roster.find((c) => c.id === currentId)?.name ?? t('saved.default'))?.trim().slice(0, 40);
-  if (!name) return;
-  const saved: Saved = { id: newId(), name, state: structuredClone(state) };
+function addThing(name: string, from: State, note: string): void {
+  const saved: Saved = { id: newId(), name, state: structuredClone(from) };
   roster.push(saved);
   setCurrent(saved.id);
-  storeRoster(t('saved.ok', { name }));
+  storeRoster(note);
 }
 
-function saveCurrent(): void {
-  const saved = roster.find((c) => c.id === currentId);
-  if (!saved) return saveAs();
-  saved.state = structuredClone(state);
-  storeRoster(t('saved.ok', { name: saved.name }));
+function nextName(): string {
+  const base = t('saved.default');
+  for (let n = roster.length + 1; ; n++) {
+    const name = t('saved.numbered', { name: base, n });
+    if (!roster.some((c) => c.name === name)) return name;
+  }
 }
 
-function deleteCurrent(): void {
-  const saved = roster.find((c) => c.id === currentId);
+/** New: pick one of three rolled characters, straight into My things. */
+function newThing(): void {
+  pickStart(() => [...NAMES].sort(() => Math.random() - 0.5).slice(0, 3).map((name) => {
+    const look = roll();
+    return {
+      label: name,
+      picture: regionPicture((d) => Object.assign(d, look), BODY_WINDOW, true, 120),
+      choose: () => {
+        state = look;
+        addThing(name, look, '');
+        undo.reset();
+        persist();
+        render();
+        cheer(stage);
+      },
+    };
+  }));
+}
+
+function copyThing(): void {
+  const saved = current();
+  addThing(saved ? t('saved.copyOf', { name: saved.name }) : nextName(), state, '');
+  render();
+}
+
+/** Renames the picked character, or keeps this one in My things under that name. */
+function renameThing(name: string): void {
+  const saved = current();
+  if (saved) {
+    if (saved.name === name) return;
+    saved.name = name.slice(0, 40);
+    storeRoster('');
+  } else addThing(name.slice(0, 40), state, '');
+  render();
+}
+
+function deleteThing(): void {
+  const saved = current();
   if (!saved || !confirm(t('saved.confirmDelete', { name: saved.name }))) return;
   roster = roster.filter((c) => c !== saved);
   setCurrent(null);
   storeRoster('');
+  render();
 }
 
-async function importCharacter(): Promise<void> {
+async function importThing(): Promise<void> {
   let saved: Saved;
   try {
     saved = readCharacterFile(await pickFile());
   } catch {
-    rosterStatus.textContent = t('saved.badFile');
+    message = t('saved.badFile');
+    render();
     return;
   }
   roster.push(saved);
   setCurrent(saved.id);
   state = structuredClone(saved.state);
-  saveState();
-  version++;
+  undo.reset();
+  persist();
   storeRoster(t('saved.imported', { name: saved.name }));
+  render();
 }
 
-function rosterControls(): Node[] {
-  const select = h('select', { class: 'chip', 'aria-label': t('saved.pick') },
+function thingsPicker(): HTMLSelectElement {
+  const select = h('select', { class: 'select bar__things', 'aria-label': t('things') },
     h('option', { value: '' }, t('saved.none')),
     ...roster.map((c) => h('option', { value: c.id }, c.name)),
   );
@@ -270,39 +335,44 @@ function rosterControls(): Node[] {
     const saved = roster.find((c) => c.id === select.value);
     setCurrent(saved?.id ?? null);
     if (saved) state = structuredClone(saved.state);
-    rosterStatus.textContent = '';
-    changed();
+    message = '';
+    undo.reset();
+    version++;
+    saveState();
+    render();
   });
-  const button = (label: string, onClick: () => void, disabled = false) => {
-    const b = h('button', { type: 'button', class: 'chip' }, label);
-    b.disabled = disabled;
-    b.addEventListener('click', onClick);
-    return b;
-  };
-  const current = roster.find((c) => c.id === currentId);
-  return [
-    select,
-    button(t('saved.save'), saveCurrent),
-    button(t('saved.saveAs'), saveAs),
-    button(t('saved.delete'), deleteCurrent, !current),
-    button(t('saved.export'), () => download(`${current?.name ?? t('saved.default')}.json`, characterFile({ id: '', name: current?.name ?? t('saved.default'), state }))),
-    button(t('saved.import'), () => void importCharacter()),
-  ];
+  return select;
 }
 
-function chip(label: string, pressed: boolean, onClick: () => void): HTMLButtonElement {
-  const button = h('button', { type: 'button', class: 'chip', 'aria-pressed': String(pressed) }, label);
-  button.addEventListener('click', onClick);
-  return button;
+function renderBar(): void {
+  const saved = current();
+  const paintCount = CATALOG.filter((e) => e.format === 'paint').length;
+  const { bar, undo: undoButton, redo: redoButton, pops } = topBar({
+    tool: 'wardrobe',
+    title: word('wardrobe'),
+    about: [t('lede'), t('foot.items', { count: CATALOG.length, paint: paintCount, recipe: CATALOG.length - paintCount }), t('foot.rules'), t('foot.base')],
+    things: thingsPicker(),
+    more: [
+      { label: t('saved.new'), icon: 'plus', run: newThing },
+      { label: saved ? t('saved.copy') : t('saved.keep'), icon: 'copy', run: copyThing },
+      { label: t('reset'), icon: 'reset', run: () => { state = defaultState(); changed(); } },
+      { label: t('saved.export'), icon: 'download', run: () => download(`${saved?.name ?? t('saved.default')}.json`, characterFile({ id: '', name: saved?.name ?? t('saved.default'), state })) },
+      { label: t('saved.import'), icon: 'upload', run: () => void importThing() },
+      { label: t('saved.delete'), icon: 'trash', run: deleteThing, danger: true, disabled: !saved },
+    ],
+    status: h('span', { class: 'bar__status', 'aria-live': 'polite' }, message || (saved ? t('things.current') : '')),
+    undo: undo.undo,
+    redo: undo.redo,
+    shuffle: () => shuffle(),
+    relabel: () => {
+      mount();
+      render();
+    },
+  });
+  undoButton!.disabled = !undo.canUndo();
+  redoButton!.disabled = !undo.canRedo();
+  barSlot.replaceChildren(bar, ...pops);
 }
-
-function changed(): void {
-  version++;
-  saveState();
-  render();
-}
-
-const section = (title: string, ...children: Child[]) => h('section', { class: 'group' }, h('h3', {}, title), ...children);
 
 function swatches(title: string, keys: (PaletteKey | null)[], selected: PaletteKey | null, pick: (key: PaletteKey | null) => void, ownLabel = t('color.original')): HTMLElement {
   const row = h('div', { class: 'swatches' });
@@ -379,18 +449,11 @@ function bodyPanel(): HTMLElement[] {
       changed();
     }));
   }
-  const gender = h('div', { class: 'chips', role: 'group', 'aria-label': t('gender') },
-    chip(t('gender.m'), state.frame === 'm', () => {
-      state.frame = 'm';
-      state.face.lashes = false;
-      changed();
-    }),
-    chip(t('gender.f'), state.frame === 'f', () => {
-      state.frame = 'f';
-      state.face.lashes = true;
-      changed();
-    }),
-  );
+  const gender = segmented(t('gender'), [{ id: 'm' as const, label: t('gender.m') }, { id: 'f' as const, label: t('gender.f') }], state.frame, (frame) => {
+    state.frame = frame;
+    state.face.lashes = frame === 'f';
+    changed();
+  }, 'seg seg--fit');
   return [
     section(t('gender'), gender),
     swatches(t('skin'), SKIN_KEYS, state.skin, (key) => {
@@ -417,18 +480,26 @@ function facePanel(): HTMLElement[] {
     }
     return section(title, grid);
   };
-  const toggle = (label: string, key: 'blush' | 'freckles' | 'glasses' | 'lashes') => chip(label, face[key], () => {
+  const flip = (label: string, key: 'blush' | 'freckles' | 'glasses' | 'lashes') => toggle(label, face[key], () => {
     face[key] = !face[key];
     changed();
   });
+  const shapes = h('div', { class: 'grid grid--small' }, ...HEAD_SHAPES.map((shape) => card(t(`headShape.${shape}` as Key), (face.shape ?? 'round') === shape, regionPicture((d) => {
+    bald(d);
+    d.face = { ...d.face, shape };
+  }, HEAD), () => {
+    face.shape = shape;
+    changed();
+  })));
   return [
+    section(t('headShape'), shapes),
     options(t('eyes'), 'eyes', EYE_SHAPES),
     swatches(t('eyeColor'), EYE_COLORS, face.eyeColor, (key) => {
       face.eyeColor = key;
       changed();
     }, t('eyeColor.dark')),
     options(t('brows'), 'brows', BROWS),
-    section(t('details'), h('div', { class: 'chips' }, toggle(t('blush'), 'blush'), toggle(t('freckles'), 'freckles'), toggle(t('lashes'), 'lashes'), toggle(t('glasses'), 'glasses'))),
+    section(t('details'), h('div', { class: 'toggles' }, flip(t('blush'), 'blush'), flip(t('freckles'), 'freckles'), flip(t('lashes'), 'lashes'), flip(t('glasses'), 'glasses'))),
     // The frame colour only matters while glasses are worn.
     face.glasses && swatches(t('glassesColor'), GLASSES_COLORS, face.glassesColor ?? 'black', (key) => {
       face.glassesColor = key ?? 'black';
@@ -463,16 +534,16 @@ function hairPanel(): HTMLElement[] {
   ];
 }
 
-function shuffle(): void {
-  const pick = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
+/** A whole new random look. Condition, mood and ground are kept, so one can shuffle through neat passengers or castaways. */
+function roll(): State {
   const next = defaultState();
   next.skin = pick(SKIN_KEYS);
   next.build = pick(BUILDS).id;
   next.frame = pick(['m', 'f'] as const);
-  // The condition is kept, so one can shuffle through neat passengers or through castaways.
   next.wear = state.wear;
   next.mood = state.mood;
   next.face = {
+    shape: pick(HEAD_SHAPES),
     eyes: pick(EYE_SHAPES), eyeColor: pick(EYE_COLORS), brows: pick(BROWS),
     blush: Math.random() < 0.6, freckles: Math.random() < 0.25, glasses: Math.random() < 0.15, glassesColor: pick(GLASSES_COLORS), lashes: next.frame === 'f',
   };
@@ -491,21 +562,63 @@ function shuffle(): void {
     if (entry && slot !== 'beard' && entry.colors.length && Math.random() < 0.35) next.colors[slot] = { [entry.colors[0]]: pick(CLOTH_KEYS) };
   }
   next.ground = state.ground;
-  state = next;
+  return next;
+}
+
+/** What each tab owns in the state, so a tab can be shuffled alone or kept when shuffling all. */
+function takeTab(into: State, from: State, id: TabId): void {
+  if (id === 'body') Object.assign(into, { frame: from.frame, skin: from.skin, build: from.build }), (into.face.lashes = from.face.lashes);
+  else if (id === 'face') into.face = structuredClone(from.face);
+  else if (id === 'hair') Object.assign(into, { hair: from.hair, hairColor: from.hairColor });
+  else {
+    into.worn[id] = from.worn[id];
+    if (from.colors[id]) into.colors[id] = structuredClone(from.colors[id]);
+    else delete into.colors[id];
+    if (id === 'beard') into.beardColor = from.beardColor;
+  }
+}
+
+const locked = new Set<TabId>();
+
+function shuffle(only?: TabId): void {
+  const next = roll();
+  if (only) {
+    const kept = structuredClone(state);
+    takeTab(kept, next, only);
+    state = kept;
+  } else {
+    for (const id of locked) takeTab(next, state, id);
+    state = next;
+  }
   changed();
+  cheer(stage);
+}
+
+
+
+
+function setFacing(next: Facing): void {
+  facing = next;
+  sideSlider.value = String(facing);
+  sideSlider.setAttribute('aria-valuetext', facingName(facing));
+  sideValue.textContent = stageTag.textContent = facingName(facing);
 }
 
 function render(): void {
   stage.style.setProperty('--ground', GROUNDS.find((g) => g.id === state.ground)!.color);
+  renderBar();
+  setFacing(facing);
 
-  tabRow.replaceChildren(...TABS.map((id) => {
-    const button = h('button', { type: 'button', class: 'tab', role: 'tab', 'aria-selected': String(id === tab) }, t(`tab.${id}` as Key));
-    button.addEventListener('click', () => {
-      tab = id;
-      render();
-    });
-    return button;
-  }));
+  tabSlot.replaceChildren(tabs(t('sections'), TABS.map((id) => ({ id, label: t(`tab.${id}` as Key), icon: TAB_ICONS[id] })), tab, (id) => {
+    tab = id;
+    panel.scrollTop = 0;
+    render();
+  }, locked, tabTools(() => shuffle(tab), locked.has(tab), () => {
+    if (!locked.delete(tab)) locked.add(tab);
+    render();
+  })));
+  const saved = current();
+  name.set(saved?.name ?? '', t('saved.none'));
   const scroll = panel.scrollTop;
   panel.replaceChildren(...(tab === 'body' ? bodyPanel() : tab === 'face' ? facePanel() : tab === 'hair' ? hairPanel() : slotPanel(tab)));
   panel.scrollTop = scroll;
@@ -513,21 +626,29 @@ function render(): void {
   wearSlider.value = String(state.wear);
   wearSlider.setAttribute('aria-valuetext', wearName(state.wear));
   wearValue.textContent = wearName(state.wear);
-  moodRow.replaceChildren(...MOODS.map((mood) => chip(t(`mood.${mood}` as Key), mood === state.mood, () => {
-    state.mood = mood;
-    changed();
-  })));
-  actionRow.replaceChildren(...Object.keys(CLIPS).map((key) => chip(t(`clip.${key}` as Key), key === clipKey, () => {
-    clipKey = key;
-    render();
-  })));
-  groundRow.replaceChildren(...GROUNDS.map((g) => chip(t(`ground.${g.id}` as Key), g.id === state.ground, () => {
-    state.ground = g.id;
-    saveState();
-    render();
-  })));
-  [...facingRow.children].forEach((button, i) => button.setAttribute('aria-pressed', String(i === facing)));
-  rosterRow.replaceChildren(...rosterControls());
+  const actions = Object.keys(CLIPS).map((id) => ({ id, label: t(`clip.${id}` as Key) }));
+  previewRows.replaceChildren(
+    row(t('facing'), sideSlider, sideValue),
+    row(t('wear'), wearSlider, wearValue),
+    row(t('mood'), segmented(t('mood'), MOODS.map((mood) => ({ id: mood, label: t(`mood.${mood}` as Key), icon: `mood.${mood}` as IconName })), state.mood, (mood) => {
+      state.mood = mood;
+      changed();
+    }), t(`mood.${state.mood}` as Key)),
+    row(t('action'), segmented(t('action'), actions, clipKey, (id) => {
+      clipKey = id;
+      paused = false;
+      render();
+    })),
+    // Unticked holds the frame shown.
+    row('', checkbox(word('animate'), !paused, (on) => {
+      paused = !on;
+    })),
+    row(t('ground'), segmented(t('ground'), GROUNDS.map((g) => ({ id: g.id, label: t(`ground.${g.id}` as Key) })), state.ground, (id) => {
+      state.ground = id;
+      saveState();
+      render();
+    })),
+  );
 }
 
 /** Builds the page. Called again when the language changes, since every label is rebuilt. */
@@ -535,79 +656,26 @@ function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
   live.length = 0;
-  facingRow.replaceChildren();
-  stage.replaceChildren();
-  root.replaceChildren();
-  facingRow.setAttribute('aria-label', t('facing'));
-  actionRow.setAttribute('aria-label', t('action'));
-  groundRow.setAttribute('aria-label', t('ground'));
+  sideSlider.setAttribute('aria-label', t('facing'));
   wearSlider.setAttribute('aria-label', t('wear'));
-  moodRow.setAttribute('aria-label', t('mood'));
-  tabRow.setAttribute('aria-label', t('sections'));
-
-  FACING_NAMES.forEach((_, i) => {
-    const name = t(`facing.${i}` as Key);
-    const button = h('button', { type: 'button', class: 'facing', 'aria-pressed': 'false', 'aria-label': t('facing.to', { name }) },
-      liveView('sprite sprite--small', () => i as Facing, BODY_WINDOW),
-      h('span', {}, name),
-    );
-    button.addEventListener('click', () => {
-      facing = i as Facing;
-      render();
-    });
-    facingRow.append(button);
-  });
-  stage.append(liveView('sprite sprite--hero', () => facing, HERO));
-
-  const shuffleButton = h('button', { type: 'button', class: 'button button--primary', id: 'shuffle' }, t('shuffle'));
-  shuffleButton.addEventListener('click', shuffle);
-  const resetButton = h('button', { type: 'button', class: 'button', id: 'reset' }, t('reset'));
-  resetButton.addEventListener('click', () => {
-    state = defaultState();
-    changed();
-  });
-  const languages = h('div', { class: 'langs', role: 'group', 'aria-label': t('language') },
-    ...LANGS.map((l) => {
-      const button = h('button', { type: 'button', class: 'lang', 'aria-pressed': String(l.id === currentLang()), lang: l.id, title: l.name }, l.label);
-      button.addEventListener('click', () => {
-        if (l.id === currentLang()) return;
-        setLang(l.id);
-        mount();
-        render();
-      });
-      return button;
-    }),
-  );
-
-  const paintCount = CATALOG.filter((e) => e.format === 'paint').length;
-  root.append(
-    h('main', { class: 'app' },
-      h('header', { class: 'top' },
-        h('div', { class: 'top__text' },
-          h('a', { class: 'home-link', href: '../' }, t('home')),
-          h('h1', {}, t('title')),
-          h('p', { class: 'lede' }, t('lede')),
-        ),
-        h('div', { class: 'top__actions' }, languages, shuffleButton, resetButton),
-      ),
-      h('section', { class: 'stage', 'aria-label': t('preview') },
-        h('div', { class: 'stage__view' }, stage, facingRow),
-        h('div', { class: 'row row--slider' }, h('h3', {}, t('wear')), wearSlider, wearValue),
-        h('div', { class: 'row' }, h('h3', {}, t('mood')), moodRow),
-        h('div', { class: 'row' }, h('h3', {}, t('action')), actionRow),
-        h('div', { class: 'row' }, h('h3', {}, t('ground')), groundRow),
-        h('div', { class: 'row' }, h('h3', {}, t('saved')), rosterRow),
-        rosterStatus,
-      ),
-      h('section', { class: 'panel', 'aria-label': t('wardrobe') }, tabRow, panel),
-      h('footer', { class: 'foot' },
-        h('p', {}, t('foot.items', { count: CATALOG.length, paint: paintCount, recipe: CATALOG.length - paintCount })),
-        h('p', {}, t('foot.rules')),
-        h('p', {}, t('foot.base')),
+  const hero = liveView('stage__sprite', () => facing, HERO);
+  hero.style.cssText = `--w: ${HERO.w}; --h: ${HERO.h}`;
+  stage.replaceChildren(hero, stageTag, name.el, snapButton(() => savePicture(hero, current()?.name ?? t('saved.default'))));
+  const preview = h('details', { class: 'sec' }, h('summary', {}, word('preview')), previewRows);
+  preview.open = true;
+  root.replaceChildren(
+    h('div', { class: 'shell' },
+      barSlot,
+      h('main', { class: 'shell__main' },
+        h('section', { class: 'preview', 'aria-label': t('preview') }, stage, preview),
+        h('section', { class: 'library', 'aria-label': t('wardrobe') }, tabSlot, panel),
       ),
     ),
   );
 }
+
+sideSlider.addEventListener('input', () => setFacing(Number(sideSlider.value) as Facing));
+dragToTurn(stage, (step) => setFacing(((facing + step + 4) % 4) as Facing));
 
 // While dragging, only the preview follows; the item pictures are redrawn on release.
 wearSlider.addEventListener('input', () => {
@@ -619,12 +687,10 @@ wearSlider.addEventListener('input', () => {
 wearSlider.addEventListener('change', changed);
 
 window.addEventListener('keydown', (event) => {
-  if (event.target instanceof HTMLInputElement) return;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-    facing = ((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing;
-    render();
-  }
+  if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey) return;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') setFacing(((facing + (event.key === 'ArrowRight' ? 1 : 3)) % 4) as Facing);
 });
+undoKeys(undo.undo, undo.redo);
 
 if (import.meta.env.DEV) {
   // A new item without a translated name still works; this only points it out while developing.
@@ -637,7 +703,7 @@ if (import.meta.env.DEV) {
 mount();
 render();
 
-const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let ticks = 0;
 let look = lookOf(state);
 let lookVersion = version;
 const frames = new Map<string, Sprite>();
@@ -648,7 +714,8 @@ const tick = (ms: number) => {
     frames.clear();
   }
   const clip = CLIPS[clipKey];
-  const frame = still ? 0 : Math.floor((ms / 1000) * clip.rate) % clip.frames.length;
+  if (!paused) ticks = ms;
+  const frame = Math.floor((ticks / 1000) * clip.rate) % clip.frames.length;
   for (const view of live) {
     const at = view.facing();
     const key = `${version}|${clipKey}|${at}|${frame}`;

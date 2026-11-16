@@ -7,6 +7,8 @@
 // Writes atlas-<n>.png pages and atlas.json:
 //   frames:     name -> { page, x, y, w, h, pivot: [x, y] }   pivot = the pixel on the ground
 //   animations: name -> { fps, frames: [frame names] }
+//   anchors:    animal frame name -> { eye: [x, y, visible], ... }   from the pivot, for symptom overlays;
+//               object frame name -> { bed: [x, y, visible], ... }  (the pivot is the middle of the footprint)
 // Each frame is trimmed to what it paints. Identical frames are stored once (hard plants have no
 // wind frames to speak of, mirrored character facings are not mirrored here: flip the quad).
 // Ground shadows are separate frames ending in "/shadow": draw them all into one shadow layer
@@ -18,6 +20,10 @@ import { tryPlant, grow, drawPlant, FRAMES, SHADOW } from '../flora.ts';
 import { drawCharacter, BUILDS } from '../puppet.ts';
 import { AUTHORED } from '../poses.ts';
 import { baseLook } from '../base.ts';
+import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, CLIP_IDS, drawAnimal, isShadow } from '../animal.ts';
+import { PRESETS } from '../animal-presets.ts';
+import { drawObject, framesOf, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_W, isShadow as isObjectShadow } from '../object.ts';
+import { OBJECT_PRESETS } from '../object-presets.ts';
 
 const [outDir = 'dist-bake', pageArg = '1024'] = process.argv.slice(2);
 const PAGE = Number(pageArg);
@@ -99,6 +105,41 @@ for (const [clipId, clip] of Object.entries(AUTHORED)) {
   add('character/shadow', trim(64, 64, (x, y) => (sprite.get(x, y) === SHADOW ? '#000000' : null), { x: 32, y: 52 }));
 }
 
+// ---- animals: every preset in every clip and facing, with the anchor points of each frame
+const anchors = {};
+for (const { id, animal } of PRESETS) {
+  for (const clipId of CLIP_IDS) {
+    for (const facing of [0, 1, 2, 3]) {
+      const list = [];
+      for (let i = 0; i < CLIPS[clipId].frames; i++) {
+        const drawn = drawAnimal(animal, clipId, i, facing);
+        const name = `animal/${id}/${clipId}/${facing}/${i}`;
+        list.push(add(name, trim(ANIMAL_W, ANIMAL_H, (x, y) => { const c = drawn.sprite.get(x, y); return isShadow(c) ? null : c; }, ANIMAL_ORIGIN)));
+        anchors[name] = Object.fromEntries(Object.entries(drawn.anchors).map(([k, a]) => [k, [a.x - ANIMAL_ORIGIN.x, a.y - ANIMAL_ORIGIN.y, a.visible]]));
+      }
+      animations[`animal/${id}/${clipId}/${facing}`] = { fps: CLIPS[clipId].rate, frames: list };
+    }
+  }
+  const { sprite } = drawAnimal(animal, 'idle', 0, 0);
+  add(`animal/${id}/shadow`, trim(ANIMAL_W, ANIMAL_H, (x, y) => (isShadow(sprite.get(x, y)) ? '#000000' : null), ANIMAL_ORIGIN));
+}
+
+// ---- objects: every preset in every camera turn and frame, with its points per frame
+for (const { id, prop } of OBJECT_PRESETS) {
+  for (const turn of [0, 1, 2, 3]) {
+    const list = [];
+    for (let i = 0; i < framesOf(prop); i++) {
+      const drawn = drawObject(prop, turn, i);
+      const name = `object/${id}/${turn}/${i}`;
+      list.push(add(name, trim(OBJECT_W, OBJECT_H, (x, y) => { const c = drawn.sprite.get(x, y); return isObjectShadow(c) ? null : c; }, OBJECT_ORIGIN)));
+      if (prop.points.length) anchors[name] = Object.fromEntries(Object.entries(drawn.points).map(([k, a]) => [k, [a.x - OBJECT_ORIGIN.x, a.y - OBJECT_ORIGIN.y, a.visible]]));
+    }
+    animations[`object/${id}/${turn}`] = { fps: LOOP_RATE, frames: list };
+    const { sprite } = drawObject(prop, turn, 0);
+    add(`object/${id}/${turn}/shadow`, trim(OBJECT_W, OBJECT_H, (x, y) => (isObjectShadow(sprite.get(x, y)) ? '#000000' : null), OBJECT_ORIGIN));
+  }
+}
+
 // ---- pack: tallest first onto shelves, 1 pixel apart
 const unique = [...frames.entries()].filter(([, f]) => !f.alias).sort((a, b) => b[1].h - a[1].h || b[1].w - a[1].w);
 const pages = [];
@@ -126,6 +167,6 @@ for (const [name, f] of frames) out[name] = f.alias ? placed[f.alias] : placed[n
 
 fs.mkdirSync(outDir, { recursive: true });
 pages.forEach((p, i) => fs.writeFileSync(path.join(outDir, `atlas-${i}.png`), PNG.sync.write(p)));
-fs.writeFileSync(path.join(outDir, 'atlas.json'), JSON.stringify({ pageSize: PAGE, pages: pages.length, frames: out, animations }));
+fs.writeFileSync(path.join(outDir, 'atlas.json'), JSON.stringify({ pageSize: PAGE, pages: pages.length, frames: out, animations, anchors }));
 const pixels = unique.reduce((n, [, f]) => n + f.w * f.h, 0);
 console.log(`${frames.size} frames, ${unique.length} unique, ${pages.length} page(s) of ${PAGE}², ${Math.round((100 * pixels) / (pages.length * PAGE * PAGE))}% filled`);

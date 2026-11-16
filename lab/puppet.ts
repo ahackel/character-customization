@@ -92,6 +92,8 @@ export interface Item {
   head?: StampPair;
   /** Drawn behind the body when seen from the front, for long hair. */
   headBehind?: StampPair;
+  /** A beard kept short, such as stubble: wear does not let it grow. */
+  short?: boolean;
   /** Shirt body, waistband, skirt: rigid on the chest. */
   torso?: StampPair;
   /** Sleeve colours from shoulder (first) to hand (last). null leaves the arm bare. */
@@ -126,14 +128,18 @@ export interface Build {
   torso: 7 | 9 | 11;
   arm: number;
   leg: number;
-  /** Pixels the belly stands out in front of the torso. */
-  belly?: number;
+  /** Extra pixels of width for the head and neck, with everything worn on the head. */
+  head?: number;
+  /** No waist: the feminine hourglass is left out, the torso stays straight. */
+  straight?: boolean;
+  /** One more row of jaw under the face, like a double chin. */
+  chin?: boolean;
 }
 
 export const BUILDS: Build[] = [
   { id: 'thin', label: 'Very slim', torso: 7, arm: 2, leg: 3 },
   { id: 'slim', label: 'Slim', torso: 9, arm: 3, leg: 4 },
-  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 3, leg: 5, belly: 2 },
+  { id: 'sturdy', label: 'Sturdy', torso: 11, arm: 4, leg: 5, head: 2, straight: true, chin: true },
 ];
 
 export interface Look {
@@ -188,39 +194,75 @@ interface Layer {
   draw: () => void;
 }
 
+/** A stamp made wider by repeating one column `times` times. */
+export function widened(stamp: Stamp, col: number, times: number): Stamp {
+  return stamp.map((row) => [...row.slice(0, col + 1), ...Array<Cell | null>(times).fill(row[col] ?? null), ...row.slice(col + 1)]);
+}
+
 function stampInto(sprite: Sprite, stamp: Stamp, frame: { ax: number; ay: number }, x: number, y: number): void {
   for (let row = 0; row < stamp.length; row++) {
     const cells = stamp[row];
     for (let col = 0; col < cells.length; col++) {
       const cell = cells[col];
-      if (cell) sprite.set(x + col - frame.ax, y + row - frame.ay, hexOf(cell));
+      if (!cell) continue;
+      const px = x + col - frame.ax;
+      const py = y + row - frame.ay;
+      if (!cell.mix) sprite.set(px, py, hexOf(cell));
+      else {
+        // See-through cells only tint what is under them, and nothing where nothing is.
+        const under = sprite.get(px, py);
+        if (under) sprite.set(px, py, mixed(under, hexOf(cell), cell.mix));
+      }
     }
   }
 }
 
+/** `over` laid on `under` at strength `k`, as #rrggbb. */
+export function mixed(under: string, over: string, k: number): string {
+  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return '#' + [0, 1, 2].map((i) => Math.round(channel(under, i) * (1 - k) + channel(over, i) * k).toString(16).padStart(2, '0')).join('');
+}
+
 /**
- * Draws a limb through its joints as clean pixel runs: one run of `width` pixels per step along
- * the longer axis, never an anti-aliased or rotated shape. `colorAt` gets the position along
- * the limb from 0 to 1 and the index across it.
+ * Draws a limb through its joints as clean pixel runs: one run per step along the longer axis,
+ * never an anti-aliased or rotated shape. A slanted segment gets longer runs so the limb keeps
+ * its width across, and each bend is filled with a rounded block so it does not notch. `colorAt`
+ * gets the position along the limb from 0 to 1, the index across it, and whether that part runs
+ * up and down (across is then left to right) or sideways (across is then top to bottom).
  */
-function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number) => string): void {
-  let total = 0;
-  for (let i = 1; i < joints.length; i++) {
-    total += Math.max(Math.abs(Math.round(joints[i].x) - Math.round(joints[i - 1].x)), Math.abs(Math.round(joints[i].y) - Math.round(joints[i - 1].y)));
+function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number, tall: boolean) => string): void {
+  const steps = joints.slice(1).map((b, i) => Math.max(Math.abs(Math.round(b.x) - Math.round(joints[i].x)), Math.abs(Math.round(b.y) - Math.round(joints[i].y))));
+  const total = steps.reduce((a, b) => a + b, 0);
+  // The bends first, so the runs drawn after keep their shading across.
+  let done = 0;
+  for (let i = 1; i < joints.length - 1; i++) {
+    done += steps[i - 1];
+    const t = total ? done / total : 0;
+    const x0 = Math.round(joints[i].x - width / 2);
+    const y0 = Math.round(joints[i].y - width / 2);
+    for (let dy = 0; dy < width; dy++) {
+      for (let dx = 0; dx < width; dx++) {
+        const corner = width >= 3 && (dx === 0 || dx === width - 1) && (dy === 0 || dy === width - 1);
+        if (!corner) sprite.set(x0 + dx, y0 + dy, colorAt(t, dx, true));
+      }
+    }
   }
   let step = 0;
   for (let i = 1; i < joints.length; i++) {
     const a = joints[i - 1];
     const b = joints[i];
-    const n = Math.max(Math.abs(Math.round(b.x) - Math.round(a.x)), Math.abs(Math.round(b.y) - Math.round(a.y)));
+    const n = steps[i - 1];
     const tall = Math.abs(b.y - a.y) >= Math.abs(b.x - a.x);
+    const major = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    const run = major ? Math.round((width * Math.hypot(b.x - a.x, b.y - a.y)) / major) : width;
     for (let k = i === 1 ? 0 : 1; k <= n; k++) {
       const x = a.x + (n ? ((b.x - a.x) * k) / n : 0);
       const y = a.y + (n ? ((b.y - a.y) * k) / n : 0);
       const t = total ? step / total : 0;
-      for (let w = 0; w < width; w++) {
-        if (tall) sprite.set(Math.round(x - width / 2) + w, Math.round(y), colorAt(t, w));
-        else sprite.set(Math.round(x), Math.round(y - width / 2) + w, colorAt(t, w));
+      for (let w = 0; w < run; w++) {
+        const across = Math.min(width - 1, Math.floor((w * width) / run));
+        if (tall) sprite.set(Math.round(x - run / 2) + w, Math.round(y), colorAt(t, across, true));
+        else sprite.set(Math.round(x), Math.round(y - run / 2) + w, colorAt(t, across, false));
       }
       step++;
     }
@@ -385,7 +427,9 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
     layers.push({
       depth: knee.depth - 20,
       draw: () => {
-        drawLimb(sprite, [hip, knee, foot], build.leg, (t) => tone(limbPaint('leg', t), far));
+        // One edge stays in shade along the whole leg, the far side or the underside, so it reads as round.
+        drawLimb(sprite, [hip, knee, foot], build.leg, (t, across, tall) =>
+          tone(limbPaint('leg', t), far || (build.leg >= 3 && across === (tall && farSide < 0 ? 0 : build.leg - 1))));
         const shoes = [...ordered].reverse().find((item) => item.foot);
         const upper = shoes?.foot ?? skin;
         const sole = shoes?.sole ?? upper;
@@ -414,39 +458,24 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       const width = build.torso;
       const feminine = look.frame === 'f';
       // The feminine shape is an hourglass. The waist is drawn in on both sides, far enough
-      // that a gap shows between it and the hanging arm.
+      // that a gap shows between it and the hanging arm. A sturdy build stays straight.
       const inset = (row: number): number => {
-        if (!feminine) return 0;
+        if (!feminine || build.straight) return 0;
         const deep = width >= 9 ? 2 : 1;
         if (row >= 5 && row <= 7) return deep;
         return row === 4 || row === 8 ? deep - 1 : 0;
       };
-      // A sturdy build carries a belly: the lower torso stands out on the side the character faces.
-      const bulge = (row: number): number => {
-        // A soft curve that is fullest low down, never more than the build allows.
-        return Math.min(build.belly ?? 0, [0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 0][row] ?? 0);
-      };
-      /** True for a belly pixel with nothing below it: the underside, which is in shade. */
-      const underBelly = (row: number, n: number) => bulge(row + 1) < n;
       /** First and last body column drawn in a torso row. Column 0 is the left edge of the block. */
-      const span = (row: number): [number, number] => {
-        let lo = inset(row);
-        let hi = width - 1 - inset(row);
-        if (bulge(row) && ahead > 0) hi = width - 1 + bulge(row);
-        if (bulge(row) && ahead < 0) lo = -bulge(row);
-        return [lo, hi];
-      };
-      const shaped = feminine || !!build.belly;
+      const span = (row: number): [number, number] => [inset(row), width - 1 - inset(row)];
+      const shaped = feminine;
       for (let y = top; y <= bottom; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
         const [lo, hi] = span(y - top);
         for (let i = lo; i <= hi; i++) {
-          // The far side is in shade, except where the belly stands out into the light.
-          const edge = (farSide > 0 ? i === hi : i === lo) && !(bulge(y - top) && farSide === ahead);
-          // A shadow under the chin and under the belly.
-          const beyond = i < 0 ? -i : i - (width - 1);
-          const under = (y === top && i >= 2 && i <= width - 3) || (beyond > 0 && underBelly(y - top, beyond));
+          // The far side is in shade, and there is a shadow under the chin.
+          const edge = farSide > 0 ? i === hi : i === lo;
+          const under = y === top && i >= 2 && i <= width - 3;
           sprite.set(left + i, y, tone(skin, edge || under));
         }
       }
@@ -455,7 +484,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         // A hint of the spine, so the back is not an empty block.
         for (let dy = 2; dy <= 5; dy++) sprite.set(mid, top + dy, tone(skin, true));
       } else {
-        sprite.set(mid + 1 + (build.belly ? 1 : 0), top + 8, tone(skin, true));
+        sprite.set(mid + 1, top + 8, tone(skin, true));
       }
       const half = (width - 1) / 2;
       const hipRow = TORSO_FRAME.ay + 11;
@@ -464,7 +493,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
         const fit = fitted(side(item.torso), width);
         let stamp = fit.stamp;
         if (shaped) {
-          // Clothing follows the waist and the belly, and gets a soft shadow under the chest.
+          // Clothing follows the waist, and gets a soft shadow under the chest.
           const first = fit.ax - half;
           stamp = stamp.map((row, r) => {
             const bodyRow = r - TORSO_FRAME.ay;
@@ -477,15 +506,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
               if (!back && feminine && bodyRow === 3 && Math.abs(c - fit.ax - farSide) <= 2) return { ...cell, shade: true, light: false };
               return cell;
             });
-            // Cloth that reaches the edge of the body is carried out over the belly.
-            const rim = first + (ahead > 0 ? width - 1 : 0);
-            if (bulge(bodyRow) && out[rim]) {
-              // The edge of the garment is no longer the far edge of the body there.
-              if (farSide === ahead) out[rim] = { ...out[rim]!, shade: false };
-              for (let n = 1; n <= bulge(bodyRow); n++) {
-                if (!out[rim + ahead * n]) out[rim + ahead * n] = { ...out[rim]!, shade: underBelly(bodyRow, n), light: false };
-              }
-            } else if (inset(bodyRow)) {
+            if (inset(bodyRow)) {
               const c = first + (farSide > 0 ? hi : lo);
               if (out[c]) out[c] = { ...out[c]!, shade: true, light: false };
             }
@@ -547,41 +568,63 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
             sprite.set(Math.round(hand.x) + dx, Math.round(hand.y) + dy, hexOf(cell));
           }
         }
-        drawLimb(sprite, [shoulder, elbow, hand], build.arm, (t, across) => {
-          // Where the nearer arm lies over the body, its inner edge is shaded so the two separate.
-          const contact = !far && t < 0.7 && (inner > 0 ? across === build.arm - 1 : across === 0);
+        drawLimb(sprite, [shoulder, elbow, hand], build.arm, (t, across, tall) => {
+          // The nearer arm's inner edge is shaded all along, or its underside where it is held out,
+          // so it separates from the body and reads as round.
+          const contact = !far && (tall ? (inner > 0 ? across === build.arm - 1 : across === 0) : across === build.arm - 1);
           // The outer corner of the shoulder is lit, which rounds it.
           const cap = !far && t === 0 && (inner > 0 ? across === 0 : across === build.arm - 1);
           const cell = limbPaint('arm', t);
           return cap ? hexOf({ ...cell, shade: false, light: true }) : tone(cell, far || contact);
         });
         // Hands are a visible block of skin, drawn over whatever they hold.
-        const left = Math.round(hand.x - 1.5);
+        // As wide as the arm, at least three pixels; the knuckle row is shaded apart from its middle.
+        const handW = Math.max(3, build.arm);
+        const left = Math.round(hand.x - handW / 2);
         const top = Math.round(hand.y) - 1;
         for (let dy = 0; dy < 3; dy++) {
-          for (let dx = 0; dx < 3; dx++) sprite.set(left + dx, top + dy, tone(skin, far || (dy === 2 && dx !== 1)));
+          for (let dx = 0; dx < handW; dx++) sprite.set(left + dx, top + dy, tone(skin, far || (dy === 2 && dx !== 1 && dx !== handW - 2)));
         }
       },
     });
   }
 
-  // ---- head: rigid stamps
+  // ---- head: rigid stamps. A wider build repeats the middle column of the head, hair and hat
+  // stamps so they widen together and stay centred; the face keeps its size in the middle.
   const neck = P(pose.neck);
-  const hx = Math.floor(neck.x);
-  const hy = Math.round(neck.y);
+  const extra = build.head ?? 0;
+  const hx = Math.floor(neck.x) - Math.floor(extra / 2);
+  // The neck is one row shorter than the head stamps draw it: the head sits a row lower and the
+  // neck's lowest row is left out, so it still ends on the shoulders. A double chin already
+  // takes up that row.
+  const lift = build.chin ? 0 : 1;
+  const hy = Math.round(neck.y) + lift;
+  // The jaw row, in the head frame; a double chin repeats it, which moves the chin and neck down.
+  const JAW = 21;
+  const headStamp = (stamp: Stamp): Stamp => {
+    const wide = extra ? widened(stamp, HEAD_FRAME.ax, extra) : stamp;
+    return build.chin ? [...wide.slice(0, JAW + 1), wide[JAW], ...wide.slice(JAW + 1)] : wide;
+  };
+  const face = look.faces[options.face ?? 'neutral'] ?? look.faces.neutral;
+  const bearded = ordered.some((item) => item.slot === 'beard' && item.head);
   layers.push({
     depth: back ? chest.depth + 0.5 : chest.depth - 0.5,
     draw: () => {
-      for (const item of ordered) if (item.headBehind) stampInto(sprite, hairStamp(item, side(item.headBehind)), HEAD_FRAME, hx, hy);
+      for (const item of ordered) if (item.headBehind) stampInto(sprite, headStamp(hairStamp(item, side(item.headBehind))), HEAD_FRAME, hx, hy);
     },
   });
   layers.push({
     depth: chest.depth + 3,
     draw: () => {
-      stampInto(sprite, side(look.head), HEAD_FRAME, hx, hy);
-      if (!back) stampInto(sprite, look.faces[options.face ?? 'neutral'] ?? look.faces.neutral, HEAD_FRAME, hx, hy);
+      stampInto(sprite, headStamp(side(look.head)).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
+      if (!back) stampInto(sprite, face, HEAD_FRAME, Math.floor(neck.x), hy);
       for (const item of ordered) {
-        if (item.head) stampInto(sprite, hairStamp(item, side(item.head)), HEAD_FRAME, hx, hy);
+        if (item.head) stampInto(sprite, headStamp(hairStamp(item, side(item.head))), HEAD_FRAME, hx, hy);
+      }
+      // The mouth shows through any beard, in whatever shape the mood gives it.
+      if (bearded && !back) {
+        const mouth = face.map((row) => row.map((cell) => (cell && (cell.key === 'mouth' || cell.key === 'tooth') ? cell : null)));
+        stampInto(sprite, mouth, HEAD_FRAME, Math.floor(neck.x), hy);
       }
     },
   });

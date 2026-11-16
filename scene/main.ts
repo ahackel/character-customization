@@ -6,35 +6,46 @@ import { FLORA, plantById } from '../lab/flora-catalog.ts';
 import { castShadow, layShadow, ROOM, stamp, type Picture } from '../lab/island.ts';
 import { inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
 import { Actor, EMOTES, type Emote } from '../engine/actor.ts';
+import { Herd } from '../engine/herd.ts';
 import {
   createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPlant, type Scene,
 } from '../engine/scene.ts';
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
-import { ocean, OCEAN_PRESETS, OCEAN_RANGES, saveOcean, useOcean, WATER_COLORS, type OceanColor, type OceanNumber } from '../engine/ocean.ts';
+import { cleanAnimal, CLIPS, drawAnimal, isShadow, type Animal } from '../lab/animal.ts';
+import { PRESETS } from '../lab/animal-presets.ts';
+import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
-import { currentLang, LANGS, setLang, t, type Key } from './i18n.ts';
+import { roundBrush } from '../shared/brush.ts';
+import { button as tap, icon, segmented, topBar, word, type IconName } from '../shared/shell.ts';
+import { currentLang, t, type Key } from './i18n.ts';
 
 // The scene editor: build a scene's ground and plants in Edit, walk around it with a saved
 // character in Play. Scenes, and the editor's own settings, are kept in this browser.
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'erase', 'spawn'] as const;
+const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
+const BRUSH_MAX = 7;
+const TOOL_ICONS: Record<Tool, IconName> = {
+  raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', erase: 'eraser', spawn: 'flag',
+};
 
 interface Prefs {
   mode: 'edit' | 'play';
   tool: Tool;
   /** 0 by height, otherwise `PAINTS[n - 1]`. */
   paint: number;
-  /** Brush size in tiles across: 1, 2 or 3. */
+  /** Brush size in tiles across, 1 to 7; the brush is round. */
   brush: number;
   plant: string;
   /** A `DECOR` id: what the Decor tool lays down. */
   decor: string;
+  /** What the Animal tool sets down: a saved animal's id, or `preset:` and a preset id. */
+  animal: string;
   /** A saved character id, or '' for the default one. */
   character: string;
   /** Which side the scene is seen from: quarter turns, 0 to 3. */
@@ -44,15 +55,16 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, character: '', rot: 0, grid: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', rot: 0, grid: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
     if (TOOLS.includes(saved?.tool)) prefs.tool = saved.tool;
     if (Number.isInteger(saved?.paint) && saved.paint >= 0 && saved.paint <= PAINTS.length) prefs.paint = saved.paint;
-    if ([1, 2, 3].includes(saved?.brush)) prefs.brush = saved.brush;
+    if (Number.isInteger(saved?.brush) && saved.brush >= 1 && saved.brush <= BRUSH_MAX) prefs.brush = saved.brush;
     if (plantById(saved?.plant)) prefs.plant = saved.plant;
     if (decorById(saved?.decor)) prefs.decor = saved.decor;
+    if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
     prefs.grid = saved?.grid === true;
@@ -119,13 +131,6 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, 
   for (const child of children) if (child) node.append(child);
   return node;
 }
-function button(label: string, onClick: () => void, attrs: Record<string, string> = {}): HTMLButtonElement {
-  const b = h('button', { type: 'button', class: 'chip', ...attrs }, label);
-  b.addEventListener('click', onClick);
-  return b;
-}
-const chip = (label: string, pressed: boolean, onClick: () => void, attrs: Record<string, string> = {}) =>
-  button(label, onClick, { 'aria-pressed': String(pressed), ...attrs });
 
 const statusLine = h('p', { class: 'status', 'aria-live': 'polite' });
 let statusTimer = 0;
@@ -191,14 +196,7 @@ let hover: { i: number; j: number } | null = null;
 
 function brushCells(at: { i: number; j: number }, tool = prefs.tool): number[] {
   const size = BRUSHED.includes(tool) ? prefs.brush : 1;
-  const start = -Math.floor((size - 1) / 2);
-  const out: number[] = [];
-  for (let dj = start; dj < start + size; dj++) for (let di = start; di < start + size; di++) {
-    const i = at.i + di;
-    const j = at.j + dj;
-    if (inside(world.map, i, j)) out.push(j * world.map.w + i);
-  }
-  return out;
+  return roundBrush(size).filter(([di, dj]) => inside(world.map, at.i + di, at.j + dj)).map(([di, dj]) => (at.j + dj) * world.map.w + at.i + di);
 }
 
 /** Whether the tool would do nothing on a tile, so the brush shows red there. */
@@ -207,6 +205,8 @@ function cannotEdit(at: { i: number; j: number }): boolean {
     case 'plant':
       return !grows(world.map, prefs.plant, at.i + 0.5, at.j + 0.5);
     case 'spawn':
+      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
+    case 'animal':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'decor':
       return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
@@ -254,6 +254,33 @@ function placeDecor(at: { i: number; j: number }): void {
   world.scene.decor.push({ decor: prefs.decor, ...world.toData({ i, j }) });
 }
 
+/** The animals made in the animal editor, then its presets; read again each time the picker shows, since that editor may be open in another tab. */
+function animalChoices(): { id: string; name: string; animal: Animal }[] {
+  let saved: { id: string; name: string; animal: Animal }[] = [];
+  try {
+    const list = JSON.parse(localStorage.getItem('pixel-animals') ?? '[]');
+    if (Array.isArray(list)) {
+      saved = list.filter((a) => a && typeof a.id === 'string' && typeof a.name === 'string')
+        .map((a) => ({ id: a.id, name: a.name.slice(0, 40), animal: cleanAnimal(a.animal) }));
+    }
+  } catch {
+    // Without storage only the presets are offered.
+  }
+  return [...saved, ...PRESETS.map((p) => ({ ...p, id: `preset:${p.id}` }))];
+}
+
+function placeAnimal(at: { i: number; j: number }): void {
+  if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return say(t('animal.cannot'));
+  const choices = animalChoices();
+  const choice = choices.find((c) => c.id === prefs.animal) ?? choices[0];
+  const i = at.i + 0.5;
+  const j = at.j + 0.5;
+  // An animal set down on another's tile takes its place.
+  const seen = world.viewAnimals();
+  world.scene.animals = world.scene.animals.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
+  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 4) });
+}
+
 /**
  * Applies the tool once to a tile. `stroke.touched` keeps a drag from raising, lowering or
  * painting a tile twice; smoothing works again on every tile the drag enters, and levelling
@@ -289,12 +316,17 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
     case 'decor':
       if (fresh.length) placeDecor(at);
       break;
+    case 'animal':
+      if (fresh.length) placeAnimal(at);
+      break;
     case 'erase': {
       const cells = new Set(brushCells(at));
       const seen = world.viewPlants();
       world.scene.plants = world.scene.plants.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
       const lying = world.viewDecor();
       world.scene.decor = world.scene.decor.filter((_, k) => !cells.has(Math.floor(lying[k].vj) * map.w + Math.floor(lying[k].vi)));
+      const standing = world.viewAnimals();
+      world.scene.animals = world.scene.animals.filter((_, k) => !cells.has(Math.floor(standing[k].vj) * map.w + Math.floor(standing[k].vi)));
       break;
     }
     case 'spawn':
@@ -308,6 +340,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
 
 let roster: Saved[] = [];
 let actor: Actor | null = null;
+let herd: Herd | null = null;
 let target: { i: number; j: number; run: boolean } | null = null;
 
 function characterLook() {
@@ -322,6 +355,7 @@ function startPlay(): void {
     at = world.nearestLand(at.i, at.j);
   }
   actor = new Actor(characterLook(), at);
+  herd = new Herd(world, performance.now());
   target = null;
   // The camera stays where it is, unless the character would start out of sight.
   const p = world.screenOf(at.i, at.j);
@@ -511,6 +545,7 @@ function frame(ms: number): void {
     }
     const before = [actor.i, actor.j];
     actor.update(world, dt, di, dj, run, ms);
+    herd?.update(world, dt, ms);
     // A target that cannot be reached is given up rather than walked against forever.
     if (target && before[0] === actor.i && before[1] === actor.j) target = null;
   } else if (kx || ky) {
@@ -521,10 +556,11 @@ function frame(ms: number): void {
   const view = viewRect();
   const wind = Math.floor((ms / 1000) * 6) % FRAMES;
   const waves = Math.floor(ms / 100);
-  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${hover?.i},${hover?.j}|${prefs.mode}`;
+  const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
+  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
     shown = key;
-    const things: Thing[] = world.plantThings(wind);
+    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined)];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
@@ -569,6 +605,36 @@ function thumb(id: string): HTMLCanvasElement {
   return c;
 }
 
+const animalThumbs = new Map<string, HTMLCanvasElement>();
+/** An animal standing, cropped to what it paints. */
+function animalThumb(animal: Animal): HTMLCanvasElement {
+  const id = JSON.stringify(animal);
+  const known = animalThumbs.get(id);
+  if (known) return known;
+  const { sprite } = drawAnimal(animal, 'idle', 0, 0);
+  let x0 = sprite.w, y0 = sprite.h, x1 = 0, y1 = 0;
+  for (let y = 0; y < sprite.h; y++) for (let x = 0; x < sprite.w; x++) {
+    const c = sprite.get(x, y);
+    if (!c || isShadow(c)) continue;
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+  }
+  const w = Math.max(1, x1 - x0 + 1);
+  const hh = Math.max(1, y1 - y0 + 1);
+  const c = h('canvas', { class: 'plant__picture', width: String(w), height: String(hh) });
+  const g = c.getContext('2d')!;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const color = sprite.get(x, y);
+    if (!color || isShadow(color)) continue;
+    g.fillStyle = color;
+    g.fillRect(x - x0, y - y0, 1, 1);
+  }
+  const scale = Math.min(2, 44 / Math.max(w, hh));
+  c.style.width = `${Math.round(w * scale)}px`;
+  c.style.height = `${Math.round(hh * scale)}px`;
+  animalThumbs.set(id, c);
+  return c;
+}
+
 /** A decoration drawn four times its size on sand, for the picker. */
 function decorThumb(id: string): HTMLCanvasElement {
   const pixels = decorPixels(decorById(id)!);
@@ -585,45 +651,65 @@ function decorThumb(id: string): HTMLCanvasElement {
   return c;
 }
 
-const sceneSelect = h('select', { class: 'chip' });
-const modeRow = h('div', { class: 'chips', role: 'group' });
-const dock = h('div', { class: 'dock' });
+const sceneSelect = h('select', { class: 'select bar__things' });
+const barSlot = h('div', { style: 'display: contents' });
+const gridButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ grid: !prefs.grid }), icon('grid'));
+const dock = h('nav', { class: 'toolbar' });
+const options = h('section', { class: 'opts' });
 
-function row(label: string, ...children: Child[]): HTMLElement {
-  return h('div', { class: 'row' }, h('h3', {}, label), h('div', { class: 'chips' }, ...children));
+/** Pictures to pick from: plants, decorations or animals. */
+function picks<T extends { id: string; name: string; picture: HTMLElement }>(label: string, list: T[], current: string, choose: (id: string) => void): HTMLElement {
+  return h('div', { class: 'plants', role: 'group', 'aria-label': label }, ...list.map((c) => {
+    const b = h('button', { type: 'button', class: 'plant', 'aria-pressed': String(c.id === current), title: c.name, 'aria-label': c.name }, c.picture);
+    b.addEventListener('click', () => choose(c.id));
+    return b;
+  }));
 }
 
-function editPanel(): HTMLElement[] {
-  const out = [row(t('tools'), ...TOOLS.map((tool) => chip(t(`tool.${tool}` as Key), tool === prefs.tool, () => set({ tool }))))];
-  if (prefs.tool === 'paint') out.push(row(t('paint'), ...[0, 1, 2, 3].map((n) => chip(t(`paint.${n}` as Key), n === prefs.paint, () => set({ paint: n })))));
-  if (BRUSHED.includes(prefs.tool)) out.push(row(t('brush'), ...[1, 2, 3].map((n) => chip(`${n}×${n}`, n === prefs.brush, () => set({ brush: n })))));
-  if (prefs.tool === 'plant') {
-    out.push(h('div', { class: 'plants', role: 'group', 'aria-label': t('plants') },
-      ...FLORA.map((e) => {
-        const name = plantName(e.id, e.label);
-        const b = h('button', { type: 'button', class: 'plant', 'aria-pressed': String(e.id === prefs.plant), title: name, 'aria-label': name }, thumb(e.id));
-        b.addEventListener('click', () => set({ plant: e.id }));
-        return b;
-      }),
-    ));
+/** The round brush as a little picture of the tiles it covers. */
+function brushPicture(size: number): HTMLElement {
+  const on = new Set(roundBrush(size).map(([di, dj]) => `${di},${dj}`));
+  const cells: HTMLElement[] = [];
+  for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) cells.push(h('span', { class: on.has(`${di},${dj}`) ? 'brush__cell brush__cell--on' : 'brush__cell' }));
+  return h('span', { class: 'brush', 'aria-hidden': 'true' }, ...cells);
+}
+
+/** The floating options of the chosen tool, over the scene. */
+function editOptions(): Node[] {
+  const tool = prefs.tool;
+  const out: Node[] = [
+    h('div', { class: 'opts__head' }, icon(TOOL_ICONS[tool]), h('b', {}, t(`tool.${tool}` as Key))),
+    h('p', { class: 'opts__tip' }, t(`tip.${tool}` as Key)),
+  ];
+  if (tool === 'paint') {
+    out.push(segmented(t('paint'), [0, 1, 2, 3].map((n) => ({ id: String(n), label: t(`paint.${n}` as Key) })), String(prefs.paint), (n) => set({ paint: Number(n) })));
   }
-  if (prefs.tool === 'decor') {
-    out.push(h('div', { class: 'plants', role: 'group', 'aria-label': t('decor') },
-      ...DECOR.map((d) => {
-        const name = t(`decor.${d.id}` as Key);
-        const b = h('button', { type: 'button', class: 'plant', 'aria-pressed': String(d.id === prefs.decor), title: name, 'aria-label': name }, decorThumb(d.id));
-        b.addEventListener('click', () => set({ decor: d.id }));
-        return b;
-      }),
-    ));
+  if (BRUSHED.includes(tool)) {
+    const slider = h('input', { type: 'range', class: 'slider', min: '1', max: String(BRUSH_MAX), step: '1', value: String(prefs.brush), 'aria-label': t('brush') });
+    const size = h('b', {}, `Ø ${prefs.brush}`);
+    const picture = h('span', {}, brushPicture(prefs.brush));
+    // While dragging only the label and picture follow; the brush is stored on release.
+    slider.addEventListener('input', () => {
+      size.textContent = `Ø ${slider.value}`;
+      picture.replaceChildren(brushPicture(Number(slider.value)));
+      prefs.brush = Number(slider.value);
+    });
+    slider.addEventListener('change', () => set({ brush: Number(slider.value) }));
+    out.push(h('div', { class: 'opts__brush' }, h('span', { class: 'opts__label' }, t('brush'), size), slider, picture));
   }
-  out.push(row(t('show'), chip(t('show.grid'), prefs.grid, () => set({ grid: !prefs.grid }))));
-  out.push(h('p', { class: 'hint' }, t('hint.edit')));
+  if (tool === 'plant') out.push(picks(t('plants'), FLORA.map((e) => ({ id: e.id, name: plantName(e.id, e.label), picture: thumb(e.id) })), prefs.plant, (plant) => set({ plant })));
+  if (tool === 'decor') out.push(picks(t('decor'), DECOR.map((d) => ({ id: d.id, name: t(`decor.${d.id}` as Key), picture: decorThumb(d.id) })), prefs.decor, (decor) => set({ decor })));
+  if (tool === 'animal') {
+    const choices = animalChoices();
+    const current = choices.some((c) => c.id === prefs.animal) ? prefs.animal : choices[0].id;
+    out.push(picks(t('animals'), choices.map((c) => ({ id: c.id, name: c.name, picture: animalThumb(c.animal) })), current, (animal) => set({ animal })));
+    out.push(h('a', { class: 'opts__link', href: '../animals/' }, t('animal.edit')));
+  }
   return out;
 }
 
-function playPanel(): HTMLElement[] {
-  const select = h('select', { class: 'chip', 'aria-label': t('character') },
+function playOptions(): Node[] {
+  const select = h('select', { class: 'select', 'aria-label': t('character') },
     h('option', { value: '' }, t('character.default')),
     ...roster.map((c) => h('option', { value: c.id }, c.name)),
   );
@@ -634,10 +720,19 @@ function playPanel(): HTMLElement[] {
     actor?.setLook(characterLook());
   });
   return [
-    row(t('character'), select, h('a', { class: 'chip', href: '../wardrobe/' }, t('character.edit'))),
-    row('', ...EMOTES.map((e) => button(t(`emote.${e}` as Key), () => emote(e)))),
-    h('p', { class: 'hint' }, t('hint.play')),
+    h('div', { class: 'opts__head' }, icon('person'), h('b', {}, t('character'))),
+    h('p', { class: 'opts__tip' }, t('tip.play')),
+    select,
+    h('a', { class: 'opts__link', href: '../wardrobe/' }, t('character.edit')),
   ];
+}
+
+/** One line of tool icons in Edit; the emotes in Play. */
+function toolbar(): Node[] {
+  if (prefs.mode === 'play') {
+    return EMOTES.map((e) => tap({ class: 'toolbar__btn toolbar__btn--text' }, () => emote(e), t(`emote.${e}` as Key)));
+  }
+  return TOOLS.map((tool) => tap({ class: 'toolbar__btn', 'aria-pressed': String(tool === prefs.tool), 'aria-label': t(`tool.${tool}` as Key), title: t(`tool.${tool}` as Key) }, () => set({ tool }), icon(TOOL_ICONS[tool])));
 }
 
 function set(change: Partial<Prefs>): void {
@@ -645,7 +740,7 @@ function set(change: Partial<Prefs>): void {
   Object.assign(prefs, change);
   savePrefs();
   if (entering) startPlay();
-  if (prefs.mode === 'edit') actor = null;
+  if (prefs.mode === 'edit') actor = herd = null;
   hover = null;
   version++;
   render();
@@ -654,11 +749,28 @@ function set(change: Partial<Prefs>): void {
 function render(): void {
   sceneSelect.replaceChildren(...library.scenes.map((s) => h('option', { value: s.id }, s.name)));
   sceneSelect.value = library.current;
-  modeRow.replaceChildren(
-    chip(t('mode.edit'), prefs.mode === 'edit', () => set({ mode: 'edit' })),
-    chip(t('mode.play'), prefs.mode === 'play', () => set({ mode: 'play' })),
-  );
-  dock.replaceChildren(...(prefs.mode === 'edit' ? editPanel() : playPanel()));
+  const { bar, pops } = topBar({
+    tool: 'scene',
+    title: word('scene'),
+    about: [t('hint.edit'), t('hint.play')],
+    things: sceneSelect,
+    more: [
+      { label: t('scene.new'), icon: 'plus', run: () => sceneDialog('new') },
+      { label: t('scene.settings'), icon: 'sliders', run: () => sceneDialog('settings') },
+      { label: t('scene.export'), icon: 'download', run: () => download(`${sceneNow().name}.json`, sceneFile(sceneNow())) },
+      { label: t('scene.import'), icon: 'upload', run: () => void importScene() },
+      { label: t('scene.delete'), icon: 'trash', run: deleteScene, danger: true },
+    ],
+    status: h('span', { class: 'bar__status' }),
+    // One button: it shows where it takes you, Play while editing and Edit while playing.
+    extra: tap({ class: 'ib mode', 'aria-label': prefs.mode === 'edit' ? t('mode.play') : t('mode.edit'), title: prefs.mode === 'edit' ? t('mode.play') : t('mode.edit') },
+      () => set({ mode: prefs.mode === 'edit' ? 'play' : 'edit' }), icon(prefs.mode === 'edit' ? 'play' : 'pencil')),
+    relabel: mount,
+  });
+  barSlot.replaceChildren(bar, ...pops);
+  dock.replaceChildren(...toolbar());
+  options.replaceChildren(...(prefs.mode === 'edit' ? editOptions() : playOptions()));
+  gridButton.setAttribute('aria-pressed', String(prefs.grid));
 }
 
 // ------------------------------------------------------------------ scene dialog
@@ -716,111 +828,30 @@ async function importScene(): Promise<void> {
 
 // ------------------------------------------------------------------ mount
 
-// ------------------------------------------------------------------ sea panel
-
-const SEA_GROUPS: { title: Key; fields: (OceanColor | OceanNumber)[] }[] = [
-  { title: 'sea.group.water', fields: ['shore', 'shallow', 'middle', 'open', 'deep', 'far', 'gradient'] },
-  { title: 'sea.group.waves', fields: ['wave', 'waveReach', 'wavePeriod', 'waves'] },
-  { title: 'sea.group.ripples', fields: ['rippleDark', 'ripplePale', 'rippleOpacity', 'ripples', 'rippleLength', 'drift', 'glints'] },
-];
-let seaOpen = false;
-
-/** After a sea setting changed: keep it, and redraw the ground if a water colour is baked into it. */
-function seaChanged(key: OceanColor | OceanNumber): void {
-  saveOcean();
-  if ((WATER_COLORS as string[]).includes(key)) groundDirty = true;
-  viewport.style.background = ocean.deep;
-  version++;
-}
-
-/** A floating panel over the scene with the sea's colours and motion, saved on this device. */
-function seaPanel(): HTMLElement {
-  const panel = h('details', { class: 'sea' }, h('summary', { class: 'chip' }, t('sea')));
-  panel.open = seaOpen;
-  panel.addEventListener('toggle', () => (seaOpen = panel.open));
-  const body = h('div', { class: 'sea__body' });
-  const field = (key: OceanColor | OceanNumber): HTMLElement => {
-    const label = t(`sea.${key}` as Key);
-    if (key in OCEAN_RANGES) {
-      const k = key as OceanNumber;
-      const [min, max, step] = OCEAN_RANGES[k];
-      const input = h('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(ocean[k]), 'aria-label': label });
-      const shown = h('output', {}, String(ocean[k]));
-      input.addEventListener('input', () => {
-        ocean[k] = Number(input.value);
-        shown.textContent = input.value;
-        seaChanged(k);
-      });
-      return h('label', { class: 'sea__field' }, h('span', {}, label), h('span', { class: 'sea__range' }, input, shown));
-    }
-    const k = key as OceanColor;
-    const input = h('input', { type: 'color', value: ocean[k], 'aria-label': label });
-    input.addEventListener('input', () => {
-      ocean[k] = input.value;
-      seaChanged(k);
-    });
-    return h('label', { class: 'sea__field' }, h('span', {}, label), input);
-  };
-  const fill = () => body.replaceChildren(
-    h('div', { class: 'chips', role: 'group', 'aria-label': t('sea.presets') },
-      ...(['blue', 'aqua'] as const).map((name) => button(t(`sea.preset.${name}`), () => {
-        useOcean(OCEAN_PRESETS[name]);
-        WATER_COLORS.forEach((k) => seaChanged(k));
-        fill();
-      })),
-    ),
-    ...SEA_GROUPS.flatMap((g) => [h('h3', {}, t(g.title)), ...g.fields.map(field)]),
-  );
-  fill();
-  panel.append(body);
-  return panel;
-}
-
 function mount(): void {
   document.documentElement.lang = currentLang();
   document.title = t('title');
   canvas.setAttribute('aria-label', t('view'));
+  gridButton.setAttribute('aria-label', t('zoom.grid'));
+  gridButton.title = t('zoom.grid');
   sceneSelect.setAttribute('aria-label', t('scene'));
-  modeRow.setAttribute('aria-label', t('mode'));
   sceneSelect.onchange = () => switchTo(library.scenes.find((s) => s.id === sceneSelect.value)!);
-  const languages = h('div', { class: 'langs', role: 'group', 'aria-label': t('language') },
-    ...LANGS.map((l) => {
-      const b = h('button', { type: 'button', class: 'lang', 'aria-pressed': String(l.id === currentLang()), lang: l.id, title: l.name }, l.label);
-      b.addEventListener('click', () => {
-        setLang(l.id);
-        mount();
-      });
-      return b;
-    }),
-  );
   viewport.style.background = ocean.deep;
   viewport.replaceChildren(
     canvas,
-    seaPanel(),
+    options,
     h('div', { class: 'zoom' },
-      button('+', () => setZoom(zoom + 1), { 'aria-label': t('zoom.in') }),
-      button('−', () => setZoom(zoom - 1), { 'aria-label': t('zoom.out') }),
-      button('↺', () => rotate(-1), { 'aria-label': t('rotate.left'), title: t('rotate.left') }),
-      button('↻', () => rotate(1), { 'aria-label': t('rotate.right'), title: t('rotate.right') }),
+      tap({ class: 'stage__button', 'aria-label': t('zoom.in'), title: t('zoom.in') }, () => setZoom(zoom + 1), icon('zoomIn')),
+      tap({ class: 'stage__button', 'aria-label': t('zoom.out'), title: t('zoom.out') }, () => setZoom(zoom - 1), icon('zoomOut')),
+      tap({ class: 'stage__button', 'aria-label': t('rotate.left'), title: t('rotate.left') }, () => rotate(-1), icon('turnLeft')),
+      tap({ class: 'stage__button', 'aria-label': t('rotate.right'), title: t('rotate.right') }, () => rotate(1), icon('turnRight')),
+      gridButton,
     ),
     statusLine,
   );
   document.getElementById('scene')!.replaceChildren(
     h('div', { class: 'editor' },
-      h('header', { class: 'bar' },
-        h('a', { class: 'home-link', href: '../' }, t('home')),
-        h('h1', {}, t('title')),
-        h('div', { class: 'chips bar__scene', role: 'group', 'aria-label': t('scene') },
-          sceneSelect,
-          button(t('scene.new'), () => sceneDialog('new')),
-          button(t('scene.settings'), () => sceneDialog('settings')),
-          button(t('scene.delete'), deleteScene),
-          button(t('scene.export'), () => download(`${sceneNow().name}.json`, sceneFile(sceneNow()))),
-          button(t('scene.import'), () => void importScene()),
-        ),
-        modeRow,
-        languages,
-      ),
+      barSlot,
       viewport,
       dock,
     ),

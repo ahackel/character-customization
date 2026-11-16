@@ -25,6 +25,9 @@
     "flora",
     "home",
     "engine",
-    "scene"
+    "scene",
+    "shared",
+    "animals",
+    "objects"
   ]
 }

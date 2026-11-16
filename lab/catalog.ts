@@ -1,6 +1,6 @@
-import { beardFromBehind } from './base.ts';
+import { BEARD_STYLES, beardFromBehind, stubbled, tidyBeard } from './base.ts';
 import { compile } from './items.ts';
-import { PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
+import { ANIMAL_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
 
 /** One wearable in the wardrobe, compiled from what the model returned. */
@@ -107,7 +107,11 @@ function build(): Entry[] {
       const item = result.compiled.item;
       // Rule: the back view of a beard is worked out from its front view. Both formats drew a
       // tuft at the neck there instead.
-      if (item.slot === 'beard' && item.head) item.head = { front: item.head.front, back: beardFromBehind(item.head.front) };
+      if (item.slot === 'hair' && item.head) item.head = { front: stubbled(item.head.front), back: stubbled(item.head.back) };
+      if (item.slot === 'beard' && item.head) {
+        const front = tidyBeard(item.head.front);
+        item.head = { front, back: beardFromBehind(front) };
+      }
       entries.push({
         id: `${format}-${set}-${index}`,
         label: sentence(item.name),
@@ -119,6 +123,10 @@ function build(): Entry[] {
       });
     });
   }
+  // Beards drawn by hand, for the everyday shapes the model did not make.
+  for (const style of BEARD_STYLES) {
+    entries.push({ id: `base-beard-${style.id}`, label: style.label, slot: 'beard', format: 'paint', island: false, item: style.item, colors: colorsOf(style.item) });
+  }
   return entries;
 }
 
@@ -127,5 +135,5 @@ export const entryById = (id: string | null | undefined): Entry | undefined => C
 
 /** Colours offered for clothing and hats. */
 export const CLOTH_KEYS = (Object.keys(PALETTE) as PaletteKey[]).filter(
-  (key) => !SKIN_KEYS.includes(key) && !FIXED.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key),
+  (key) => !SKIN_KEYS.includes(key) && !FIXED.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key) && !ANIMAL_KEYS.includes(key),
 );

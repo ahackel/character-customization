@@ -715,14 +715,19 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   const faces = ownHead?.faces ?? look.faces;
   const face = headBack ? [] : across(faces[options.face ?? 'neutral'] ?? faces.neutral, 0);
   const headOf = () => ownHead?.head ?? hside(look.head);
-  // A beard without its hv stamp for the view moves with the face: two columns in face on, one
-  // forward side on, and stays on the head.
+  // An item without its own stamp for the view falls back to its 3/4 stamp on the same side.
   const fallback = (item: Item): Stamp => {
     const stamp = hside(item.head!);
-    if (item.slot !== 'beard' || (hv !== 'S' && hv !== 'E')) return stamp;
-    const dx = hv === 'S' ? -2 : 1;
+    if (item.slot !== 'beard' || !hv) return stamp;
+    // Side on the beard moves forward with the face. Face on it is the half of the 3/4 beard
+    // towards the face, mirrored about the middle of the face; from behind only what stands out
+    // past the head shows, in shade.
+    if (hv === 'E') return stamp.map((row) => row.map((_, x) => row[x - 1] ?? null));
+    const front = item.head!.front;
+    const straight = front.map((row) => row.map((_, x) => row[Math.max(x, 2 * HEAD_FRAME.ax + 1 - x) + 2] ?? null));
+    if (hv === 'S') return straight;
     const head = headOf();
-    return stamp.map((row, y) => row.map((_, x) => (head[y]?.[x] ? (row[x - dx] ?? null) : null)));
+    return straight.map((row, y) => row.map((cell, x) => (cell && y <= HEAD_FRAME.ay && !head[y]?.[x] ? { ...cell, shade: true, light: false } : null)));
   };
   function rawHead(item: Item): Stamp {
     return hv && item.views?.[hv] ? item.views[hv]!.head : fallback(item);
@@ -751,7 +756,7 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
       if (!headBack) stampInto(sprite, face, HEAD_FRAME, fx, hy);
       for (const item of ordered) {
         // From straight behind a beard does not show.
-        if (!item.head || (hv === 'N' && item.slot === 'beard' && !item.views?.N)) continue;
+        if (!item.head) continue;
         stampInto(sprite, headStamp(headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : itemHead(item)), HEAD_FRAME, hx, hy);
       }
       // The mouth shows through any beard, in whatever shape the mood gives it.

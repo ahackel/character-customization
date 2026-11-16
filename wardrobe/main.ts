@@ -8,7 +8,7 @@ import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
 import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
-import { checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
+import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang, itemName, LANGS, missingItemNames, t, type Key } from './i18n.ts';
 import { shapeEditor } from './shapes.ts';
 
@@ -38,6 +38,8 @@ function saveState(): void {
 
 let state = loadState();
 let tab: TabId = 'body';
+/** The eye and mouth shape editor has a page of its own, at #shapes. */
+let shapesPage = location.hash === '#shapes';
 let facing: Facing = 0;
 let clipKey = 'idle';
 /** For trying it out: how far the preview's head is turned to its left (negative: right), in eighths, and whether the eyes look aside. */
@@ -373,6 +375,7 @@ function renderBar(): void {
     undo: undo.undo,
     redo: undo.redo,
     shuffle: () => shuffle(),
+    extra: button({ class: 'btn', 'aria-pressed': String(shapesPage), title: t('shapes') }, () => openShapes(!shapesPage), icon('face'), h('span', { class: 'btn__label' }, t('shapes.button'))),
     relabel: () => {
       mount();
       render();
@@ -514,15 +517,6 @@ function facePanel(): HTMLElement[] {
       face.glassesColor = key ?? 'black';
       changed();
     }),
-    section(t('shapes'), shapeEditor({
-      face, skin: state.skin, hair: state.hairColor, mood: state.mood,
-      live: () => version++,
-      done: () => {
-        version++;
-        render();
-      },
-      show: (view) => setFacing(view === 'front' ? 4 : view === 'side' ? 7 : 0),
-    })),
   ].filter((node): node is HTMLElement => !!node);
 }
 
@@ -616,15 +610,61 @@ function shuffle(only?: TabId): void {
 
 
 function setFacing(next: Facing): void {
+  const turned = next !== facing;
   facing = next;
   stageTag.textContent = facingName(facing);
+  // The shape editor edits the view the preview shows.
+  if (turned && shapesPage) render();
+}
+
+/** Opens or leaves the shape editor's page; the browser's back button leaves it too. */
+function openShapes(open: boolean): void {
+  if (open === shapesPage) return;
+  if (open) location.hash = 'shapes';
+  else {
+    window.history.pushState(null, '', location.pathname + location.search);
+    syncShapes();
+  }
+}
+function syncShapes(): void {
+  shapesPage = location.hash === '#shapes';
+  panel.scrollTop = 0;
+  render();
+}
+window.addEventListener('hashchange', syncShapes);
+window.addEventListener('popstate', syncShapes);
+
+function shapesView(): void {
+  tabSlot.replaceChildren(h('div', { class: 'shapes-head' },
+    button({ class: 'btn shapes-head__back' }, () => openShapes(false), icon('chevron'), t('shapes.back')),
+    h('h2', {}, t('shapes'))));
+  // From behind there is no face to edit.
+  if (facing === 2 || facing === 3 || facing === 6) return void panel.replaceChildren(h('p', { class: 'note shapes__away' }, t('shapes.away')));
+  panel.replaceChildren(shapeEditor({
+    face: state.face, skin: state.skin, hair: state.hairColor, mood: state.mood, aside: eyesAside,
+    live: () => version++,
+    done: () => {
+      version++;
+      render();
+    },
+    // Face on edits the front view, left and right the side view.
+    view: facing === 4 ? 'front' : facing === 5 || facing === 7 ? 'side' : 'diagonal',
+    mirror: facing === 1 || facing === 5,
+  }));
 }
 
 function render(): void {
   stage.style.setProperty('--ground', GROUNDS.find((g) => g.id === state.ground)!.color);
   renderBar();
   setFacing(facing);
+  const saved = current();
+  name.set(saved?.name ?? '', t('saved.none'));
+  if (shapesPage) shapesView();
+  else libraryView();
+  renderPreview();
+}
 
+function libraryView(): void {
   tabSlot.replaceChildren(tabs(t('sections'), TABS.map((id) => ({ id, label: t(`tab.${id}` as Key), icon: TAB_ICONS[id] })), tab, (id) => {
     tab = id;
     panel.scrollTop = 0;
@@ -633,12 +673,12 @@ function render(): void {
     if (!locked.delete(tab)) locked.add(tab);
     render();
   })));
-  const saved = current();
-  name.set(saved?.name ?? '', t('saved.none'));
   const scroll = panel.scrollTop;
   panel.replaceChildren(...(tab === 'body' ? bodyPanel() : tab === 'face' ? facePanel() : tab === 'hair' ? hairPanel() : slotPanel(tab)));
   panel.scrollTop = scroll;
+}
 
+function renderPreview(): void {
   wearSlider.value = String(state.wear);
   wearSlider.setAttribute('aria-valuetext', wearName(state.wear));
   wearValue.textContent = wearName(state.wear);
@@ -657,6 +697,8 @@ function render(): void {
     row(t('gaze'), gazeSlider, gazeValue),
     row('', checkbox(t('gaze.aside'), eyesAside, (on) => {
       eyesAside = on;
+      // The shape editor edits the eyes the preview shows.
+      if (shapesPage) render();
     })),
     // Unticked holds the frame shown.
     row('', checkbox(word('animate'), !paused, (on) => {

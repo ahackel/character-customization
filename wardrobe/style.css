@@ -387,29 +387,3 @@ canvas {
   font-weight: 600;
   text-align: right;
 }
-
-/* ---- eye and mouth shape editor */
-.shapes {
-  display: grid;
-  gap: 8px;
-}
-.shapes__canvas {
-  width: 100%;
-  max-width: 380px;
-  height: auto;
-  image-rendering: pixelated;
-  background: var(--ground, #e9d9a0);
-  border-radius: 6px;
-  cursor: crosshair;
-  touch-action: none;
-}
-.shapes__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.shapes__status {
-  font-size: 0.85em;
-  opacity: 0.8;
-}

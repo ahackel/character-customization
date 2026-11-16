@@ -294,7 +294,8 @@ const ROUND_EAST = [
 /**
  * The eyes and mouths every character uses, drawn by hand in the wardrobe's shape editor and
  * kept in face-shapes.json. Eyes come in pairs (one eye side on), per view, eye shape and state;
- * mouths per view and mood. Letters: I ink, C eye colour, T white, M mouth, % shaded skin.
+ * mouths per view and mood, brows per view, brow style and mood. Letters: I ink, C eye colour,
+ * T white, M mouth, % shaded skin, e brow (the hair colour's shade).
  */
 export const FACE_VIEWS = ['diagonal', 'front', 'side'] as const;
 export type FaceView = (typeof FACE_VIEWS)[number];
@@ -303,13 +304,19 @@ export type EyeState = (typeof EYE_STATES)[number];
 export interface FaceShapes {
   eyes: Record<FaceView, Record<(typeof EYE_SHAPES)[number], Record<EyeState, string[]>>>;
   mouths: Record<FaceView, Record<Mood, string[]>>;
+  brows: Record<FaceView, Record<(typeof BROWS)[number], Record<BrowState, string[]>>>;
 }
+/** Brows change with three moods; every other mood shows them plain. A face with no brows still frowns, grieves and lifts them in surprise. */
+export const BROW_STATES = ['plain', 'surprised', 'angry', 'sad'] as const;
+export type BrowState = (typeof BROW_STATES)[number];
+export const browState = (mood: Mood): BrowState => (mood === 'surprised' || mood === 'angry' || mood === 'sad' ? mood : 'plain');
 /** Live: the shape editor changes these in place and the faces are built again. */
 export const FACE_SHAPES = structuredClone(shapesFile) as FaceShapes;
 /** Where each stamp sits on the 21-wide head grid: column, row, width, height. */
-export const FACE_REGIONS: Record<'eyes' | 'mouths', Record<FaceView, [number, number, number, number]>> = {
+export const FACE_REGIONS: Record<'eyes' | 'mouths' | 'brows', Record<FaceView, [number, number, number, number]>> = {
   eyes: { diagonal: [8, 11, 9, 4], front: [6, 11, 9, 4], side: [13, 11, 4, 4] },
-  mouths: { diagonal: [10, 16, 6, 3], front: [8, 16, 6, 3], side: [15, 16, 3, 3] },
+  mouths: { diagonal: [10, 16, 6, 3], front: [7, 16, 7, 3], side: [15, 16, 3, 3] },
+  brows: { diagonal: [8, 10, 9, 4], front: [5, 10, 11, 4], side: [13, 10, 4, 4] },
 };
 
 /** The bare head's rows in a face view, on the 21-wide head grid: the shape editor draws its faces on it. */
@@ -327,7 +334,7 @@ export function eyeState(mood: Mood, blink: boolean, aside: boolean): EyeState {
   return aside ? 'aside' : 'open';
 }
 
-/** The face features of one view as rows on the head grid: eye and mouth stamps, then brows, nose, blush, freckles and glasses by rule. */
+/** The face features of one view as rows on the head grid: eye, brow and mouth stamps, with nose, blush, freckles and glasses by rule. */
 export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: boolean, view: FaceView): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
   const at = (x: number, y: number, ch: string) => {
@@ -344,7 +351,7 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
     // Side on, the rules below are written for the deeper head: a column further forward.
     const back = (x: number, y: number, ch: string) => at(x - 1, y, ch);
     if (o.lashes && open) back(17, top, 'I');
-    sideRules(o, mood, back);
+    sideRules(o, back);
   } else {
     const shift = view === 'front' ? -2 : 0;
     const put = (x: number, y: number, ch: string) => at(x + shift, y, ch);
@@ -352,8 +359,9 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
       put(8, top, 'I');
       put(16, top, 'I');
     }
-    frontRules(o, mood, put, view === 'front');
+    frontRules(o, put, view === 'front');
   }
+  place(FACE_SHAPES.brows[view][o.brows][browState(mood)], FACE_REGIONS.brows[view]);
   place(FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
   if (o.glasses) view === 'side' ? sideGlasses((x, y, ch) => at(x - 1, y, ch)) : frontGlasses((x, y, ch) => at(x + (view === 'front' ? -2 : 0), y, ch), view === 'front');
   return grid.map((row) => row.join(''));
@@ -361,25 +369,8 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
 
 type Put = (x: number, y: number, ch: string) => void;
 
-/** Brows, nose, blush and freckles in the diagonal and face-on views. */
-function frontRules(o: FaceOptions, mood: Mood, put: Put, south: boolean): void {
-  const run = (x0: number, x1: number, y: number, ch: string) => {
-    for (let x = x0; x <= x1; x++) put(x, y, ch);
-  };
-  const thick = o.brows === 'thick';
-  const brow = (x0: number, x1: number, y: number) => {
-    run(Math.min(x0, x1), Math.max(x0, x1), y, 'e');
-    if (thick) run(Math.min(x0, x1), Math.max(x0, x1), y + 1, 'e');
-  };
-  for (const [x, outer] of [[9, -1], [14, 1]] as const) {
-    const outerX = outer < 0 ? x : x + 1;
-    const innerX = outer < 0 ? x + 1 : x;
-    if (mood === 'angry') brow(thick ? outerX + outer : outerX, innerX - outer, 11);
-    else if (mood === 'sad') {
-      brow(innerX, innerX, 11);
-      if (o.brows !== 'none') brow(innerX - outer, innerX - outer, 11);
-    } else if (o.brows !== 'none' || mood === 'surprised') brow(thick ? x - 1 : x, thick ? x + 2 : x + 1, mood === 'surprised' ? 10 : 11);
-  }
+/** Nose, blush and freckles in the diagonal and face-on views. */
+function frontRules(o: FaceOptions, put: Put, south: boolean): void {
   put(south ? 12 : 13, 15, '%');
   if (o.blush) {
     put(south ? 8 : 7, 15, 'B');
@@ -403,23 +394,8 @@ function frontGlasses(put: Put, south: boolean): void {
   if (!south) for (let i = 3; i <= 7; i++) put(i, 12, 'G');
 }
 
-/** Brow, blush and freckles side on. */
-function sideRules(o: FaceOptions, mood: Mood, put: Put): void {
-  const run = (x0: number, x1: number, y: number, ch: string) => {
-    for (let x = x0; x <= x1; x++) put(x, y, ch);
-  };
-  const thick = o.brows === 'thick';
-  const brow = (x0: number, x1: number, y: number) => {
-    run(x0, x1, y, 'e');
-    if (thick) run(x0, x1, y + 1, 'e');
-  };
-  if (mood === 'angry') {
-    brow(thick ? 14 : 15, 16, 11);
-    put(17, thick ? 13 : 12, 'e');
-  } else if (mood === 'sad') {
-    brow(15, 16, 11);
-    put(14, thick ? 13 : 12, 'e');
-  } else if (o.brows !== 'none' || mood === 'surprised') brow(thick ? 14 : 15, thick ? 17 : 16, mood === 'surprised' ? 10 : 11);
+/** Blush and freckles side on. */
+function sideRules(o: FaceOptions, put: Put): void {
   if (o.blush) put(15, 15, 'B');
   if (o.freckles) for (const [x, y] of [[14, 15], [16, 15], [13, 16]]) put(x, y, '%');
 }
@@ -597,10 +573,21 @@ export function beardFromBehind(front: Stamp): Stamp {
 /** How strongly stubble and shaved hair tint the skin. */
 const STUBBLE = 0.4;
 
-const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolean }> = {
+const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]; short?: boolean }> = {
   stubble: {
     label: 'Stubble',
     short: true,
+    // Side on, facing right: the side head's ear is at columns 6 to 8, the mouth at 16 and 17.
+    side: [
+      '.........H...........',
+      '.........H...........',
+      '.........HH..........',
+      '.........HHHH...HH...',
+      '.........HHHHHHHHH...',
+      '.........HHHHHHHHH...',
+      '..........HHHHHHHH...',
+      '..........HHHHHH.....',
+    ],
     rows: [
       '...H.................',
       '...H.................',
@@ -614,6 +601,14 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolea
   },
   moustache: {
     label: 'Moustache',
+    side: [
+      '.....................',
+      '.....................',
+      '.....................',
+      '..............HHHH...',
+      '..............hH.....',
+      '..............h......',
+    ],
     rows: [
       '.....................',
       '.....................',
@@ -625,6 +620,17 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolea
   },
   goatee: {
     label: 'Goatee',
+    side: [
+      '.....................',
+      '.....................',
+      '.....................',
+      '..............HHHH...',
+      '..............HH.....',
+      '..............HHHH...',
+      '..............HHHH...',
+      '...............HHh...',
+      '...............hh....',
+    ],
     rows: [
       '.....................',
       '.....................',
@@ -640,6 +646,16 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolea
   },
   chinstrap: {
     label: 'Chin strap',
+    side: [
+      '.........HH..........',
+      '.........HH..........',
+      '.........HH..........',
+      '.........HHH.........',
+      '..........HHH........',
+      '...........HHH.......',
+      '............HHHHHH...',
+      '.............hhhhh...',
+    ],
     rows: [
       '...HH................',
       '...HH................',
@@ -654,6 +670,17 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolea
   },
   short: {
     label: 'Short beard',
+    side: [
+      '.........H...........',
+      '.........H...........',
+      '.........HH..........',
+      '.........HHH..HHHH...',
+      '.........HHHHHHHH....',
+      '.........HHHHHHHHh...',
+      '..........HHHHHHHh...',
+      '...........HHHHHh....',
+      '.............hhh.....',
+    ],
     rows: [
       '...H.................',
       '...H.................',
@@ -668,10 +695,13 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; short?: boolea
   },
 };
 
-export const BEARD_STYLES = Object.entries(BEARD_ROWS).map(([id, { label, rows, short }]) => {
-  const parsed = parseStamp(pad(rows, 12), { H: 'hairBrown', L: 'hairBrown+' });
-  const front = short ? parsed.map((row) => row.map((c) => c && { ...c, shade: true, mix: STUBBLE })) : parsed;
-  const item: Item = { name: label, slot: 'beard', head: { front, back: beardFromBehind(front) }, ...(short ? { short } : {}) };
+export const BEARD_STYLES = Object.entries(BEARD_ROWS).map(([id, { label, rows, side, short }]) => {
+  const parse = (lines: string[]) => {
+    const parsed = parseStamp(pad(lines, 12), { H: 'hairBrown', L: 'hairBrown+' });
+    return short ? parsed.map((row) => row.map((c) => c && { ...c, shade: true, mix: STUBBLE })) : parsed;
+  };
+  const front = parse(rows);
+  const item: Item = { name: label, slot: 'beard', head: { front, back: beardFromBehind(front) }, views: { E: { head: parse(side) } }, ...(short ? { short } : {}) };
   return { id, label, item };
 });
 

@@ -1,46 +1,86 @@
-// The eye and mouth shape editor: a small pixel editor over the face, for the shapes every
-// character uses (lab/face-shapes.json). Changes show at once; Save writes them into the project
+// The face shape editor: a small pixel editor over the face, for the eyes, brows and mouths every
+// character uses (lab/face-shapes.json). It edits what the preview shows: its mood, and its eyes
+// looking aside or not. Changes show at once, and every finished stroke is saved into the project
 // through the dev server, which only exists while developing.
-import { EYE_SHAPES, EYE_STATES, FACE_REGIONS, FACE_SHAPES, FACE_VIEWS, faceRows, headRows, MOODS, type EyeState, type FaceOptions, type FaceView, type Mood } from '../lab/base.ts';
+import { browState, BROWS, EYE_SHAPES, eyeState, FACE_REGIONS, FACE_SHAPES, faceRows, headRows, type FaceOptions, type FaceView, type Mood } from '../lab/base.ts';
+import { download, pickFile } from '../lab/files.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
-import { button, h, row, segmented } from '../shared/shell.ts';
+import { button, h, icon, row, segmented, type IconName } from '../shared/shell.ts';
 import { t, type Key } from './i18n.ts';
 
 export interface ShapeContext {
   face: FaceOptions;
   skin: PaletteKey;
   hair: PaletteKey;
+  /** The preview's mood and whether its eyes look aside: the shapes being edited. */
   mood: Mood;
+  aside: boolean;
   /** A pixel changed: redraw the preview. */
   live: () => void;
   /** A stroke ended: rebuild the pictures. */
   done: () => void;
-  /** Turn the preview to show this view. */
-  show: (view: FaceView) => void;
+  /** The view the preview shows, which is the one edited, and whether it faces left: the editor is then mirrored too. */
+  view: FaceView;
+  mirror: boolean;
 }
 
 // What is being edited stays picked while the panel is rebuilt.
-let feature: 'eyes' | 'mouths' = 'eyes';
-let view: FaceView = 'diagonal';
+let feature: 'eyes' | 'brows' | 'mouths' = 'eyes';
 let eyeShape: (typeof EYE_SHAPES)[number] | null = null;
-let eyeState: EyeState = 'open';
-let mouth: Mood | null = null;
+let browStyle: (typeof BROWS)[number] | null = null;
+/** Blinking is no mood, so the editor has its own switch for the shut eyes. */
+let blink = false;
 let ink = 'I';
 let status = '';
-let dirty = false;
+/** The status line on show; the panel is rebuilt after every stroke, so it is looked up each time. */
+let statusNode: HTMLElement | null = null;
+let saving: Promise<void> = Promise.resolve();
 
-/** The letters a shape can hold, with a label each; '.' leaves the skin. */
-const INKS: { id: string; key: Key }[] = [
-  { id: 'I', key: 'shapes.ink.I' }, { id: 'C', key: 'shapes.ink.C' }, { id: 'T', key: 'shapes.ink.T' },
-  { id: 'M', key: 'shapes.ink.M' }, { id: '%', key: 'shapes.ink.%' }, { id: '.', key: 'shapes.ink..' },
-];
-
-/** The mood, blink and glance that show an eye state. */
-const SHOWS: Record<EyeState, [Mood, boolean, boolean]> = {
-  open: ['neutral', false, false], aside: ['neutral', false, true], blink: ['neutral', true, false], laughing: ['laughing', false, false],
-  surprised: ['surprised', false, false], 'surprised-aside': ['surprised', false, true], angry: ['angry', false, false], 'angry-aside': ['angry', false, true],
-  sad: ['sad', false, false], 'sad-aside': ['sad', false, true],
+const tell = (text: string) => {
+  status = text;
+  if (statusNode) statusNode.textContent = text;
 };
+
+/** Writes the shapes into lab/face-shapes.json, one save after another. */
+function save(): void {
+  if (!import.meta.env.DEV) return tell(t('shapes.devOnly'));
+  tell(t('shapes.saving'));
+  saving = saving.then(async () => {
+    try {
+      const response = await fetch('/__face-shapes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(FACE_SHAPES) });
+      if (!response.ok) throw new Error(await response.text());
+      tell(t('shapes.saved'));
+    } catch {
+      tell(t('shapes.failed'));
+    }
+  });
+}
+
+/** The letters a shape can hold; '.' leaves the skin. */
+const INKS = ['I', 'C', 'T', 'M', 'e', '%', '.'] as const;
+
+/** Whether an imported file has every shape the editor knows, each the same size and only in known letters. */
+function sameShape(known: unknown, given: unknown): boolean {
+  if (Array.isArray(known)) {
+    return Array.isArray(given) && given.length === known.length &&
+      given.every((line, i) => typeof line === 'string' && line.length === known[i].length && [...line].every((ch) => (INKS as readonly string[]).includes(ch)));
+  }
+  if (!known || typeof known !== 'object') return true;
+  return !!given && typeof given === 'object' && Object.entries(known).every(([key, value]) => sameShape(value, (given as Record<string, unknown>)[key]));
+}
+
+/** Reads shapes from a file the user picks; they replace the current ones and are saved. */
+async function importShapes(done: () => void): Promise<void> {
+  try {
+    const data = JSON.parse(await pickFile());
+    if (!sameShape(FACE_SHAPES, data)) throw new Error('not face shapes');
+    for (const key of ['eyes', 'mouths', 'brows'] as const) FACE_SHAPES[key] = data[key];
+  } catch {
+    return tell(t('shapes.badFile'));
+  }
+  save();
+  done();
+}
 
 // The part of the head grid shown: brows to chin, ear to nose.
 const CROP = { x: 2, y: 8, w: 19, h: 14 };
@@ -48,11 +88,17 @@ const CELL = 16;
 
 export function shapeEditor(ctx: ShapeContext): HTMLElement {
   eyeShape ??= ctx.face.eyes;
-  mouth ??= ctx.mood;
-  const shapes = () => (feature === 'eyes' ? FACE_SHAPES.eyes[view][eyeShape!][eyeState] : FACE_SHAPES.mouths[view][mouth!]);
+  browStyle ??= ctx.face.brows;
+  const mood = ctx.mood;
+  const view = ctx.view;
+  const shapes = () =>
+    feature === 'eyes' ? FACE_SHAPES.eyes[view][eyeShape!][eyeState(mood, blink, ctx.aside)]
+    : feature === 'brows' ? FACE_SHAPES.brows[view][browStyle!][browState(mood)]
+    : FACE_SHAPES.mouths[view][mood];
   const region = () => FACE_REGIONS[feature][view];
   const canvas = h('canvas', { class: 'shapes__canvas', width: String(CROP.w * CELL), height: String(CROP.h * CELL) });
   const g = canvas.getContext('2d')!;
+  if (ctx.mirror) canvas.style.transform = 'scaleX(-1)';
 
   const colour = (ch: string): string | null => {
     const tone = (key: PaletteKey, shade = false) => PALETTE[key][shade ? 'shade' : 'base'];
@@ -72,23 +118,41 @@ export function shapeEditor(ctx: ShapeContext): HTMLElement {
   };
 
   const draw = () => {
-    const [mood, blink, aside] = feature === 'eyes' ? SHOWS[eyeState] : [mouth!, false, false];
     const head = headRows(view, ctx.face.shape);
-    const face = faceRows({ ...ctx.face, eyes: eyeShape! }, mood, blink, aside, view);
+    const face = faceRows({ ...ctx.face, eyes: eyeShape!, brows: browStyle! }, mood, blink, ctx.aside, view);
     const [rx, ry, rw, rh] = region();
     g.clearRect(0, 0, canvas.width, canvas.height);
     for (let y = 0; y < CROP.h; y++) {
       for (let x = 0; x < CROP.w; x++) {
         const hx = x + CROP.x, hy = y + CROP.y;
-        const inside = hx >= rx && hx < rx + rw && hy >= ry && hy < ry + rh;
         const fill = colour(face[hy]?.[hx] ?? '.') ?? colour(head[hy]?.[hx] ?? '.');
         if (!fill) continue;
-        g.globalAlpha = inside ? 1 : 0.45;
         g.fillStyle = fill;
         g.fillRect(x * CELL, y * CELL, CELL, CELL);
       }
     }
-    g.globalAlpha = 1;
+    // Cells the shape leaves empty show the skin through a checker, so they read as transparent.
+    const rows = shapes();
+    const half = CELL / 2;
+    for (let y = 0; y < rh; y++) {
+      for (let x = 0; x < rw; x++) {
+        if ((rows[y]?.[x] ?? '.') !== '.') continue;
+        const [cx, cy] = [(rx - CROP.x + x) * CELL, (ry - CROP.y + y) * CELL];
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.fillRect(cx, cy, half, half);
+        g.fillRect(cx + half, cy + half, half, half);
+        g.fillStyle = 'rgba(0,0,0,0.12)';
+        g.fillRect(cx + half, cy, half, half);
+        g.fillRect(cx, cy + half, half, half);
+      }
+    }
+    // Outside the frame is darkened, for context only.
+    g.fillStyle = 'rgba(20, 24, 32, 0.45)';
+    const [fx, fy, fw, fh] = [(rx - CROP.x) * CELL, (ry - CROP.y) * CELL, rw * CELL, rh * CELL];
+    g.fillRect(0, 0, canvas.width, fy);
+    g.fillRect(0, fy + fh, canvas.width, canvas.height - fy - fh);
+    g.fillRect(0, fy, fx, fh);
+    g.fillRect(fx + fw, fy, canvas.width - fx - fw, fh);
     // A grid over the editable cells and a frame round them.
     g.strokeStyle = 'rgba(0,0,0,0.18)';
     g.lineWidth = 1;
@@ -101,9 +165,11 @@ export function shapeEditor(ctx: ShapeContext): HTMLElement {
 
   // Painting: press and drag; the right button rubs out.
   let painting: string | null = null;
+  let changed = false;
   const paintAt = (e: PointerEvent) => {
     const box = canvas.getBoundingClientRect();
-    const x = Math.floor(((e.clientX - box.left) / box.width) * CROP.w) + CROP.x;
+    const across = Math.floor(((e.clientX - box.left) / box.width) * CROP.w);
+    const x = (ctx.mirror ? CROP.w - 1 - across : across) + CROP.x;
     const y = Math.floor(((e.clientY - box.top) / box.height) * CROP.h) + CROP.y;
     const [rx, ry, rw, rh] = region();
     if (painting === null || x < rx || x >= rx + rw || y < ry || y >= ry + rh) return;
@@ -111,9 +177,7 @@ export function shapeEditor(ctx: ShapeContext): HTMLElement {
     const line = rows[y - ry];
     if (line[x - rx] === painting) return;
     rows[y - ry] = line.slice(0, x - rx) + painting + line.slice(x - rx + 1);
-    dirty = true;
-    status = t('shapes.unsaved');
-    statusEl.textContent = status;
+    changed = true;
     draw();
     ctx.live();
   };
@@ -127,66 +191,61 @@ export function shapeEditor(ctx: ShapeContext): HTMLElement {
   const end = () => {
     if (painting === null) return;
     painting = null;
+    // A stroke that changed something is saved as soon as it ends.
+    if (changed) save();
+    changed = false;
     ctx.done();
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
 
-  const statusEl = h('span', { class: 'shapes__status', role: 'status' }, status);
-  const save = async () => {
-    try {
-      const response = await fetch('/__face-shapes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(FACE_SHAPES) });
-      if (!response.ok) throw new Error(await response.text());
-      dirty = false;
-      status = t('shapes.saved');
-    } catch {
-      status = t('shapes.failed');
-    }
-    statusEl.textContent = status;
-  };
+  const statusEl = (statusNode = h('span', { class: 'shapes__status', role: 'status' }, status));
 
   const rebuild = () => ctx.done();
-  const picker = feature === 'eyes'
+  const picker = feature === 'brows'
+    ? [row(t('brows'), segmented(t('brows'), BROWS.map((id) => ({ id, label: t(`brows.${id}` as Key), icon: `brow.${id}` as IconName })), browStyle!, (id) => {
+        browStyle = id;
+        rebuild();
+      }))]
+    : feature === 'eyes'
     ? [
-        row(t('eyes'), segmented(t('eyes'), EYE_SHAPES.map((id) => ({ id, label: t(`eyes.${id}` as Key) })), eyeShape!, (id) => {
+        row(t('eyes'), segmented(t('eyes'), EYE_SHAPES.map((id) => ({ id, label: t(`eyes.${id}` as Key), icon: `eye.${id}` as IconName })), eyeShape!, (id) => {
           eyeShape = id;
           rebuild();
         })),
-        row(t('shapes.state'), segmented(t('shapes.state'), EYE_STATES.map((id) => ({ id, label: t(`shapes.state.${id}` as Key) })), eyeState, (id) => {
-          eyeState = id;
+        row(t('shapes.blink'), segmented(t('shapes.blink'), [
+          { id: 'open', label: t('shapes.open'), icon: 'part.eyes' as IconName },
+          { id: 'shut', label: t('shapes.blink'), icon: 'eye.blink' as IconName },
+        ], blink ? 'shut' : 'open', (id) => {
+          blink = id === 'shut';
           rebuild();
-        }, 'seg seg--wrap')),
+        })),
       ]
-    : [
-        row(t('mood'), segmented(t('mood'), MOODS.map((id) => ({ id, label: t(`mood.${id}` as Key) })), mouth!, (id) => {
-          mouth = id;
-          rebuild();
-        }, 'seg seg--wrap')),
-      ];
+    : [];
+  // The paint colours as swatches; the last one rubs out to the skin.
+  const inks = h('div', { class: 'seg shapes__inks', role: 'radiogroup', 'aria-label': t('shapes.inkLabel') },
+    ...INKS.map((id) => button({ role: 'radio', 'aria-checked': String(id === ink), 'aria-label': t(`shapes.ink.${id}` as Key), title: t(`shapes.ink.${id}` as Key) }, () => {
+      ink = id;
+      rebuild();
+    }, id === '.' ? icon('eraser') : h('span', { class: 'shapes__chip', style: `background: ${colour(id)}` }))));
 
   draw();
   return h('div', { class: 'shapes' },
-    h('p', { class: 'note' }, t('shapes.note')),
-    row(t('shapes.part'), segmented(t('shapes.part'), [{ id: 'eyes' as const, label: t('eyes') }, { id: 'mouths' as const, label: t('shapes.mouth') }], feature, (id) => {
+    h('p', { class: 'note' }, t('shapes.note', { mood: t(`mood.${mood}` as Key), view: t(`shapes.view.${view}` as Key) })),
+    row(t('shapes.part'), segmented(t('shapes.part'), [
+      { id: 'eyes' as const, label: t('eyes'), icon: 'part.eyes' as IconName },
+      { id: 'brows' as const, label: t('brows'), icon: 'part.brows' as IconName },
+      { id: 'mouths' as const, label: t('shapes.mouth'), icon: 'part.mouth' as IconName },
+    ], feature, (id) => {
       feature = id;
       rebuild();
     })),
-    row(t('shapes.view'), segmented(t('shapes.view'), FACE_VIEWS.map((id) => ({ id, label: t(`shapes.view.${id}` as Key) })), view, (id) => {
-      view = id;
-      ctx.show(id);
-      rebuild();
-    })),
     ...picker,
-    row(t('shapes.inkLabel'), segmented(t('shapes.inkLabel'), INKS.map((i) => ({ id: i.id, label: t(i.key) })), ink, (id) => {
-      ink = id;
-      rebuild();
-    }, 'seg seg--wrap')),
+    row(t('shapes.inkLabel'), inks),
     canvas,
     h('div', { class: 'shapes__actions' },
-      import.meta.env.DEV
-        ? button({ class: 'shapes__save' }, () => void save(), t('shapes.save'))
-        : h('span', { class: 'note' }, t('shapes.devOnly')),
-      dirty && import.meta.env.DEV && button({}, () => location.reload(), t('shapes.revert')),
-      statusEl),
+      button({ class: 'btn' }, () => download('face-shapes.json', JSON.stringify(FACE_SHAPES, null, 1) + '\n'), icon('download'), t('shapes.export')),
+      button({ class: 'btn' }, () => void importShapes(ctx.done), icon('upload'), t('shapes.import')),
+      import.meta.env.DEV ? statusEl : h('span', { class: 'note' }, t('shapes.devOnly'))),
   );
 }

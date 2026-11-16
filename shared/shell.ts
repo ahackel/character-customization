@@ -102,6 +102,18 @@ export const ICONS = {
   'mood.sad': FACE + EYES + ' M16 16s-1.5-2-4-2-4 2-4 2',
   'mood.angry': FACE + 'M7.5 8l2.5 1 M14 9l2.5-1 M9 11h.01 M15 11h.01 M16 16s-1.5-2-4-2-4 2-4 2',
   'mood.surprised': FACE + EYES + ' M10.5 15.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0',
+  // Face parts, views and eye states for the shape editor.
+  'part.eyes': 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
+  'part.brows': 'M3 10c2-3 5-3 7-1 M14 9c2-2 5-2 7 1 M7 15h.01 M17 15h.01',
+  'part.mouth': 'M4 11h16 M4 11c1 5 4 7 8 7s7-2 8-7',
+  'eye.round': 'M12 12m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0 M13 10h.01',
+  'eye.small': 'M12 12h.01 M11 12h2 M12 11v2',
+  'eye.sleepy': 'M5 11h14 M7 11a5 5 0 0 0 10 0',
+  'eye.blink': 'M4 12c2 3 5 4 8 4s6-1 8-4',
+  'eye.aside': 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M6 12h.01 M5.5 10.5a2 2 0 0 0 0 3',
+  'brow.none': 'M3 10h7 M14 10h7 M4 20L20 4',
+  'brow.thin': 'M3 11h7 M14 11h7',
+  'brow.thick': 'M3 9h7v3H3z M14 9h7v3h-7z',
 } as const;
 export type IconName = keyof typeof ICONS;
 

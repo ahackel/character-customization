@@ -1,5 +1,5 @@
 import type { Cell } from './palette.ts';
-import { HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, TORSO_FRAME, type Item, type Stamp, type StampPair } from './puppet.ts';
+import { HEAD_FRAME, HEAD_STAMP, LIMB_CELLS, TORSO_FRAME, type Item, type OwnView, type Stamp, type StampPair } from './puppet.ts';
 
 /**
  * How long a character has been on the island, from 0 to 3. It is a value of the character, not of an item:
@@ -127,6 +127,15 @@ function wornHat(stamp: Stamp, seed: number, level: Wear): Stamp {
   return out;
 }
 
+/** An item's front, back and side stamps, each changed by `change`; `behind` marks what hangs behind the body. */
+function views(item: Item, change: (stamp: Stamp, view: OwnView, behind: boolean) => Stamp): Item['views'] {
+  if (!item.views) return undefined;
+  return Object.fromEntries(Object.entries(item.views).map(([view, v]) => [view, {
+    head: change(v.head, view as OwnView, false),
+    ...(v.behind ? { behind: change(v.behind, view as OwnView, true) } : {}),
+  }]));
+}
+
 // The part of the head frame where the face is, in the front view. Hair may not grow into it.
 const dx = HEAD_FRAME.ax - HEAD_STAMP.ax;
 const dy = HEAD_FRAME.ay - HEAD_STAMP.ay;
@@ -199,9 +208,12 @@ export function weathered(item: Item, level: Wear): Item {
   } else if (item.slot === 'hair') {
     out.head = pair(item.head, (stamp, front) => unkempt(stamp, seed, level, front));
     out.headBehind = pair(item.headBehind, (stamp) => unkempt(stamp, seed, level, false, false));
+    // Face on and side on the hair keeps off the face, as in front; from behind it grows freely.
+    out.views = views(item, (stamp, view, behind) => unkempt(stamp, seed, level, view !== 'N' && !behind, !behind));
   } else if (item.slot === 'beard' && level >= 2 && !item.short) {
     // A beard only grows longer. It has no back view.
     out.head = item.head && { front: unkempt(item.head.front, seed, level, false, false), back: item.head.back };
+    out.views = views(item, (stamp) => unkempt(stamp, seed, level, false, false));
   }
   known.set(level, out);
   return out;

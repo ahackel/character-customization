@@ -52,35 +52,11 @@ const sentence = (text: string) =>
     .join(' ')
     .replace(/^./, (c) => c.toUpperCase());
 
-function eachCell(item: Item, visit: (cell: Cell) => void): void {
-  const stamp = (s?: Stamp) => s?.forEach((row) => row.forEach((c) => c && visit(c)));
-  const pair = (p?: StampPair) => {
-    stamp(p?.front);
-    stamp(p?.back);
-  };
-  pair(item.head);
-  pair(item.headBehind);
-  pair(item.torso);
-  pair(item.tool);
-  item.arm?.forEach((c) => c && visit(c));
-  item.leg?.forEach((c) => c && visit(c));
-  if (item.foot) visit(item.foot);
-}
-
-function colorsOf(item: Item): PaletteKey[] {
-  const tally = new Map<PaletteKey, number>();
-  eachCell(item, (cell) => {
-    if (SKIN_KEYS.includes(cell.key) || FIXED_KEYS.includes(cell.key)) return;
-    tally.set(cell.key, (tally.get(cell.key) ?? 0) + 1);
-  });
-  const total = [...tally.values()].reduce((a, b) => a + b, 0);
-  return [...tally.entries()].sort((a, b) => b[1] - a[1]).filter(([, n]) => n / total >= 0.1).slice(0, 2).map(([key]) => key);
-}
-
-/** A copy of an item with some palette entries replaced by others. Shading is kept. */
-export function recolor(item: Item, swap: Partial<Record<PaletteKey, PaletteKey>>): Item {
-  if (!Object.keys(swap).length) return item;
-  const cell = (c: Cell | null): Cell | null => (c && swap[c.key] ? { ...c, key: swap[c.key]! } : c);
+/**
+ * A copy of an item with every cell of its paint passed through `cell`: the stamps for the head,
+ * the torso and a held tool, the limb strips and the foot. The one place that lists them.
+ */
+function mapCells(item: Item, cell: (c: Cell | null) => Cell | null): Item {
   const stamp = (s: Stamp): Stamp => s.map((row) => row.map(cell));
   const pair = (p?: StampPair): StampPair | undefined => p && { front: stamp(p.front), back: stamp(p.back) };
   return {
@@ -93,6 +69,22 @@ export function recolor(item: Item, swap: Partial<Record<PaletteKey, PaletteKey>
     leg: item.leg?.map(cell),
     foot: cell(item.foot ?? null),
   };
+}
+
+function colorsOf(item: Item): PaletteKey[] {
+  const tally = new Map<PaletteKey, number>();
+  mapCells(item, (cell) => {
+    if (cell && !SKIN_KEYS.includes(cell.key) && !FIXED_KEYS.includes(cell.key)) tally.set(cell.key, (tally.get(cell.key) ?? 0) + 1);
+    return cell;
+  });
+  const total = [...tally.values()].reduce((a, b) => a + b, 0);
+  return [...tally.entries()].sort((a, b) => b[1] - a[1]).filter(([, n]) => n / total >= 0.1).slice(0, 2).map(([key]) => key);
+}
+
+/** A copy of an item with some palette entries replaced by others. Shading is kept. */
+export function recolor(item: Item, swap: Partial<Record<PaletteKey, PaletteKey>>): Item {
+  if (!Object.keys(swap).length) return item;
+  return mapCells(item, (c) => (c && swap[c.key] ? { ...c, key: swap[c.key]! } : c));
 }
 
 function build(): Entry[] {

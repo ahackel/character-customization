@@ -30,6 +30,20 @@ export const FACING_NAMES = ['front right', 'front left', 'back left', 'back rig
 export const FACING_RING: Facing[] = [0, 4, 1, 5, 2, 6, 3, 7];
 /** The facing `steps` eighths of a turn round from `facing`. */
 export const turnFacing = (facing: Facing, steps: number): Facing => FACING_RING[(((FACING_RING.indexOf(facing) + steps) % 8) + 8) % 8];
+/**
+ * What each facing shows: the facing it is drawn as (1, 2 and 5 are the mirror images of 0, 3 and
+ * 7), whether it is seen from behind, and which view of the face it shows, if any.
+ */
+export const FACING_VIEWS: Record<Facing, { drawn: 0 | 3 | 4 | 6 | 7; mirror: boolean; back: boolean; face: 'diagonal' | 'front' | 'side' | null }> = {
+  0: { drawn: 0, mirror: false, back: false, face: 'diagonal' },
+  1: { drawn: 0, mirror: true, back: false, face: 'diagonal' },
+  2: { drawn: 3, mirror: true, back: true, face: null },
+  3: { drawn: 3, mirror: false, back: true, face: null },
+  4: { drawn: 4, mirror: false, back: false, face: 'front' },
+  5: { drawn: 7, mirror: true, back: false, face: 'side' },
+  6: { drawn: 6, mirror: false, back: true, face: null },
+  7: { drawn: 7, mirror: false, back: false, face: 'side' },
+};
 /** The views that are drawn, not mirrored: the two diagonals and front, back and right. */
 export type View = 0 | 3 | 'S' | 'N' | 'E';
 /** Views drawn from their own stamps where an item has them; otherwise the nearest diagonal's are used. */
@@ -440,9 +454,7 @@ function tucked(hair: Stamp, hat: Stamp): Stamp {
 export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: DrawOptions = {}): Sprite {
   // A mirrored view turns the head the other way round too.
   const across1 = (): Pose => (pose.look ? { ...pose, look: -pose.look } : pose);
-  if (facing === 1) return drawCharacter(look, across1(), 0, options).mirrored();
-  if (facing === 2) return drawCharacter(look, across1(), 3, options).mirrored();
-  if (facing === 5) return drawCharacter(look, across1(), 7, options).mirrored();
+  if (FACING_VIEWS[facing].mirror) return drawCharacter(look, across1(), FACING_VIEWS[facing].drawn, options).mirrored();
   if (pose.lie) return laidDown(drawCharacter(look, { ...pose, lie: false }, facing, options));
   const view: View = facing === 4 ? 'S' : facing === 6 ? 'N' : facing === 7 ? 'E' : (facing as 0 | 3);
   const own: OwnView | null = typeof view === 'string' ? view : null;
@@ -685,10 +697,8 @@ export function drawCharacter(look: Look, pose: Pose, facing: Facing, options: D
   // The head turns up to an eighth either way of the body and is drawn in the view it then
   // faces: that view's own stamps, mirrored for the left-hand views.
   const headFacing = turnFacing(facing, -Math.max(-1, Math.min(1, pose.look ?? 0)));
-  const flip = headFacing === 1 || headFacing === 2 || headFacing === 5;
-  const headView = headFacing === 1 ? 0 : headFacing === 2 ? 3 : headFacing === 5 ? 7 : headFacing;
+  const { mirror: flip, drawn: headView, back: headBack } = FACING_VIEWS[headFacing];
   const hv: OwnView | null = headView === 4 ? 'S' : headView === 6 ? 'N' : headView === 7 ? 'E' : null;
-  const headBack = headView === 3 || headView === 6;
   const hside = (pair: StampPair) => (headBack ? pair.back : pair.front);
   const extra = build.head ?? 0;
   // Mirroring the head moves it two pixels towards the body's front; a turned head is moved back

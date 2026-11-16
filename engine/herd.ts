@@ -22,7 +22,7 @@ export class Herd {
 
   constructor(world: World, ms: number) {
     this.poses = world.scene.animals.map((a) => ({
-      i: a.i, j: a.j, hops: a.animal.hops, facing: a.facing as Facing, aim: a.facing as Facing, turned: 0, clip: 'idle', started: ms,
+      i: a.i, j: a.j, hops: a.animal.hops, facing: a.facing, aim: a.facing, turned: 0, clip: 'idle', started: ms,
       home: { i: a.i, j: a.j }, until: ms + rest(), target: null,
     }));
   }

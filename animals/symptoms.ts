@@ -3,6 +3,7 @@
 // the master palette; the game's outlines are left out, as in the engine's look.
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import type { Anchor, AnchorName, AnimalSprite } from '../lab/animal.ts';
+import { FACING_VIEWS, type Facing } from '../lab/puppet.ts';
 
 const COLOR: Record<string, PaletteKey> = {
   darkGreen: 'jungle', lightGreen: 'lime', red: 'red', white: 'white', blue: 'blue', charcoal: 'basalt', slate: 'grey',
@@ -42,12 +43,12 @@ export const SYMPTOMS: Record<string, (px: Px, P: P, every: Every) => void> = {
  * Draws a symptom onto a sprite. `facing` decides which way forward is on screen and whether the
  * face is seen; `seconds` drives the moving ones.
  */
-export function drawSymptom(sprite: AnimalSprite, name: string, anchors: Record<AnchorName, Anchor>, facing: number, seconds: number): void {
+export function drawSymptom(sprite: AnimalSprite, name: string, anchors: Record<AnchorName, Anchor>, facing: Facing, seconds: number): void {
   const draw = SYMPTOMS[name];
   if (!draw) return;
   // Forward is to the right in facings 0, 3 and 7, to the left in their mirror images; face on
   // and from behind it is taken as right.
-  const fwd = facing === 1 || facing === 2 || facing === 5 ? -1 : 1;
+  const fwd = FACING_VIEWS[facing].mirror ? -1 : 1;
   const px: Px = (color, pt, dx = 0, dy = 0, bw = 1, bh = 1) => {
     const x = Math.round(pt.x + dx * fwd);
     const y = Math.round(pt.y + dy);
@@ -55,5 +56,5 @@ export function drawSymptom(sprite: AnimalSprite, name: string, anchors: Record<
     const hex = PALETTE[COLOR[color] ?? 'white'].base;
     for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) sprite.set(left + i, y + j, hex);
   };
-  draw(px, { ...anchors, face: facing === 0 || facing === 1 || facing === 4 || facing === 5 || facing === 7 }, (secs) => (seconds % secs) / secs);
+  draw(px, { ...anchors, face: !FACING_VIEWS[facing].back }, (secs) => (seconds % secs) / secs);
 }

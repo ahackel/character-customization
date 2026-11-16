@@ -1,7 +1,7 @@
 import './style.css';
 import { outfitLook } from '../lab/character.ts';
 import {
-  CATEGORIES, colorChoices, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SIZE_MAX, SIZE_MIN, tryPlant,
+  CATEGORIES, colorChoices, drawPlant, FLORA_H, FLORA_ORIGIN, FLORA_W, FRAMES, grow, plantColors, Raster, recolorPlant, SIZE_MAX, SIZE_MIN, tryPlant, TURNS,
   type Category, type Grown, type Plant,
 } from '../lab/flora.ts';
 import { generateIsland, renderTerrain, type HeightMap, type TerrainImage } from '../lab/terrain.ts';
@@ -31,7 +31,6 @@ const DENSITY = { sparse: 12, medium: 24, dense: 40 } as const;
 type Density = keyof typeof DENSITY;
 const VARIANTS = 4;
 /** Eighth turns, as plants are turned in the scene editor. */
-const TURNS = 8;
 
 interface State {
   selected: string;

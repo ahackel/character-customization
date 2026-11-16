@@ -7,11 +7,11 @@ import { cleanSwap, FLORA_STORE, plantById, type PlantEntry } from '../lab/flora
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from '../lab/island.ts';
 import { SHADOW } from '../lab/palette.ts';
 import {
-  heightAt, hiddenByGround, inside, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
+  heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
-import { turnFacing, type Facing } from '../lab/puppet.ts';
+import { turnFacing } from '../lab/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
@@ -23,7 +23,6 @@ export type { Thing };
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
 const SHADE_RGB = rgb(SHADE);
-const LEVEL_M = 0.354; // metres per level, as in the terrain's light
 // Ripples on the open sea are long level lines in rows that the current carries down the screen,
 // each row swaying sideways; a line grows and shrinks over `ms`. Their colours, share, length and
 // drift, the glints and the waves come from `ocean`.
@@ -352,7 +351,7 @@ export class World {
       const lag = ((Math.imul(Math.floor(placed.i * 97), 73856093) ^ Math.imul(Math.floor(placed.j * 89), 19349663)) >>> 0) % clip.frames;
       const n = (Math.floor(((ms - (pose?.started ?? 0)) / 1000) * clip.rate) + lag) % clip.frames;
       const v = this.toView(pose ?? placed);
-      const facing = turnFacing((pose ?? placed).facing as Facing, this.rot * 2);
+      const facing = turnFacing((pose ?? placed).facing, this.rot * 2);
       let frames = this.animalFrames.get(placed.animal);
       if (!frames) {
         // Every placed animal is its own copy, so the same animal placed twice is found by what it is.

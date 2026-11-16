@@ -13,6 +13,7 @@ import {
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../lab/animal.ts';
+import type { Facing } from '../lab/puppet.ts';
 import { PRESETS } from '../lab/animal-presets.ts';
 import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
@@ -257,7 +258,7 @@ function placeAnimal(at: { i: number; j: number }): void {
   // An animal set down on another's tile takes its place.
   const seen = world.viewAnimals();
   world.scene.animals = world.scene.animals.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) });
+  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
 }
 
 /**

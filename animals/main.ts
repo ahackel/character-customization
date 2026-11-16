@@ -11,7 +11,7 @@ import { download, newId, pickFile, readStore, writeStore } from '../lab/files.t
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import { FACING_NAMES, turnFacing, type Facing } from '../lab/puppet.ts';
 import {
-  checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word,
+  checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, shuffled, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word,
   type IconName,
 } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
@@ -201,7 +201,7 @@ async function importFile(): Promise<void> {
 
 // ------------------------------------------------------------------ shuffle
 
-const some = <T>(list: readonly T[], most: number): T[] => [...list].sort(() => Math.random() - 0.5).slice(0, Math.floor(Math.random() * (most + 1)));
+const some = <T>(list: readonly T[], most: number): T[] => shuffled(list).slice(0, Math.floor(Math.random() * (most + 1)));
 
 /** A random coat for a body: fur, second and third colour from the palette, nose kept. */
 function rollCoat(into: Animal): void {
@@ -472,7 +472,7 @@ function renderBar(): void {
 
 /** New: pick one of three rolled animals, straight into My things. */
 function newThing(): void {
-  pickStart(() => [...NAMES].sort(() => Math.random() - 0.5).slice(0, 3).map((n) => {
+  pickStart(() => shuffled(NAMES).slice(0, 3).map((n) => {
     const look = roll();
     return {
       label: n,

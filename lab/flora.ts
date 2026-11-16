@@ -560,6 +560,8 @@ export const FLORA_H = 144;
 export const FLORA_ORIGIN = { x: 64, y: 126 };
 /** Frames in one wind loop. */
 export const FRAMES = 8;
+/** The ways a plant can be turned: eighths of a full turn. */
+export const TURNS = 8;
 
 /** The canvas a plant of this size needs, and where its root sits on it. Size 1 and below fit the standard one. */
 export function canvasFor(size = 1): { w: number; h: number; origin: { x: number; y: number } } {

@@ -6,9 +6,9 @@ import {
 } from '../lab/character.ts';
 import { hexOf, PALETTE, SKIN_KEYS, type PaletteKey } from '../lab/palette.ts';
 import { AUTHORED, STAND } from '../lab/poses.ts';
-import { BODY_WINDOW, BUILDS, drawCharacter, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
+import { BODY_WINDOW, BUILDS, drawCharacter, FACING_VIEWS, turnFacing, type Facing, type Sprite, type Stamp } from '../lab/puppet.ts';
 import { WEAR_MAX, type Wear } from '../lab/wear.ts';
-import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
+import { button, checkbox, cheer, dragToTurn, h, history, icon, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, shuffled, snapButton, tabs, tabTools, toggle, topBar, undoKeys, word, type IconName } from '../shared/shell.ts';
 import { currentLang, LANGS } from '../shared/lang.ts';
 import { fitWhole, paintSprite, setPixel, type Rect } from '../shared/pixels.ts';
 import { itemName, missingItemNames, t, type Key } from './i18n.ts';
@@ -218,7 +218,7 @@ function nextName(): string {
 
 /** New: pick one of three rolled characters, straight into My things. */
 function newThing(): void {
-  pickStart(() => [...NAMES].sort(() => Math.random() - 0.5).slice(0, 3).map((name) => {
+  pickStart(() => shuffled(NAMES).slice(0, 3).map((name) => {
     const look = roll();
     return {
       label: name,
@@ -579,7 +579,8 @@ function shapesView(): void {
     button({ class: 'btn shapes-head__back' }, () => openShapes(false), icon('chevron'), t('shapes.back')),
     h('h2', {}, t('shapes'))));
   // From behind there is no face to edit.
-  if (facing === 2 || facing === 3 || facing === 6) return void panel.replaceChildren(h('p', { class: 'note shapes__away' }, t('shapes.away')));
+  const seen = FACING_VIEWS[facing];
+  if (!seen.face) return void panel.replaceChildren(h('p', { class: 'note shapes__away' }, t('shapes.away')));
   panel.replaceChildren(shapeEditor({
     face: state.face, skin: state.skin, hair: state.hairColor, mood: state.mood, aside: eyesAside,
     live: () => version++,
@@ -588,8 +589,8 @@ function shapesView(): void {
       render();
     },
     // Face on edits the front view, left and right the side view.
-    view: facing === 4 ? 'front' : facing === 5 || facing === 7 ? 'side' : 'diagonal',
-    mirror: facing === 1 || facing === 5,
+    view: seen.face,
+    mirror: seen.mirror,
   }));
 }
 

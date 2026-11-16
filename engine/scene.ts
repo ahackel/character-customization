@@ -3,6 +3,8 @@
 // can be written to and read from files. Everything read back is checked, since storage and
 // files may hold anything.
 import { newId } from '../lab/files.ts';
+import { TURNS } from '../lab/flora.ts';
+import type { Facing } from '../lab/puppet.ts';
 import { plantById } from '../lab/flora-catalog.ts';
 import { cleanAnimal, type Animal } from '../lab/animal.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
@@ -28,8 +30,8 @@ export interface PlacedAnimal {
   /** Where it stands, in metres from the north corner of the map. */
   i: number;
   j: number;
-  /** Which map axis it faces, 0 to 3, as a character does. */
-  facing: number;
+  /** Which way it faces on the map, as a character does. */
+  facing: Facing;
 }
 
 export interface Scene {
@@ -51,7 +53,7 @@ export interface Scene {
 export const MIN_SIZE = 8;
 export const MAX_SIZE = 64;
 export const SEEDS = 4;
-export const TURNS = 8;
+export { TURNS };
 export const SIZE_RANGE = [0.6, 1.6] as const;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -120,7 +122,7 @@ export function cleanScene(input: unknown): Scene {
       animal: cleanAnimal(a.animal),
       i: num(a.i, 0, w, w / 2),
       j: num(a.j, 0, h, h / 2),
-      facing: Math.round(num(a.facing, 0, 7, 0)),
+      facing: Math.round(num(a.facing, 0, 7, 0)) as Facing,
     }));
   return {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),

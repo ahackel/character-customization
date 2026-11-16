@@ -362,6 +362,8 @@ export function dragToTurn(el: HTMLElement, turn: (step: 1 | -1) => void): void 
 /** Friendly names that read the same in English and German. */
 export const NAMES = ['Mara', 'Kai', 'Lou', 'Ben', 'Ida', 'Tom', 'Zoe', 'Finn', 'Nia', 'Ole', 'Ava', 'Jon', 'Rex', 'Pip', 'Luna', 'Momo', 'Bruno', 'Fips'];
 export const pick = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
+/** A copy of a list in a random order. */
+export const shuffled = <T>(list: readonly T[]): T[] => [...list].sort(() => Math.random() - 0.5);
 
 /** A short hop and a heart on the stage after a change. */
 export function cheer(stage: HTMLElement): void {

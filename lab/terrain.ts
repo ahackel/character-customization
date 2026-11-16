@@ -246,7 +246,8 @@ const LIGHT = (() => {
   const l = Math.hypot(...v);
   return v.map((x) => x / l);
 })();
-const LEVEL_M = 0.354;
+/** Metres per height level. */
+export const LEVEL_M = 0.354;
 /** Shadows: things and ground shade what lies this way of them, in tiles per metre of height. */
 export const SHADOW_RUN = [-LIGHT[0] / LIGHT[2], -LIGHT[1] / LIGHT[2]] as const;
 /** The tint of a shadow, the same as the ground shadows plants and characters cast. */

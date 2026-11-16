@@ -1,36 +1,17 @@
 // Renders plants to a PNG sheet for inspection.
 // Usage: node lab/tools/flora-sheet.mjs <out.png> <scale> <plants.json|test> [variants|wind|dry|size] [character]
 import fs from 'node:fs';
-import { PNG } from 'pngjs';
+import { writeSheet } from './sheet.mjs';
 import { tryPlant, grow, drawPlant, canvasFor, FLORA_ORIGIN, FRAMES, Raster, SHADOW } from '../flora.ts';
 import { drawCharacter, BUILDS } from '../puppet.ts';
 import { STAND } from '../poses.ts';
 import { baseLook } from '../base.ts';
 
+/** Rows of plants as one PNG, each in a cell the size of the largest, with their ground shadows. */
 export function writeRasters(file, rows, scale = 3, background = [233, 217, 160]) {
-  const cols = Math.max(...rows.map((r) => r.length));
   const cells = rows.flat().filter(Boolean);
-  const gap = 2;
-  const cw = Math.max(...cells.map((r) => r.w)) + gap;
-  const ch = Math.max(...cells.map((r) => r.h)) + gap;
-  const png = new PNG({ width: cols * cw * scale, height: rows.length * ch * scale });
-  for (let i = 0; i < png.data.length; i += 4) {
-    png.data[i] = background[0]; png.data[i + 1] = background[1]; png.data[i + 2] = background[2]; png.data[i + 3] = 255;
-  }
-  rows.forEach((row, r) => row.forEach((raster, c) => {
-    if (!raster) return;
-    for (let y = 0; y < raster.h; y++) for (let x = 0; x < raster.w; x++) {
-      const hex = raster.get(x, y) ?? (raster.shaded?.(x, y) ? SHADOW : null);
-      if (!hex) continue;
-      const rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
-      const alpha = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;
-      for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
-        const o = (((r * ch + y) * scale + sy) * png.width + (c * cw + x) * scale + sx) * 4;
-        for (let k = 0; k < 3; k++) png.data[o + k] = Math.round(rgb[k] * alpha + png.data[o + k] * (1 - alpha));
-      }
-    }
-  }));
-  fs.writeFileSync(file, PNG.sync.write(png));
+  const cell = { w: Math.max(...cells.map((r) => r.w)), h: Math.max(...cells.map((r) => r.h)) };
+  writeSheet(file, rows, scale, background, cell, (raster, x, y) => raster.get(x, y) ?? (raster.shaded?.(x, y) ? SHADOW : null));
 }
 
 /** Draws the default character beside the plant, for scale. */

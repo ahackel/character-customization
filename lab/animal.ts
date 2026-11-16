@@ -8,7 +8,7 @@ import { cellHash } from './random.ts';
 import { savedList } from './files.ts';
 
 export { isShadow };
-import type { Facing } from './puppet.ts';
+import { FACING_VIEWS, type Facing } from './puppet.ts';
 
 // ------------------------------------------------------------------ the description
 
@@ -740,14 +740,15 @@ const EYE_PULLS = new Map<string, (number | null | undefined)[]>();
 
 /** Draws one frame. Facings 1, 2 and 5 are the mirror images of 0, 3 and 7. */
 export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facing): AnimalFrame {
-  if (facing === 1 || facing === 2 || facing === 5) {
-    const drawn = drawAnimal(a, clip, frame, facing === 1 ? 0 : facing === 2 ? 3 : 7);
+  const seen = FACING_VIEWS[facing];
+  if (seen.mirror) {
+    const drawn = drawAnimal(a, clip, frame, seen.drawn);
     const anchors = Object.fromEntries(Object.entries(drawn.anchors).map(([k, p]) => [k, { ...p, x: ANIMAL_W - 1 - p.x }])) as Record<AnchorName, Anchor>;
     return { sprite: drawn.sprite.mirrored(), anchors };
   }
   const model = build(a, poseAt(a, clip, frame));
   if (facing === 7) lowerHead(model);
-  const view = VIEW[facing];
+  const view = VIEW[seen.drawn];
   // Animal space to view space: x across the screen, y up, z towards the viewer. One unit
   // across the screen is one pixel, one unit up is one pixel, one unit towards the viewer half a pixel down.
   const toView = (p: V): V => [p[0] * view.right[0] + p[2] * view.right[1], p[1], p[0] * view.toward[0] + p[2] * view.toward[1]];
@@ -864,7 +865,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   // Painted the way the people's hair is: a calm base, light only on the big masses, and on fur the
   // tone edges broken into diagonal strands so they read as hair, not as a band hugging the outline.
   const shag = a.fur;
-  const dir = facing === 0 || facing === 4 || facing === 7 ? 1 : -1;
+  const dir = seen.back ? -1 : 1;
   const hitAt: V[] = new Array(W * Hh);
   const upAt = new Float32Array(W * Hh);
   const thinPart = (o: number) => Math.min(...model.prims[o].r) < 1.3;

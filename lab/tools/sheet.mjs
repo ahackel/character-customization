@@ -6,19 +6,23 @@ import { drawCharacter, SPRITE_W, SPRITE_H } from '../puppet.ts';
 import { AUTHORED } from '../poses.ts';
 import { baseLook } from '../base.ts';
 
-export function writeSheet(file, rows, scale = 6, background = [233, 217, 160]) {
+/**
+ * Writes rows of pictures as one PNG. `cell` is the size of one picture, a character sprite by
+ * default; `pixelOf` reads a picture's colour at a pixel, for pictures that keep more than `get` gives.
+ */
+export function writeSheet(file, rows, scale = 6, background = [233, 217, 160], cell = { w: SPRITE_W, h: SPRITE_H }, pixelOf = (sprite, x, y) => sprite.get(x, y)) {
   const cols = Math.max(...rows.map((r) => r.length));
   const gap = 2;
-  const cw = SPRITE_W + gap;
-  const ch = SPRITE_H + gap;
+  const cw = cell.w + gap;
+  const ch = cell.h + gap;
   const png = new PNG({ width: cols * cw * scale, height: rows.length * ch * scale });
   for (let i = 0; i < png.data.length; i += 4) {
     png.data[i] = background[0]; png.data[i + 1] = background[1]; png.data[i + 2] = background[2]; png.data[i + 3] = 255;
   }
   rows.forEach((row, r) => row.forEach((sprite, c) => {
     if (!sprite) return;
-    for (let y = 0; y < SPRITE_H; y++) for (let x = 0; x < SPRITE_W; x++) {
-      const hex = sprite.get(x, y);
+    for (let y = 0; y < (sprite.h ?? cell.h); y++) for (let x = 0; x < (sprite.w ?? cell.w); x++) {
+      const hex = pixelOf(sprite, x, y);
       if (!hex) continue;
       const rgb = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
       const alpha = hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;

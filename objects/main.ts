@@ -10,7 +10,7 @@ import { OBJECT_PRESETS } from '../lab/object-presets.ts';
 import { download, newId, pickFile, readStore, writeStore } from '../lab/files.ts';
 import { PALETTE, type PaletteKey } from '../lab/palette.ts';
 import {
-  button, checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, snapButton, tabs, tabTools, topBar, undoKeys, word,
+  button, checkbox, cheer, dragToTurn, h, history, NAMES, nameTag, pick, pickStart, row, savePicture, section, segmented, shuffled, snapButton, tabs, tabTools, topBar, undoKeys, word,
   type IconName,
 } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
@@ -366,7 +366,7 @@ function setTurn(next: Turn): void {
 
 /** New: pick one of three rolled things, straight into My things. */
 function newThing(): void {
-  pickStart(() => [...OBJECT_PRESETS].sort(() => Math.random() - 0.5).slice(0, 3).map((preset) => {
+  pickStart(() => shuffled(OBJECT_PRESETS).slice(0, 3).map((preset) => {
     const look = recolour(preset.prop);
     return {
       label: preset.name,

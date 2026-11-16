@@ -1,6 +1,6 @@
 // Draws characters in the parts colours (every part flat in a colour of its own) from all eight
 // sides through their clips, and reports what looks broken: an arm in pieces or not joined to the
-// body, a tool out of the hand, hair or a hat over the face, hair floating off the head, a head off
+// body, a tool out of the hand, clothes floating off the body, hair or a hat over the face, hair floating off the head, a head off
 // the body, hair or a hat that vanishes in one view. Usage:
 //   node lab/tools/parts-check.mjs [sheet.png]
 // With a path, the failing frames are drawn there in the parts colours, each next to its normal drawing.
@@ -26,6 +26,9 @@ for (const hair of [...HAIR_STYLES.map((s) => s.id), ...CATALOG.filter((e) => e.
   characters.push({ name: `hair ${hair}`, state: { hair, frame: 'f' }, worn: plain, clips: ['idle', 'walk', 'look'] });
 }
 for (const e of CATALOG.filter((e) => e.slot === 'hat')) characters.push({ name: `hat ${e.id}`, state: { hair: 'recipe-hair-loose-0' }, worn: { hat: e.id, tool: null }, clips: ['idle', 'walk', 'look'] });
+for (const e of CATALOG.filter((e) => e.slot === 'top' || e.slot === 'bottom')) {
+  characters.push({ name: `${e.slot} ${e.id}`, state: { frame: 'f', build: 'thin' }, worn: { hat: null, tool: null, [e.slot]: e.id }, clips: ['idle', 'walk'] });
+}
 for (const e of CATALOG.filter((e) => e.slot === 'tool')) characters.push({ name: `tool ${e.id}`, worn: { hat: null, tool: e.id }, clips: ['idle', 'walk', 'run', 'wave', 'use', 'sit'] });
 for (const build of ['thin', 'slim', 'sturdy']) {
   for (const frame of ['m', 'f']) characters.push({ name: `body ${build} ${frame}`, state: { build, frame }, worn: plain, clips: ['idle', 'walk', 'run', 'wave', 'use', 'sit', 'look'] });
@@ -102,6 +105,10 @@ for (const ch of characters) {
         // Hair and hats hang together with the head.
         for (const g of groups(parts, [C.hair, C.hat, C.behind])) {
           if (g.length >= 2 && !touches(parts, g, [C.head, C.face, ...BODY, C.workArm, C.freeArm, C.tool, C.beard])) report('hair or hat floating off the head', where, normal(), parts);
+        }
+        // Clothes hang together with the body.
+        for (const g of groups(parts, [C.clothes])) {
+          if (!touches(parts, g, [C.torso, C.legs, C.workArm, C.freeArm, C.head, C.hair, C.behind])) report('clothes floating off the body', where, normal(), parts);
         }
         // Nothing worn on the head covers the face.
         const shown = count(drawCharacter(bare, pose, facing, options), C.face);

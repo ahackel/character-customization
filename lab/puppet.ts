@@ -369,6 +369,7 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
 }
 
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const N8 = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 
 /**
  * Fits a torso stamp drawn for the 9-pixel torso to another build by repeating or dropping one
@@ -488,6 +489,34 @@ export function faceOn(stamp: Stamp, front: boolean, hat = false): Stamp {
   });
   cached[slot] = out;
   return out;
+}
+
+/**
+ * Where the ears are on the bare head, per view, as column and row counted from the top of the
+ * skull in the head-stamp grid: the near ear on the left edge in front 3/4 and on the right edge
+ * from behind, both edges face on and from behind, and in the middle side on.
+ */
+const EARS: Record<'front' | 'back' | OwnView, [number, number][]> = {
+  front: [[2, 6], [2, 7], [3, 7]],
+  back: [[18, 6], [17, 7], [18, 7]],
+  S: [[2, 6], [2, 7], [18, 6], [18, 7]],
+  N: [[2, 6], [2, 7], [18, 6], [18, 7]],
+  E: [[7, 6], [8, 6], [6, 7], [6, 8], [7, 9], [8, 9]],
+};
+/** The ear cells of a view in the head frame, for a head stamp whose skull starts at row `top`. */
+const earCells = (view: keyof typeof EARS, top: number): [number, number][] =>
+  EARS[view].map(([c, r]) => [c + HEAD_FRAME.ax - HEAD_STAMP.ax, r + top]);
+const skullTop = (stamp: Stamp) => stamp.findIndex((row) => row.some(Boolean));
+
+const coversCache = new WeakMap<Stamp, boolean>();
+/**
+ * Whether a hairstyle covers the ears: decided once, from its front 3/4 stamp, which every
+ * hairstyle has, so all the views agree.
+ */
+function coversEars(hair: Stamp, head: Stamp): boolean {
+  let hit = coversCache.get(hair);
+  if (hit === undefined) coversCache.set(hair, (hit = earCells('front', skullTop(head)).filter(([x, y]) => hair[y]?.[x]).length >= 2));
+  return hit;
 }
 
 const tuckedCache = new WeakMap<Stamp, WeakMap<Stamp, Stamp>>();
@@ -704,9 +733,9 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       const inset = (row: number): number => {
         // Side on the waist is the body's depth, not its width: there is no hourglass to see.
         if (!feminine || build.straight || own === 'E') return 0;
-        const deep = width >= 9 ? 2 : 1;
-        if (row >= 5 && row <= 7) return deep;
-        return row === 4 || row === 8 ? deep - 1 : 0;
+        // One pixel in, over three rows (one on the slimmest build): a deeper or longer waist
+        // reads as a wasp waist at this size.
+        return width >= 9 ? (row >= 5 && row <= 7 ? 1 : 0) : row === 6 ? 1 : 0;
       };
       /** First and last body column drawn in a torso row. Column 0 is the left edge of the block. */
       const span = (row: number): [number, number] => [inset(row), width - 1 - inset(row)];
@@ -756,7 +785,23 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
             return out;
           });
         }
-        stampInto(sprite, stamp.slice(0, hipRow + 1), { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
+        // Above the hips a top may reach past the body's edges only where it carries on from
+        // them without a break: a pixel left on its own beside the body (a puffed sleeve fitted
+        // to a narrower build) would float in the air. Side on the arms hang over the middle of
+        // the body, so nothing past its edges stays.
+        const upper = stamp.slice(0, hipRow + 1).map((row) => {
+          const first = fit.ax - half;
+          const out = [...row];
+          for (const dir of [-1, 1]) {
+            let joined = own !== 'E';
+            for (let c = dir < 0 ? first - 1 : first + width; c >= 0 && c < row.length; c += dir) {
+              joined = joined && !!row[c];
+              if (!joined) out[c] = null;
+            }
+          }
+          return out;
+        });
+        stampInto(sprite, upper, { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
         // Anything below the hips is a skirt. Each of its rows is stretched towards whichever
         // knee has swung out, more so further down, so the hem follows the stride.
         for (let r = hipRow + 1; r < stamp.length; r++) {
@@ -771,6 +816,29 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
             const cell = cells[first + Math.round(((x - from) * (last - first)) / Math.max(1, to - from))];
             if (cell) sprite.set(mid + x - fit.ax, top + r - TORSO_FRAME.ay, hexOf(cell));
           }
+        }
+      }
+      // The front of the body side on and in front 3/4: the bust stands out over the chest rows
+      // and a sturdy build's belly lower down, in whatever is worn there, the lowest row of each
+      // in shade; a sturdy build's are two pixels deep in the middle. In 3/4 the front is half
+      // turned away, so the top row and a pixel of depth are left out. Face on and from behind the
+      // outline does not change; the shadow under the chest on clothing shows the bust face on.
+      const sturdy = !!build.straight;
+      const front: [number, number][] = [];
+      if (feminine) front.push(...((sturdy ? [[2, 1], [3, 2], [4, 2], [5, 1]] : [[2, 1], [3, 1], [4, 1]]) as [number, number][]));
+      if (sturdy) front.push([7, 1], [8, 2], [9, 2], [10, 1]);
+      if (!back && (own === 'E' || own === null)) {
+        for (const [row, out] of front) {
+          if (own === null && (row === 2 || row === 7)) continue;
+          const depth = own === null ? Math.max(1, out - 1) : out;
+          const y = top + row;
+          const last = front.every(([r]) => r !== row + 1);
+          // The front edge of the torso in this row, as the block above drew it.
+          const k = bottom === top ? 0 : row / (bottom - top);
+          const edge = Math.round(chest.x + (hips.x - chest.x) * k - width / 2) + span(row)[1];
+          const color = sprite.get(edge, y);
+          if (!color) continue;
+          for (let d = 1; d <= depth; d++) sprite.set(edge + d, y, last ? darker(color) : color);
         }
       }
     },
@@ -873,7 +941,28 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   const ownHead = hv ? look.views?.[hv] : undefined;
   const faces = ownHead?.faces ?? look.faces;
   const face = headBack ? [] : across(faces[options.face ?? 'neutral'] ?? faces.neutral, 0);
-  const headOf = () => ownHead?.head ?? hside(look.head);
+  const bareHead = () => ownHead?.head ?? hside(look.head);
+  // Ears follow the hairstyle the same way in every view: hair that covers them in 3/4 covers
+  // them all round, filling an ear with the hair beside it or, where there is none, leaving out
+  // the ear's bump; hair that leaves them free is never drawn over them.
+  const hairItem = ordered.find((item) => item.slot === 'hair' && item.head);
+  const earsHidden = !!hairItem && coversEars(hairItem.head!.front, look.head.front);
+  const ears = earCells(hv ?? (headBack ? 'back' : 'front'), skullTop(bareHead()));
+  const withEars = (hair: Stamp): Stamp => {
+    const out = hair.map((row) => [...row]);
+    for (const [x, y] of ears) {
+      if (!earsHidden) out[y][x] = null;
+      else if (!out[y][x]) out[y][x] = N8.map(([dx, dy]) => hair[y + dy]?.[x + dx]).find(Boolean) ?? null;
+    }
+    return out;
+  };
+  const headOf = (): Stamp => {
+    const head = bareHead();
+    if (!earsHidden) return head;
+    const hair = withEars(itemHead(hairItem!));
+    // An ear the hair does not reach loses its bump on the outline, or side on its shape.
+    return head.map((row, y) => row.map((cell, x) => (cell && ears.some(([ex, ey]) => ex === x && ey === y) && !hair[y][x] ? (hv === 'E' ? { ...cell, shade: false, light: false } : null) : cell)));
+  };
   // An item without its own stamp for the view falls back to its 3/4 stamp on the same side.
   const fallback = (item: Item): Stamp => {
     const stamp = hside(item.head!);
@@ -936,7 +1025,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       for (const item of ordered) {
         // From straight behind a beard does not show.
         if (!item.head) continue;
-        const stamp = headStamp(headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : itemHead(item));
+        const stamp = headStamp(headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : item === hairItem ? withEars(itemHead(item)) : itemHead(item));
         as(item.slot === 'hair' ? 'hair' : item.slot === 'beard' ? 'beard' : 'hat');
         stampInto(sprite, item.slot === 'hair' ? offFace(stamp) : stamp, HEAD_FRAME, hx, hy);
       }

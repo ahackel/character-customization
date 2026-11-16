@@ -23,10 +23,10 @@ export type { Thing };
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
 const SHADE_RGB = rgb(SHADE);
-// Ripples on the open sea are long level lines in rows that the current carries down the screen,
-// each row swaying sideways; a line grows and shrinks over `ms`. Their colours, share, length and
+// Wavelets on the open sea sit in rows that the current carries down the screen, each row
+// swaying sideways; a wavelet grows and shrinks over `ms`. Their colours, share, length and
 // drift, the glints and the waves come from `ocean`.
-const MARKS = { cell: 48, sway: 1.5, ms: 10000, rows: 0.4 };
+const MARKS = { cell: 20, sway: 1.5, ms: 7000, rows: 0.3 };
 
 /**
  * How strong a wave's crest line is at ground pixel x, y, `depth` levels deep, given the depths of
@@ -47,11 +47,12 @@ export function waveAt(depth: number, above: number, left: number, x: number, y:
   }
   return 0;
 }
+
 const mix = (a: number, b: number, k: number) => ((Math.imul(a * 7 + k, 73856093) ^ Math.imul(b * 13 + k, 19349663)) >>> 0) % 1000 / 1000;
 
 /**
  * The mark on water `depth` levels deep at pixel x, y: 0 for none, else 1 + its index in
- * `MARK_COLORS`. Glints blink anywhere; ripples only out past the waves.
+ * `MARK_COLORS`. Glints blink anywhere; wavelets only out past the waves.
  */
 export function markAt(x: number, y: number, depth: number, ms: number): number {
   if (depth < 0.3) return 0;
@@ -60,19 +61,31 @@ export function markAt(x: number, y: number, depth: number, ms: number): number 
   const g = { x: Math.floor(x / 9), y: Math.floor(row / 7) };
   if (mix(g.x, g.y, 5) < ocean.glints && x === g.x * 9 + Math.floor(mix(g.x, g.y, 6) * 9) && row === g.y * 7 + Math.floor(mix(g.x, g.y, 7) * 7)
     && (t / 2.5 + mix(g.x, g.y, 8)) % 1 < 0.1) return 3;
-  if (depth < ocean.waveReach + 0.6 || mix(row, 0, 1) > MARKS.rows) return 0; // rows without ripples leave the water calm between them
-  const sx = Math.floor(x + t * (mix(row, 0, 2) - 0.5) * 2 * MARKS.sway);
+  if (depth < ocean.waveReach + 0.6) return 0;
+  // A wavelet is a short pale crest with its two ends turned down a row in the dark colour.
+  if (waveletAt(x, row, ms) === 0) return 2;
+  return waveletAt(x, row - 1, ms) === 1 ? 1 : 0;
+}
+
+/**
+ * Where pixel column x stands to the wavelet in `row`, if any: 0 on its crest, 1 just past either
+ * end of it, -1 elsewhere. Rows are swayed sideways by the current, and a wavelet grows and shrinks.
+ */
+function waveletAt(x: number, row: number, ms: number): number {
+  if (mix(row, 0, 1) > MARKS.rows) return -1; // rows without wavelets leave the water calm between them
+  const sx = Math.floor(x + (ms / 1000) * (mix(row, 0, 2) - 0.5) * 2 * MARKS.sway);
   const cell = Math.floor(sx / MARKS.cell);
   const r = (k: number) => mix(cell, row, k);
-  if (r(1) > ocean.ripples) return 0;
+  if (r(1) > ocean.ripples) return -1;
   const phase = (ms / MARKS.ms + r(2)) % 1;
-  if (phase > 0.75) return 0;
-  const longest = Math.min(ocean.rippleLength, MARKS.cell - 2);
-  const len = Math.round(longest * (0.36 + 0.64 * r(3)) * Math.sin((phase / 0.75) * Math.PI));
-  const start = Math.floor(r(4) * (MARKS.cell - longest));
+  if (phase > 0.75) return -1;
+  const longest = Math.min(ocean.rippleLength, MARKS.cell - 4);
+  const len = Math.round(longest * (0.4 + 0.6 * r(3)) * Math.sin((phase / 0.75) * Math.PI));
+  if (len < 2) return -1;
+  const start = 2 + Math.floor(r(4) * (MARKS.cell - 4 - longest));
   const at = sx - cell * MARKS.cell;
-  if (at < start || at >= start + len) return 0;
-  return r(5) < 0.7 ? 1 : 2;
+  if (at >= start && at < start + len) return 0;
+  return at === start - 1 || at === start + len ? 1 : -1;
 }
 
 /** The deepest a walker wades: the shallows, one level under the water line. Deeper water blocks. */
@@ -399,8 +412,9 @@ export class World {
         }
         const p = gy * g.w + gx;
         d[o] = g.rgba[p * 4]; d[o + 1] = g.rgba[p * 4 + 1]; d[o + 2] = g.rgba[p * 4 + 2]; d[o + 3] = 255;
-        const depth = SEA_LEVEL - g.height[p];
-        const foam = 0.85 * waveAt(depth, SEA_LEVEL - g.height[gy > 0 ? p - g.w : p], SEA_LEVEL - g.height[gx > 0 ? p - 1 : p], gx, gy, ms);
+        // Waves and ripples are on the water surface, so they go by its depth, not the floor's.
+        const depth = g.depth[p];
+        const foam = 0.85 * waveAt(depth, g.depth[gy > 0 ? p - g.w : p], g.depth[gx > 0 ? p - 1 : p], gx, gy, ms);
         if (foam > 0) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * foam;
         else if (depth > 0) {
           const mark = markAt(gx, gy, depth, ms);

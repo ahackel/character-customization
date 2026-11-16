@@ -187,6 +187,12 @@ export interface TerrainImage {
   origin: { x: number; y: number };
   /** Per pixel, 1 where higher ground keeps the light off it. */
   shade: Uint8Array;
+  /**
+   * Per pixel where water shows, how many levels deep it is at the point of the water surface
+   * seen there; 0 elsewhere. The floor seen through the water lies lower on screen than the
+   * surface over it, so waves are placed by this, not by `height`.
+   */
+  depth: Float32Array;
 }
 
 const COLORS = {
@@ -257,15 +263,14 @@ export const SHADE_ALPHA = 0x38 / 255;
 const SHADE_STEPS = 4;
 
 /**
- * For points spread over the map, the level below which a point lies in shadow: the highest the
- * ground rises over the ray towards the light, less the light's rise along it.
+ * The ground's height at any point of the map, as `heightAt` gives it, with every cell's corners
+ * worked out once: for the many lookups of shadows and of the water surface. Outside the map it is
+ * the lowest level.
  */
-function horizons(map: HeightMap): { at(i: number, j: number): number } {
+function groundOf(map: HeightMap): (i: number, j: number) => number {
   const corners = new Float32Array(map.w * map.h * 4);
   for (let j = 0; j < map.h; j++) for (let i = 0; i < map.w; i++) corners.set(cornersOf(map, i, j), (j * map.w + i) * 4);
-  let top = SEA_LEVEL;
-  for (const l of map.levels) top = Math.max(top, l);
-  const ground = (i: number, j: number) => {
+  return (i, j) => {
     const ci = Math.floor(i);
     const cj = Math.floor(j);
     if (!inside(map, ci, cj)) return MIN_LEVEL;
@@ -276,6 +281,16 @@ function horizons(map: HeightMap): { at(i: number, j: number): number } {
     if (Math.abs(n - s) <= Math.abs(e - w)) return u >= v ? n + u * (e - n) + v * (s - e) : n + v * (w - n) + u * (s - w);
     return u + v <= 1 ? n + u * (e - n) + v * (w - n) : s + (1 - u) * (w - s) + (1 - v) * (e - s);
   };
+}
+
+/**
+ * For points spread over the map, the level below which a point lies in shadow: the highest the
+ * ground rises over the ray towards the light, less the light's rise along it.
+ */
+function horizons(map: HeightMap): { at(i: number, j: number): number } {
+  let top = SEA_LEVEL;
+  for (const l of map.levels) top = Math.max(top, l);
+  const ground = groundOf(map);
   const toward = [-SHADOW_RUN[0], -SHADOW_RUN[1]];
   const per = Math.hypot(toward[0], toward[1]);
   const step = 0.2; // tiles
@@ -442,11 +457,24 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     }
   }
 
+  // Neighbouring cells only share a corner within a level of each, so where two meet a hair
+  // apart and no side face is drawn between them, a one-pixel seam can stay unpainted and the
+  // open sea shows through. Such a pixel takes the ground above it.
+  for (let y = 1; y < h - 1; y++) for (let x = 0; x < w; x++) {
+    const p = y * w + x;
+    if (cell[p] >= 0 || cell[p - w] < 0 || cell[p + w] < 0) continue;
+    colors[p] = colors[p - w];
+    cell[p] = cell[p - w];
+    height[p] = height[p - w];
+  }
+
   // Water over everything below the water line, by depth: sand showing through
   // the shallows, then turquoise to deep blue. The bands follow the slopes, so the shore is a curve.
   // Then shadows from higher ground, on land only: the water stays bright.
   const horizon = horizons(map);
   const shade = new Uint8Array(w * h);
+  const floor = groundOf(map);
+  const surfaceDepth = new Float32Array(w * h);
   // Few colours fill many pixels: each one's shaded version is mixed once, and a run of one colour is parsed once.
   const shaded = new Map<string, string>();
   let lastColor = '';
@@ -455,6 +483,10 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     const depth = SEA_LEVEL - height[p];
     let color = colors[p];
     if (depth > 0) {
+      const sx = (p % w) + 0.5 - origin.x;
+      const sy = Math.floor(p / w) + 0.5 - origin.y;
+      // Open sea off the map is as deep as it gets; elsewhere the floor is looked up under the surface.
+      surfaceDepth[p] = cell[p] < 0 ? depth : Math.max(0.01, SEA_LEVEL - floor((sx / (TILE_W / 2) + sy / (TILE_H / 2)) / 2, (sy / (TILE_H / 2) - sx / (TILE_W / 2)) / 2));
       const water = waterAt(depth);
       // The sand floor shows through the first half level; steps of a tenth keep the colour cache small.
       color = depth < 0.5 ? mixHex(color, water, Math.round((0.5 + depth) * 10) / 10) : water;
@@ -475,7 +507,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     if (color !== lastColor) lastRgb = rgbOf((lastColor = color));
     rgba[p * 4] = lastRgb[0]; rgba[p * 4 + 1] = lastRgb[1]; rgba[p * 4 + 2] = lastRgb[2]; rgba[p * 4 + 3] = 255;
   }
-  return { w, h, rgba, cell, height, origin, shade };
+  return { w, h, rgba, cell, height, origin, shade, depth: surfaceDepth };
 }
 
 const mixCache = new Map<string, string>();

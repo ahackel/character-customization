@@ -68,11 +68,13 @@ const mirrored = (spec: PoseSpec): PoseSpec => ({
 });
 
 // Walk: contact, down, passing, then the same on the other foot. Authored as key poses.
-// The body drops on the step and rises as the legs pass; arms swing against the legs.
+// The body drops on the step and rises as the legs pass; arms swing against the legs. Strides are
+// kept short and knees only a little bent, as in hand-drawn walks this size: wider swings turn
+// the shins into long slanted runs, and a foot kicked up behind reads as a broken leg.
 const walkHalf: PoseSpec[] = [
-  { legR: { swing: 32 }, legL: { swing: -28, bend: 12 }, armL: { swing: 34, bend: 22 }, armR: { swing: -28, bend: 8 }, lean: 3 },
-  { bob: -1, legR: { swing: 14, bend: 22 }, legL: { swing: -34, bend: 38 }, armL: { swing: 20, bend: 18 }, armR: { swing: -16, bend: 8 }, lean: 4 },
-  { bob: 1, legR: { swing: -4 }, legL: { swing: 24, bend: 62 }, armL: { swing: -6, bend: 10 }, armR: { swing: 8, bend: 14 }, lean: 2 },
+  { legR: { swing: 24, bend: 4 }, legL: { swing: -20, bend: 8 }, armL: { swing: 26, bend: 18 }, armR: { swing: -22, bend: 8 }, lean: 2 },
+  { bob: -1, legR: { swing: 12, bend: 12 }, legL: { swing: -20, bend: 14 }, armL: { swing: 16, bend: 14 }, armR: { swing: -14, bend: 8 }, lean: 3 },
+  { legR: { swing: -4 }, legL: { swing: 16, bend: 38 }, armL: { swing: -4, bend: 10 }, armR: { swing: 6, bend: 12 }, lean: 2 },
 ];
 
 export interface Clip {
@@ -88,10 +90,22 @@ export interface Clip {
 
 export const STAND = buildPose();
 
+/**
+ * Follow-through for a looping clip: hanging hair lags a frame behind the body's rise and fall,
+ * a pixel down as the body comes up and up as it drops, and `trail` pixels behind it.
+ */
+function withHair(specs: PoseSpec[], trail = 0): Pose[] {
+  return specs.map((spec, i) => {
+    const before = specs[(i + specs.length - 1) % specs.length].bob ?? 0;
+    const rise = Math.sign((spec.bob ?? 0) - before);
+    return { ...buildPose(spec), hair: [0, -rise, -trail] as Vec3 };
+  });
+}
+
 // Run: contact, passing, flight, then the same on the other foot. A small forward lean, elbows
 // held at a right angle and swinging against the legs, the knee of the free leg carried high.
 const runHalf: PoseSpec[] = [
-  { bob: -1, lean: 7, legR: { swing: 38, bend: 12 }, legL: { swing: -34, bend: 55 }, armL: { swing: 36, bend: 80 }, armR: { swing: -42, bend: 75 } },
+  { bob: -1, lean: 7, legR: { swing: 34, bend: 12 }, legL: { swing: -30, bend: 40 }, armL: { swing: 36, bend: 80 }, armR: { swing: -42, bend: 75 } },
   { bob: 0, lean: 8, legR: { swing: 4, bend: 14 }, legL: { swing: 18, bend: 95 }, armL: { swing: 8, bend: 80 }, armR: { swing: -8, bend: 80 } },
   { bob: 1, lean: 7, legR: { swing: -38, bend: 18 }, legL: { swing: 52, bend: 72 }, armL: { swing: -36, bend: 75 }, armR: { swing: 34, bend: 80 } },
 ];
@@ -108,14 +122,15 @@ const useFrames: PoseSpec[] = [
   { ...useStance, lean: 3, armR: { swing: 44, bend: 45, out: 32 } },
 ];
 
-// Wave: the raised hand swings from side to side, well clear of the head so that it also shows
-// from behind.
-const waveFrames: PoseSpec[] = [
-  { armL: { swing: 150, bend: 20, out: 40 } },
-  { armL: { swing: 154, bend: 0, out: 48 } },
-  { armL: { swing: 156, bend: -20, out: 56 } },
-  { armL: { swing: 154, bend: 0, out: 48 } },
-];
+// Wave: the elbow is lifted out to the side at shoulder height and the forearm stands up from
+// it, the hand swinging from side to side. Elbow and hand stay outside the head in every view, so
+// the arm reads as one piece joined at the shoulder, from the front, the back and in 3/4. Built
+// from joint positions, since the elbow and the hand go out by different amounts.
+const waveFrames: Pose[] = [-0.6, 0.6, 1.8, 0.6].map((sway) => {
+  const pose = buildPose();
+  const elbow = add(pose.shoulderL, [-4.6, 2, 0.6]);
+  return { ...pose, elbowL: elbow, handL: add(elbow, [-sway, 4.4, 0.6]) };
+});
 
 // Sit: on the floor, legs straight out in front, hands resting on the thighs. Lie: on the back,
 // arms at the sides; the renderer lays the figure down. Both only blink.
@@ -140,10 +155,10 @@ const LOOK_STEPS: [Pose, string | undefined][] = [
 export const AUTHORED: Record<string, Clip> = {
   // Standing still. The only movement is a blink every three seconds.
   idle: { name: 'Idle', ...resting(STAND) },
-  walk: { name: 'Walk', rate: 8, frames: [...walkHalf, ...walkHalf.map(mirrored)].map(buildPose) },
-  run: { name: 'Run', rate: 11, frames: [...runHalf, ...runHalf.map(mirrored)].map(buildPose) },
+  walk: { name: 'Walk', rate: 8, frames: withHair([...walkHalf, ...walkHalf.map(mirrored)]) },
+  run: { name: 'Run', rate: 11, frames: withHair([...runHalf, ...runHalf.map(mirrored)], 1) },
   // Only the arm moves; the body stays where it is.
-  wave: { name: 'Wave', rate: 7, frames: waveFrames.map(buildPose), faces: waveFrames.map(() => 'happy') },
+  wave: { name: 'Wave', rate: 7, frames: waveFrames, faces: waveFrames.map(() => 'happy') },
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
   sit: { name: 'Sit', ...resting(SIT) },
   lie: { name: 'Lie', ...resting(LIE) },

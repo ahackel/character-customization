@@ -65,6 +65,38 @@ This is the puppet's approach: an item is drawn once per drawn facing and carrie
 - A lookup-texture technique stores, in each animation frame, where every pixel comes from in a source image painted once. It is flexible but each frame's mapping is authored by hand.
 - No technical evidence was found for Kairosoft's games, the closest visual match to the reference photo.
 
+## Quality pass, November 2026
+
+Weak points found by rendering every facing and the walk (`node lab/tools/review.mjs sheet.png`) and by the parts check (`node lab/tools/parts-check.mjs`, below), what shipped games do about each, and what was changed. The game references are *practice* as described in the sections above, not newly read sources.
+
+| Problem | How games handle it | Change |
+|---|---|---|
+| Hats and model-drawn hair were drawn only in 3/4, so face on and from behind a cap's peak still pointed sideways and a fringe sat off the face | Stardew Valley and Habbo draw a hat and a hairstyle once per facing and keep front and back symmetric | `faceOn` in `lab/puppet.ts` works out the front and back view from the 3/4 stamp: the face side (or the back) is stretched to the full width and mirrored, so a peak becomes a visor band, a fringe opening centres over the face and a ponytail hangs down the middle. Hats keep each half's own colours so a badge is not doubled |
+| A recoloured beard turned brown side on, a recoloured shoe kept its old sole | — | `mapCells` in `lab/catalog.ts` now recolours the view stamps and the sole too |
+| Walk legs kicked far back and read as broken | Small sprites keep strides short: legs stay near upright, the passing foot lifts a pixel or two, it is not flung behind | Smaller leg swings and knee bends in the walk; the run's rear kick reduced |
+| Side on, a carried spear ran through the face | Side-on sprites carry poles sloped forward | A long tool leans forward 45 degrees in the side view |
+| Outline-free sprites, white shirts and straw brims faded into sand | Selective outline ("sel-out"): the silhouette edge in a darker tone of its own colour, darker on the side away from the light | `rimmed` in `lab/puppet.ts`: outline pixels with empty space right or below go one tone down their own ramp (`darker` in `lab/palette.ts`). No new colours |
+| One-pixel seams between ground tiles let the open sea show through | — | `renderTerrain` fills a pixel left unpainted between two painted ones with the ground above it |
+| A bandana's knot tails showed beside the face face on; a braid became two; a mohawk was doubled from behind | Things that hang behind the head are hidden from the front; a braid over one shoulder stays on that shoulder | Face on, a hat's rows with nothing on the face side are left out; hanging hair that stays narrow all the way down (a braid, a ponytail) stays one strand on the same side, a broad mass falls on both sides; from behind each half keeps its own colours |
+| Hair drawn for 3/4 covered the face side on, and mirrored rows covered a cheek face on | Hair frames the face from every side | Hair is never drawn over the face's features or between them, in any view (`offFace` in `drawFigure`) |
+| Turning to the left swapped the tool to the left hand (the left views are mirror images), and a wave could be done with the hand holding the spear | Characters stay right-handed; a mirrored view mirrors the pose too | The left views draw the pose done the other way round and then flip the picture, so the right hand always holds and works, behind the body where it is the far hand |
+| A waving arm came loose: raised at a slant, its elbow was behind the head, and side on it did not show at all | A wave is drawn with the elbow out at shoulder height and the forearm up, clear of the head | A new wave pose; a raised near arm is drawn over the head; side on the near arm waves, raised forward in front of the face |
+| An arm held out sideways started a pixel or two away from the shoulder | — | `drawLimb` draws a joint block at the shoulder and hip too |
+| The waist was drawn in side on, and two pixels deep face on it looked like a wasp waist | — | One pixel in over three rows (one row on the slimmest build), and no hourglass side on |
+| A woman's figure had no bust from the side; a sturdy build was a plain block side on | Profiles show the bust and the belly | Side on and in front 3/4 the bust stands out at the front, two pixels deep on a sturdy build; a sturdy build's belly runs from under the chest to the hips, swelling to two pixels and rounding back in; pixels that overhang the row below are in shade |
+| Short hair hid the ears face on and in 3/4 but not side on; side on the ear sat a pixel too far back; the side beard was the 3/4 one moved over, behind the ear; the face-on beard had bare cheeks; long hair side on had a ragged edge round the ear; the face-on jaw looked square; a slim body was flat side on | Ears and sideburns agree in every view; hair edges are clean curves | Short hair ends above the ears, with a sideburn in front of them, in every view; the side ear moved forward next to the sideburn; a beard without its own side view is narrowed to run from in front of the ear to the chin, covering the jaw back under the ear; face on, the beard covers as much of the cheeks and sideburns as the near side does in 3/4; long hair side on covers the ear with a curved edge sweeping back; the face-on jaw tapers a row sooner; slim builds have a one-pixel curve from chest to stomach side on |
+| Ears showed in some views and were hidden in others for the same hairstyle | A hairstyle covers the ears all round or none | Whether the hair covers the ears is decided once from its 3/4 drawing; every view then hides them (hair fills the ear, or the ear's bump is left out) or keeps hair off them |
+| Puffed sleeves fitted to a narrow build or seen side on floated beside the body | — | Above the hips a top only reaches past the body where it carries on from its edge; side on not at all |
+| A foot lifted behind the body was a flat block | A pushing-off foot tips toe down | Seen from the side or in 3/4 it narrows to the toes under the shin |
+| Coast waves followed the sea floor, which is drawn up to 11 pixels lower than the water surface over it | Waves belong to the surface | The terrain image keeps the depth under each pixel's point of the water surface (`depth`), and waves and wavelets are placed by it |
+| Open-sea ripples were long single-pixel lines that read as scan lines | Pixel-art seas use short, sparse wavelets: a pale crest with darker ends | Wavelets of up to 7 pixels with their ends turned down a row in the dark colour |
+| Catalog hairstyles only had 3/4 views; side on they reused the 3/4 front, leaving the back of the head bare, and the mohawk's crest sat off the middle from the front and behind | Every view of a style shows the same haircut | Side on, a catalog style is built from both 3/4 views: the back view behind the ear, the front view narrowed in front of it, the crown from the front view alone. The mohawk has hand-drawn front, back, side and 3/4 back views, and holes left inside shaved stubble are filled. The parts check now colours the ears and fails a hairstyle or hat whose ears show in some views but not in others |
+| Hair moved rigidly with the head | Secondary motion: loose parts follow through a frame late | Hair hanging below the ears lags the body's rise and fall by a pixel in the walk and run, and trails a pixel behind at a run. The scalp stays put, so short hair and hats never move |
+
+### The parts check
+
+`lab/tools/parts-check.mjs` draws characters with the `parts` option, every part flat in a colour of its own (`PART_COLORS`: legs, torso, clothes, the working and the free arm, tool, head, face features, hair, hat, beard, hair behind), for every hairstyle, hat and tool and all builds, from all eight sides through their clips, and every top and bottom, and reports an arm piece not joined to the body, a tool out of the hand, clothes floating off the body, hair or a hat over the face, hair floating off the head, a head off the body, and hair or a hat that mostly vanishes in one view. With a file name it draws the failing frames there, normal and in parts colours. It found the shoulder gap and the thin build's wave; it reports nothing now.
+
 ## Not yet applied
 
 - A covered-hair variant under hats. Today a hat simply draws over the hair.
@@ -72,6 +104,9 @@ This is the puppet's approach: an item is drawn once per drawn facing and carrie
 - Behind and front layers for long hair, capes and backpacks.
 - Rotated versions of tools for swinging actions.
 - Judging the sprite on the game's real ground tiles.
+- Own front, back and side stamps for model-drawn hats and hair; the derived ones are a fallback.
+- A mohawk drawn off the middle in 3/4 stays a little off the middle from behind.
+- From behind, a tool in the far hand is mostly hidden during the use action.
 
 ## Sources
 

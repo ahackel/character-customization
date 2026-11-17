@@ -16,9 +16,7 @@ export interface Ocean {
   waveReach: number; // levels deep where crests rise
   wavePeriod: number; // seconds from rising to breaking
   waves: number; // crests on the way in at once
-  /** Wavelets on the open sea: a pale crest with its ends turned down in the dark colour. */
-  rippleDark: string;
-  ripplePale: string;
+  /** Wavelets on the open sea, in the wave colour: they fade in and out. */
   rippleOpacity: number; // how much a wavelet covers the water under it
   ripples: number; // share of places with a wavelet
   rippleLength: number; // longest wavelet crest, pixels
@@ -39,9 +37,7 @@ export const ocean: Ocean = {
   waveReach: 1.4,
   wavePeriod: 4.8,
   waves: 2,
-  rippleDark: '#1e406f',
-  ripplePale: '#c3eaf8',
-  rippleOpacity: 0.5,
+  rippleOpacity: 0.55,
   ripples: 0.3,
   rippleLength: 7,
   drift: 2.5,

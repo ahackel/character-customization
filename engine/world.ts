@@ -33,9 +33,9 @@ const PRINT_DEPTH = 0.45;
 const FOOT = [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 const PAW = [[0, 0], [1, 0]] as const;
 // Wavelets on the open sea sit in rows that the current carries down the screen, each row
-// swaying sideways; a wavelet grows and shrinks over `ms`. Their colours, share, length and
+// swaying sideways; a wavelet shows for `shown` of every `ms`. Their colours, share, length and
 // drift, the glints and the waves come from `ocean`.
-const MARKS = { cell: 20, sway: 1.5, ms: 7000, rows: 0.3 };
+const MARKS = { cell: 20, sway: 1.5, ms: 3500, rows: 0.3, shown: 0.3 };
 
 /**
  * How strong a wave's crest line is at ground pixel x, y, `depth` levels deep, given the depths of
@@ -60,8 +60,8 @@ export function waveAt(depth: number, above: number, left: number, x: number, y:
 const mix = (a: number, b: number, k: number) => ((Math.imul(a * 7 + k, 73856093) ^ Math.imul(b * 13 + k, 19349663)) >>> 0) % 1000 / 1000;
 
 /**
- * The mark on water `depth` levels deep at pixel x, y: 0 for none, else 1 + its index in
- * `MARK_COLORS`. Glints blink anywhere; wavelets only out past the waves.
+ * How strongly the wave colour covers water `depth` levels deep at pixel x, y: 0 for nothing.
+ * Glints and wavelets show on all but the thinnest water at the shore.
  */
 export function markAt(x: number, y: number, depth: number, ms: number): number {
   if (depth < 0.3) return 0;
@@ -69,32 +69,27 @@ export function markAt(x: number, y: number, depth: number, ms: number): number 
   const row = Math.floor(y - t * ocean.drift);
   const g = { x: Math.floor(x / 9), y: Math.floor(row / 7) };
   if (mix(g.x, g.y, 5) < ocean.glints && x === g.x * 9 + Math.floor(mix(g.x, g.y, 6) * 9) && row === g.y * 7 + Math.floor(mix(g.x, g.y, 7) * 7)
-    && (t / 2.5 + mix(g.x, g.y, 8)) % 1 < 0.1) return 3;
-  if (depth < ocean.waveReach + 0.6) return 0;
-  // A wavelet is a short pale crest with its two ends turned down a row in the dark colour.
-  if (waveletAt(x, row, ms) === 0) return 2;
-  return waveletAt(x, row - 1, ms) === 1 ? 1 : 0;
+    && (t / 2.5 + mix(g.x, g.y, 8)) % 1 < 0.1) return 0.8;
+  return waveletAt(x, row, ms);
 }
 
 /**
- * Where pixel column x stands to the wavelet in `row`, if any: 0 on its crest, 1 just past either
- * end of it, -1 elsewhere. Rows are swayed sideways by the current, and a wavelet grows and shrinks.
+ * How strong the wavelet in `row` is at pixel column x: a short straight line in the wave colour.
+ * Rows are swayed sideways by the current; a wavelet keeps its length and quickly fades in and out.
  */
 function waveletAt(x: number, row: number, ms: number): number {
-  if (mix(row, 0, 1) > MARKS.rows) return -1; // rows without wavelets leave the water calm between them
+  if (mix(row, 0, 1) > MARKS.rows) return 0; // rows without wavelets leave the water calm between them
   const sx = Math.floor(x + (ms / 1000) * (mix(row, 0, 2) - 0.5) * 2 * MARKS.sway);
   const cell = Math.floor(sx / MARKS.cell);
   const r = (k: number) => mix(cell, row, k);
-  if (r(1) > ocean.ripples) return -1;
+  if (r(1) > ocean.ripples) return 0;
   const phase = (ms / MARKS.ms + r(2)) % 1;
-  if (phase > 0.75) return -1;
+  if (phase > MARKS.shown) return 0;
   const longest = Math.min(ocean.rippleLength, MARKS.cell - 4);
-  const len = Math.round(longest * (0.4 + 0.6 * r(3)) * Math.sin((phase / 0.75) * Math.PI));
-  if (len < 2) return -1;
+  const len = Math.max(2, Math.round(longest * (0.5 + 0.5 * r(3))));
   const start = 2 + Math.floor(r(4) * (MARKS.cell - 4 - longest));
   const at = sx - cell * MARKS.cell;
-  if (at >= start && at < start + len) return 0;
-  return at === start - 1 || at === start + len ? 1 : -1;
+  return at >= start && at < start + len ? Math.sin((phase / MARKS.shown) * Math.PI) * ocean.rippleOpacity : 0;
 }
 
 /** The deepest a walker wades: the shallows, one level under the water line. Deeper water blocks. */
@@ -428,7 +423,6 @@ export class World {
     const SEA = rgb(ocean.deep);
     const FOAM = rgb(ocean.wave);
     const FAR = rgb(ocean.far);
-    const MARK_COLORS: [number[], number][] = [[rgb(ocean.rippleDark), ocean.rippleOpacity], [rgb(ocean.ripplePale), ocean.rippleOpacity], [[0xff, 0xff, 0xff], 0.8]];
     const g = this.ground;
     const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
     const d = image.data;
@@ -444,7 +438,7 @@ export class World {
         if (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w) {
           d[o] = SEA[0]; d[o + 1] = SEA[1]; d[o + 2] = SEA[2]; d[o + 3] = 255;
           const mark = markAt(gx, gy, 9, ms);
-          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (MARK_COLORS[mark - 1][0][k] - d[o + k]) * MARK_COLORS[mark - 1][1];
+          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * mark;
           for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
           continue;
         }
@@ -456,7 +450,7 @@ export class World {
         if (foam > 0) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * foam;
         else if (depth > 0) {
           const mark = markAt(gx, gy, depth, ms);
-          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (MARK_COLORS[mark - 1][0][k] - d[o + k]) * MARK_COLORS[mark - 1][1];
+          if (mark) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * mark;
         }
         if (depth > 0) for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
         if (grid) {

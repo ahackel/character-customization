@@ -6,9 +6,9 @@ import { newId } from '../lab/files.ts';
 import { TURNS } from '../lab/flora.ts';
 import type { Facing } from '../lab/puppet.ts';
 import { plantById } from '../lab/flora-catalog.ts';
-import { cleanAnimal, type Animal } from '../lab/animal.ts';
+import { cleanAnimal, savedAnimals, type Animal } from '../lab/animal.ts';
 import { PRESETS } from '../lab/animal-presets.ts';
-import { cleanState, type State } from '../lab/character.ts';
+import { cleanState, defaultState, loadRoster, type State } from '../lab/character.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
 import { itemById, type PlacedItem } from './items.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from '../lab/terrain.ts';
@@ -27,11 +27,12 @@ export interface PlacedPlant {
 }
 
 export interface PlacedAnimal {
-  /** The name it had in the animal editor; the animal itself is copied in, so the scene keeps it. */
+  /** The name it has in the animal editor. */
   name: string;
+  /** The animal as last seen in the editor: a stand-in, kept in case its source is gone. */
   animal: Animal;
-  /** For an animal set down from a preset, its id: it then always takes the preset as it is now. */
-  preset?: string;
+  /** What the animal is: a saved animal's id, or `preset:` and a preset id. The scene always takes it as it is now (see `refreshLinks`). Missing only for a copy from an old scene. */
+  ref?: string;
   /** Where it stands, in metres from the north corner of the map. */
   i: number;
   j: number;
@@ -39,10 +40,13 @@ export interface PlacedAnimal {
   facing: Facing;
 }
 
-/** A character from the wardrobe standing in the scene; like an animal, it is copied in. */
+/** A character from the wardrobe standing in the scene; like an animal, it is a reference. */
 export interface PlacedPerson {
   name: string;
+  /** The character as last seen in the wardrobe: a stand-in, kept in case its source is gone. */
   state: State;
+  /** A saved character's id, or '' for the default one. Missing only for a copy from an old scene. */
+  ref?: string;
   /** Where it stands, in metres from the north corner of the map. */
   i: number;
   j: number;
@@ -135,18 +139,20 @@ export function cleanScene(input: unknown): Scene {
   const decor = (Array.isArray(s.decor) ? s.decor : [])
     .filter((d): d is PlacedDecor => !!d && typeof d === 'object' && !!decorById(d.decor))
     .map((d) => ({ decor: d.decor, i: num(d.i, 0, w, w / 2), j: num(d.j, 0, h, h / 2) }));
+  const sources = linkSources();
   const animals = (Array.isArray(s.animals) ? s.animals : [])
     .filter((a): a is PlacedAnimal => !!a && typeof a === 'object')
     .map((a) => {
       const animal = cleanAnimal(a.animal);
       const name = typeof a.name === 'string' ? a.name.slice(0, 40) : '';
-      // Scenes from before presets were linked: a preset's name and colours mark one of its animals.
-      const preset = PRESETS.find((p) => (typeof a.preset === 'string' ? p.id === a.preset
-        : p.name === name && JSON.stringify(p.animal.colors) === JSON.stringify(animal.colors)));
+      // Scenes from before animals were linked hold `preset`, or only a copy: a source with the same name and colours marks one.
+      const ref = typeof a.ref === 'string' ? a.ref
+        : typeof (a as { preset?: unknown }).preset === 'string' ? `preset:${(a as unknown as { preset: string }).preset}`
+          : sources.animals.find((c) => c.name === name && JSON.stringify(c.animal.colors) === JSON.stringify(animal.colors))?.ref;
       return {
         name,
-        animal: preset ? structuredClone(preset.animal) : animal,
-        ...(preset && { preset: preset.id }),
+        animal,
+        ...(ref && { ref }),
         i: num(a.i, 0, w, w / 2),
         j: num(a.j, 0, h, h / 2),
         facing: Math.round(num(a.facing, 0, 7, 0)) as Facing,
@@ -154,22 +160,76 @@ export function cleanScene(input: unknown): Scene {
     });
   const people = (Array.isArray(s.people) ? s.people : [])
     .filter((p): p is PlacedPerson => !!p && typeof p === 'object')
-    .map((p) => ({
-      name: typeof p.name === 'string' ? p.name.slice(0, 40) : '',
-      state: cleanState(p.state),
-      i: num(p.i, 0, w, w / 2),
-      j: num(p.j, 0, h, h / 2),
-      turn: Math.round(num(p.turn, 0, 3, 0)),
-    }));
+    .map((p) => {
+      const state = cleanState(p.state);
+      const name = typeof p.name === 'string' ? p.name.slice(0, 40) : '';
+      const json = JSON.stringify(state);
+      const ref = typeof p.ref === 'string' ? p.ref
+        : sources.people.find((c) => c.name === name && JSON.stringify(c.state) === json)?.id
+          ?? (json === JSON.stringify(defaultState()) ? '' : undefined);
+      return {
+        name,
+        state,
+        ...(ref !== undefined && { ref }),
+        i: num(p.i, 0, w, w / 2),
+        j: num(p.j, 0, h, h / 2),
+        turn: Math.round(num(p.turn, 0, 3, 0)),
+      };
+    });
   const items = (Array.isArray(s.items) ? s.items : [])
     .filter((it): it is PlacedItem => !!it && typeof it === 'object' && !!itemById(it.item))
     .map((it) => ({ item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2) }));
-  return {
+  const scene: Scene = {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
     name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : 'Island',
     w, h, levels, paint, plants, decor, animals, people, items,
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
+  refreshLinks(scene, sources);
+  return scene;
+}
+
+// ------------------------------------------------------------------ references
+
+interface LinkSources {
+  animals: { ref: string; name: string; animal: Animal }[];
+  people: { id: string; name: string; state: State }[];
+}
+
+/** Everything a scene can refer to: the animals made in the animal editor and its presets, and the wardrobe's characters. */
+function linkSources(): LinkSources {
+  return {
+    animals: [
+      ...savedAnimals().map((a) => ({ ref: a.id, name: a.name, animal: a.animal })),
+      ...PRESETS.map((p) => ({ ref: `preset:${p.id}`, name: p.name, animal: p.animal })),
+    ],
+    people: loadRoster(),
+  };
+}
+
+/**
+ * Brings every placed animal and character up to date with the thing it refers to, so editing
+ * that in the animal editor or the wardrobe changes it in the scene too. One whose source is gone
+ * keeps the look it last had. Only what differs is replaced, so unchanged things keep their
+ * identity (and the pictures drawn for them). Says whether anything changed.
+ */
+export function refreshLinks(scene: Scene, sources = linkSources()): boolean {
+  let changed = false;
+  for (const a of scene.animals) {
+    const src = a.ref === undefined ? undefined : sources.animals.find((c) => c.ref === a.ref);
+    if (!src) continue;
+    if (a.name !== src.name) { a.name = src.name; changed = true; }
+    if (JSON.stringify(a.animal) !== JSON.stringify(src.animal)) { a.animal = structuredClone(src.animal); changed = true; }
+  }
+  const standard = defaultState();
+  for (const p of scene.people) {
+    if (p.ref === undefined) continue;
+    const src = p.ref === '' ? { name: p.name, state: standard } : sources.people.find((c) => c.id === p.ref);
+    if (!src) continue;
+    if (p.name !== src.name) { p.name = src.name; changed = true; }
+    if (JSON.stringify(p.state) !== JSON.stringify(src.state)) { p.state = structuredClone(src.state); changed = true; }
+  }
+  return changed;
 }
 
 // ------------------------------------------------------------------ storage

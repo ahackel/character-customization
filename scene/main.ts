@@ -9,7 +9,7 @@ import { Actor, EMOTES, type Carried, type Emote } from '../engine/actor.ts';
 import { ITEMS, itemPicture, type PlacedItem } from '../engine/items.ts';
 import { Herd } from '../engine/herd.ts';
 import {
-  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
+  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, refreshLinks, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
 } from '../engine/scene.ts';
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
@@ -298,7 +298,7 @@ function placeAnimal(at: { i: number; j: number }): void {
   // An animal set down on another's tile takes its place.
   const seen = world.viewAnimals();
   world.scene.animals = world.scene.animals.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...(choice.id.startsWith('preset:') && { preset: choice.id.slice(7) }), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
+  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ref: choice.id, ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
 }
 
 /** The characters made in the wardrobe, after the default one; read again each time, since the wardrobe may be open in another tab. */
@@ -312,15 +312,17 @@ function placePerson(at: { i: number; j: number }): void {
   const choice = personChoices().find((c) => c.id === prefs.person) ?? personChoices()[0];
   const seen = world.scene.people.map((p) => world.toView(p));
   world.scene.people = world.scene.people.filter((_, k) => Math.floor(seen[k].i) !== at.i || Math.floor(seen[k].j) !== at.j);
-  world.scene.people.push({ name: choice.name, state: structuredClone(choice.state), ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), turn: Math.floor(Math.random() * 4) });
+  world.scene.people.push({ name: choice.name, state: structuredClone(choice.state), ref: choice.id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), turn: Math.floor(Math.random() * 4) });
 }
 
 /** Each placed character is drawn by an actor of its own; in Edit it stands where it was placed. */
-const extras = new WeakMap<PlacedPerson, Actor>();
+const extras = new WeakMap<PlacedPerson, { actor: Actor; state: PlacedPerson['state'] }>();
 function personActor(p: PlacedPerson): Actor {
-  let a = extras.get(p);
-  if (!a) extras.set(p, (a = new Actor(lookOf(p.state), p)));
-  return a;
+  let e = extras.get(p);
+  if (!e) extras.set(p, (e = { actor: new Actor(lookOf(p.state), p), state: p.state }));
+  // The character was edited in the wardrobe: it keeps its place and gets the new look.
+  else if (e.state !== p.state) { e.actor.setLook(lookOf(p.state)); e.state = p.state; }
+  return e.actor;
 }
 /** Puts a character's actor back where and as it was placed. */
 function standAtHome(p: PlacedPerson): Actor {
@@ -1219,6 +1221,11 @@ mount();
 // Characters saved in the wardrobe in another tab show up when coming back.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  // Animals and characters edited in their own tools change in the scene, too.
+  if (refreshLinks(world.scene)) {
+    herd?.poses.forEach((pose, k) => { pose.hops = world.scene.animals[k].animal.hops; });
+    sceneChanged();
+  }
   if (prefs.mode === 'edit') cast.replaceChildren(...castOptions());
   else {
     roster = loadRoster();

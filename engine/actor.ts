@@ -99,7 +99,7 @@ export class Actor {
   j: number;
   facing: Facing = 0;
   /** The last direction walked, as an angle on the map. */
-  private heading = 0;
+  heading = 0;
   /** Where the character is turning to, a step at a time, and when it last stepped. */
   private aim: Facing = 0;
   private turned = 0;

@@ -9,12 +9,13 @@ import { Actor, EMOTES, type Carried, type Emote } from '../engine/actor.ts';
 import { ITEMS, itemPicture, type PlacedItem } from '../engine/items.ts';
 import { Herd } from '../engine/herd.ts';
 import {
-  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPlant, type Scene,
+  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
 } from '../engine/scene.ts';
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../lab/animal.ts';
-import { FACING_RING, turnFacing, type Facing } from '../lab/puppet.ts';
+import { drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing } from '../lab/puppet.ts';
+import { STAND } from '../lab/poses.ts';
 import { PRESETS } from '../lab/animal-presets.ts';
 import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
@@ -28,13 +29,13 @@ import { t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'item', 'erase', 'spawn'] as const;
+const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'person', 'item', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
 const BRUSH_MAX = 7;
 const TOOL_ICONS: Record<Tool, IconName> = {
-  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', item: 'box', erase: 'eraser', spawn: 'flag',
+  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', person: 'person', item: 'box', erase: 'eraser', spawn: 'flag',
 };
 
 interface Prefs {
@@ -51,6 +52,8 @@ interface Prefs {
   animal: string;
   /** A saved character id, or '' for the default one. */
   character: string;
+  /** Who the Person tool sets down: a saved character id, or '' for the default one. */
+  person: string;
   /** Which side the scene is seen from: quarter turns, 0 to 3. */
   rot: number;
   /** Tile lines on the ground while editing. */
@@ -58,7 +61,7 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', rot: 0, grid: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -69,6 +72,7 @@ function loadPrefs(): Prefs {
     if (decorById(saved?.decor)) prefs.decor = saved.decor;
     if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
+    if (typeof saved?.person === 'string') prefs.person = saved.person;
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
     prefs.grid = saved?.grid === true;
   } catch {
@@ -199,6 +203,7 @@ function cannotEdit(at: { i: number; j: number }): boolean {
       return !grows(world.map, prefs.plant, at.i + 0.5, at.j + 0.5);
     case 'spawn':
     case 'animal':
+    case 'person':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'decor':
       return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
@@ -265,6 +270,71 @@ function placeAnimal(at: { i: number; j: number }): void {
   world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...(choice.id.startsWith('preset:') && { preset: choice.id.slice(7) }), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
 }
 
+/** The characters made in the wardrobe, after the default one; read again each time, since the wardrobe may be open in another tab. */
+function personChoices(): Saved[] {
+  return [{ id: '', name: t('character.default'), state: defaultState() }, ...loadRoster()];
+}
+
+/** A character in the middle of a tile, on land; one per tile. */
+function placePerson(at: { i: number; j: number }): void {
+  if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
+  const choice = personChoices().find((c) => c.id === prefs.person) ?? personChoices()[0];
+  const seen = world.scene.people.map((p) => world.toView(p));
+  world.scene.people = world.scene.people.filter((_, k) => Math.floor(seen[k].i) !== at.i || Math.floor(seen[k].j) !== at.j);
+  world.scene.people.push({ name: choice.name, state: structuredClone(choice.state), ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), turn: Math.floor(Math.random() * 4) });
+}
+
+/** Each placed character is drawn by an actor of its own; in Edit it stands where it was placed. */
+const extras = new WeakMap<PlacedPerson, Actor>();
+function personActor(p: PlacedPerson): Actor {
+  let a = extras.get(p);
+  if (!a) extras.set(p, (a = new Actor(lookOf(p.state), p)));
+  return a;
+}
+/** Puts a character's actor back where and as it was placed. */
+function standAtHome(p: PlacedPerson): Actor {
+  const a = personActor(p);
+  Object.assign(a, world.toView(p));
+  a.facing = turnFacing(0, 2 * (p.turn + prefs.rot));
+  a.heading = (p.turn + prefs.rot) * (Math.PI / 2);
+  return a;
+}
+function personThing(p: PlacedPerson, ms: number): Thing {
+  return (prefs.mode === 'play' ? personActor(p) : standAtHome(p)).thing(world, ms);
+}
+
+/**
+ * In Play the characters roam as the animals do: rest a while, then walk to a spot near where they
+ * were placed. Home and target are in scene coordinates, so turning the view does not move them.
+ */
+const ROAM = { far: 2.5, rest: [3, 9] };
+const roaming = new Map<PlacedPerson, { target: { i: number; j: number } | null; until: number }>();
+function roam(dt: number, ms: number): void {
+  for (const p of world.scene.people) {
+    const a = personActor(p);
+    let r = roaming.get(p);
+    if (!r) roaming.set(p, (r = { target: null, until: ms + ROAM.rest[0] * 1000 * Math.random() }));
+    if (!r.target && ms >= r.until) {
+      const angle = Math.random() * Math.PI * 2;
+      const far = ROAM.far * Math.sqrt(Math.random());
+      r.target = { i: p.i + Math.cos(angle) * far, j: p.j + Math.sin(angle) * far };
+    }
+    let di = 0, dj = 0;
+    if (r.target) {
+      const v = world.toView(r.target);
+      di = v.i - a.i;
+      dj = v.j - a.j;
+    }
+    const before = [a.i, a.j];
+    a.update(world, dt, di, dj, false, ms);
+    // Arrived, or the way is blocked: rest.
+    if (r.target && (Math.hypot(di, dj) < 0.08 || (before[0] === a.i && before[1] === a.j))) {
+      r.target = null;
+      r.until = ms + (ROAM.rest[0] + Math.random() * (ROAM.rest[1] - ROAM.rest[0])) * 1000;
+    }
+  }
+}
+
 /** A crate in the middle of a tile, on land; one per tile. */
 function placeItem(at: { i: number; j: number }): void {
   if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
@@ -311,6 +381,9 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
     case 'animal':
       if (fresh.length) placeAnimal(at);
       break;
+    case 'person':
+      if (fresh.length) placePerson(at);
+      break;
     case 'item':
       if (fresh.length) placeItem(at);
       break;
@@ -320,6 +393,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       world.scene.plants = kept(world.scene.plants, world.viewPlants());
       world.scene.decor = kept(world.scene.decor, world.viewDecor());
       world.scene.animals = kept(world.scene.animals, world.viewAnimals());
+      world.scene.people = kept(world.scene.people, world.scene.people.map((p) => { const v = world.toView(p); return { vi: v.i, vj: v.j }; }));
       world.scene.items = kept(world.scene.items, world.viewItems());
       break;
     }
@@ -331,7 +405,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
 }
 
 /** A placed thing the Move tool holds: the object in the scene (data coordinates) and what it is. */
-type Selected = { kind: 'plant' | 'decor' | 'animal' | 'item' | 'spawn'; obj: { i: number; j: number } };
+type Selected = { kind: 'plant' | 'decor' | 'animal' | 'person' | 'item' | 'spawn'; obj: { i: number; j: number } };
 let selected: Selected | null = null;
 
 /** The placed thing under a ground-image pixel, the front-most; decorations lie flat, so they come last. */
@@ -342,6 +416,10 @@ function objectAt(x: number, y: number): Selected | null {
     ...world.scene.animals.map((a, k): [Selected, { i: number; j: number }, boolean] => {
       const thing = world.animalSprite(a, k, 0);
       return [{ kind: 'animal', obj: a }, thing.spot, covers(thing, x, y)];
+    }),
+    ...world.scene.people.map((p): [Selected, { i: number; j: number }, boolean] => {
+      const thing = personThing(p, 0);
+      return [{ kind: 'person', obj: p }, thing.spot, covers(thing, x, y)];
     }),
     ...world.itemThings().map((thing, k): [Selected, { i: number; j: number }, boolean] => [{ kind: 'item', obj: world.scene.items[k] }, thing.spot, covers(thing, x, y)]),
     [{ kind: 'spawn', obj: world.scene.spawn }, s, x >= flag.x - 1 && x <= flag.x + 6 && y >= flag.y - 13 && y <= flag.y + 1],
@@ -410,6 +488,8 @@ function startPlay(): void {
   actor = new Actor(characterLook(), at);
   herd = new Herd(world, performance.now());
   world.loose = structuredClone(world.scene.items);
+  world.scene.people.forEach(standAtHome);
+  roaming.clear();
   target = null;
   held = null;
   // The camera stays where it is, unless the character would start out of sight.
@@ -422,9 +502,11 @@ function startPlay(): void {
 function rotate(step: number): void {
   const middle = world.tileAt(cam.x, cam.y + 16);
   const focus = world.toData(actor ?? (middle ? { i: middle.i + 0.5, j: middle.j + 0.5 } : { i: world.map.w / 2, j: world.map.h / 2 }));
+  const people = world.scene.people.map((p) => world.toData(personActor(p)));
   prefs.rot = (prefs.rot + step + 4) % 4;
   savePrefs();
   world.setRotation(prefs.rot);
+  world.scene.people.forEach((p, k) => Object.assign(personActor(p), world.toView(people[k])));
   const v = world.toView(focus);
   if (actor) {
     actor.i = v.i;
@@ -535,6 +617,7 @@ window.addEventListener('keydown', (e) => {
     world.scene.plants = world.scene.plants.filter((p) => p !== gone);
     world.scene.decor = world.scene.decor.filter((d) => d !== gone);
     world.scene.animals = world.scene.animals.filter((a) => a !== gone);
+    world.scene.people = world.scene.people.filter((p) => p !== gone);
     world.scene.items = world.scene.items.filter((it) => it !== gone);
     selected = null;
     sceneChanged();
@@ -717,6 +800,7 @@ function frame(ms: number): void {
     // The animal being fetched waits to be picked up; the others shy away from the character.
     const fetching = target?.pick && 'animal' in target.pick ? target.pick.animal : undefined;
     herd?.update(world, dt, ms, world.toData(actor), fetching);
+    roam(dt, ms);
     // A target that cannot be reached is given up rather than walked against forever.
     if (target && before[0] === actor.i && before[1] === actor.j) target = null;
   } else if (kx || ky) {
@@ -730,7 +814,7 @@ function frame(ms: number): void {
   const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
   const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
-    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings()];
+    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms))];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
@@ -793,6 +877,25 @@ function animalThumb(animal: Animal): HTMLCanvasElement {
   const known = animalThumbs.get(id);
   if (known) return known;
   const { sprite } = drawAnimal(animal, 'idle', 0, 0);
+  const c = cropped(sprite);
+  animalThumbs.set(id, c);
+  return c;
+}
+
+const personThumbs = new Map<string, HTMLCanvasElement>();
+/** A character standing, cropped to what it paints. */
+function personThumb(state: Saved['state']): HTMLCanvasElement {
+  const id = JSON.stringify(state);
+  const known = personThumbs.get(id);
+  if (known) return known;
+  const sprite = drawCharacter(lookOf(state), STAND, 0);
+  const c = cropped({ w: SPRITE_W, h: SPRITE_H, get: (x, y) => sprite.get(x, y) });
+  personThumbs.set(id, c);
+  return c;
+}
+
+/** A picture cropped to what it paints, without its shadow, at most 44 pixels across on screen. */
+function cropped(sprite: { w: number; h: number; get(x: number, y: number): string | null }): HTMLCanvasElement {
   let x0 = sprite.w, y0 = sprite.h, x1 = 0, y1 = 0;
   for (let y = 0; y < sprite.h; y++) for (let x = 0; x < sprite.w; x++) {
     const c = sprite.get(x, y);
@@ -812,7 +915,6 @@ function animalThumb(animal: Animal): HTMLCanvasElement {
   const scale = Math.min(2, 44 / Math.max(w, hh));
   c.style.width = `${Math.round(w * scale)}px`;
   c.style.height = `${Math.round(hh * scale)}px`;
-  animalThumbs.set(id, c);
   return c;
 }
 
@@ -898,6 +1000,12 @@ function editOptions(): Node[] {
     const current = choices.some((c) => c.id === prefs.animal) ? prefs.animal : choices[0].id;
     out.push(picks(t('animals'), choices.map((c) => ({ id: c.id, name: c.name, picture: animalThumb(c.animal) })), current, (animal) => set({ animal })));
     out.push(h('a', { class: 'opts__link', href: '../animals/' }, t('animal.edit')));
+  }
+  if (tool === 'person') {
+    const choices = personChoices();
+    const current = choices.some((c) => c.id === prefs.person) ? prefs.person : '';
+    out.push(picks(t('character'), choices.map((c) => ({ id: c.id, name: c.name, picture: personThumb(c.state) })), current, (person) => set({ person })));
+    out.push(h('a', { class: 'opts__link', href: '../wardrobe/' }, t('character.edit')));
   }
   return out;
 }

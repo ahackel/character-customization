@@ -739,6 +739,9 @@ function lowerHead(model: Model): void {
   for (const key of Object.keys(model.points) as (keyof Model['points'])[]) model.points[key] = drop(model.points[key]);
 }
 
+/** How far apart the eyes are seen head on, as a share of where the head's shape puts them; never closer than a pixel either side of the middle. */
+const EYES_HEAD_ON = 0.4;
+
 /** Per animal and facing, how many pixels each eye was pulled in on the standing frame; null when it did not fit. */
 const EYE_PULLS = new Map<string, (number | null | undefined)[]>();
 
@@ -757,7 +760,11 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   // across the screen is one pixel, one unit up is one pixel, one unit towards the viewer half a pixel down.
   const toView = (p: V): V => [p[0] * view.right[0] + p[2] * view.right[1], p[1], p[0] * view.toward[0] + p[2] * view.toward[1]];
   const toAnimal = (p: V): V => [p[0] * view.right[0] + p[2] * view.toward[0], p[1], p[0] * view.right[1] + p[2] * view.toward[1]];
-  const screen = (p: V) => ({ x: Math.floor(OX + p[0]), y: Math.floor(OY - p[1] + 0.5 * p[2]), t: p[2] / 2 });
+  // Facing the viewer or away, the animal is mirror-symmetric about the line between the middle
+  // columns: a point on a pixel edge goes to the pixel nearer that line, on either side alike.
+  const headOn = seen.drawn === 4 || seen.drawn === 6;
+  const column = (x: number) => (headOn && x < OX ? Math.ceil(x) - 1 : Math.floor(x));
+  const screen = (p: V) => ({ x: column(OX + p[0]), y: Math.floor(OY - p[1] + 0.5 * p[2]), t: p[2] / 2 });
 
   const W = ANIMAL_W, Hh = ANIMAL_H;
   const depth = new Float32Array(W * Hh).fill(-Infinity);
@@ -870,15 +877,21 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
   // tone edges broken into diagonal strands so they read as hair, not as a band hugging the outline.
   const shag = a.fur;
   const dir = seen.back ? -1 : 1;
+  /** Head on, the left half repeats the right in mirror: strokes and scatter by this column make a symmetric pattern. */
+  const across = (px: number) => (headOn && px < OX ? W - 1 - px : px);
+  /** Head on, the light comes from straight above and in front, so neither flank is darker. */
+  const light: V = headOn ? norm([0, LIGHT[1], LIGHT[2]]) : LIGHT;
+  /** Whether a part is on the side turned from the viewer; head on, neither side is. */
+  const far = (o: number) => !headOn && !!model.prims[o].far;
   const hitAt: V[] = new Array(W * Hh);
   const upAt = new Float32Array(W * Hh);
   const thinPart = (o: number) => Math.min(...model.prims[o].r) < 1.3;
   /** Parts that carry fur (ragged edges, strands): not legs, ears, snouts or horns. */
   const furry = (o: number) => {
     const p = model.prims[o];
-    return shag > 0 && p.role === 'fur' && !p.far && (p.part === 'body' || p.part === 'hump' || p.part === 'neck' || p.part === 'head' || (p.part === 'tail' && !thinPart(o)));
+    return shag > 0 && p.role === 'fur' && !far(o) && (p.part === 'body' || p.part === 'hump' || p.part === 'neck' || p.part === 'head' || (p.part === 'tail' && !thinPart(o)));
   };
-  const onStrand = (px: number, py: number) => (px * dir + py + 3 * W) % 3 === 0;
+  const onStrand = (px: number, py: number) => (across(px) * dir + py + 3 * W) % 3 === 0;
   for (let py = 0; py < Hh; py++) {
     for (let px = 0; px < W; px++) {
       const at = py * W + px;
@@ -891,13 +904,13 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       hitAt[at] = P;
       upAt[at] = nv[1];
       const role = roleAt(p, P, n, px);
-      const lit = dot(nv, LIGHT);
+      const lit = dot(nv, light);
       const strand = furry(owner[at]) && onStrand(px, py) ? shag : 0;
       const big = Math.min(...p.r) >= 2;
       // Three planes, as on the reference sprites: a lit top, the flank in base, the lower third in shade.
       const below = nv[1] < -0.3 + 0.12 * strand;
       let tone: Tone = big && lit > 0.95 - 0.08 * strand ? 'light' : lit < 0.2 + 0.14 * strand || below ? 'shade' : 'base';
-      if (p.far) tone = tone === 'light' ? 'base' : 'shade';
+      if (far(owner[at])) tone = tone === 'light' ? 'base' : 'shade';
       // Feet in the darkest tone: it grounds the animal.
       if (p.part === 'foot') tone = 'shade';
       keyAt[at] = a.colors[role];
@@ -905,8 +918,8 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       if (spiny[at]) {
         // Spines implied: broken diagonal strokes in shade, not a weave over the whole back.
         // Each stroke has a pale tip beside it, so the spines stand out from the coat.
-        const cell = hash(Math.floor(P[0] / 1.6), Math.floor(P[1] / 1.6), Math.floor(P[2] / 1.6)) < 0.6;
-        const k = (px * dir + py + 3 * W) % 3;
+        const cell = hash(Math.floor(Math.abs(P[0]) / 1.6), Math.floor(P[1] / 1.6), Math.floor(P[2] / 1.6)) < 0.6;
+        const k = (across(px) * dir + py + 3 * W) % 3;
         tone = cell && k === 0 ? 'shade' : cell && k === 1 ? (tone === 'shade' ? 'base' : 'light') : tone === 'shade' ? 'shade' : 'base';
       }
       toneAt[at] = tone;
@@ -985,7 +998,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
         const at = py * W + px;
         if (owner[at] < 0 || !furry(owner[at]) || spiny[at]) continue;
         const P = hitAt[at];
-        const h = hash(Math.floor(P[0] / 1.3) + 17, Math.floor(P[1] / 1.3), Math.floor(P[2] / 1.3));
+        const h = hash(Math.floor(Math.abs(P[0]) / 1.3) + 17, Math.floor(P[1] / 1.3), Math.floor(P[2] / 1.3));
         if (!painted(px, py - 1) && upAt[at] > 0.25 && h < 0.24 * shag && tufts.at(-1) !== at - W - 1) tufts.push(at);
         if (!painted(px, py + 1) && upAt[at] < -0.25 && h > 1 - 0.45 * shag) clumps.push(at);
       }
@@ -1000,7 +1013,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       for (let px = 1; px < W - 1; px++) {
         const at = py * W + px;
         const o = owner[at];
-        if (o < 0 || model.prims[o].part !== 'ear' || model.prims[o].far) continue;
+        if (o < 0 || model.prims[o].part !== 'ear' || far(o)) continue;
         const m = model.prims[o].mass;
         if ([[1, 0], [-1, 0], [0, -1]].every(([dx, dy]) => massOf(px + dx, py + dy) === m)) inner.push(at);
       }
@@ -1016,7 +1029,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
     for (let px = 0; px < W; px++) {
       const at = py * W + px;
       const o = owner[at];
-      if (o < 0 || thinPart(o) || spiny[at] || model.prims[o].far || model.prims[o].part === 'foot') continue;
+      if (o < 0 || thinPart(o) || spiny[at] || far(o) || model.prims[o].part === 'foot') continue;
       if (!painted(px, py - 1)) rim.push(at);
     }
   }
@@ -1062,7 +1075,7 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
       }
       sprite.set(px, py, PALETTE[key][tone]);
       // Spikes stand out of the silhouette along the top of the back.
-      if (spiny[at] && py > 0 && owner[at - W] < 0 && hash(px, py, 7) < 0.55) sprite.set(px, py - 1, PALETTE[key].shade);
+      if (spiny[at] && py > 0 && owner[at - W] < 0 && hash(across(px), py, 7) < 0.55) sprite.set(px, py - 1, PALETTE[key].shade);
     }
   }
 
@@ -1112,7 +1125,8 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
     if (!q.visible) continue;
     const e = exact(eye);
     const m = exact(model.points.head);
-    let x = middle.x + away(e.x - m.x);
+    // Head on, the eyes sit closer than the head's width would put them: across the snout, not on the cheeks.
+    let x = column(OX + m.x + (headOn ? Math.sign(e.x - m.x) * Math.max(1, Math.round(Math.abs(e.x - m.x) * EYES_HEAD_ON)) : away(e.x - m.x)));
     let y = middle.y + away(e.y - m.y);
     // How far the eye is pulled in comes from the standing frame, so a bobbing outline does not
     // move one eye and not the other.
@@ -1124,15 +1138,17 @@ export function drawAnimal(a: Animal, clip: ClipId, frame: number, facing: Facin
     let k = 0;
     if (fixed === undefined) for (; k < 4 && !inside(x, y, tall); k++) pull();
     else if (fixed !== null) for (; k < fixed; k++) pull();
-    const fits = fixed === undefined ? inside(x, y, tall) && (!wide || inside(x + 1, y, tall)) : fixed !== null && onFace(x, y);
+    // A wide eye's second column goes outwards: to the right, or head on, away from the middle.
+    const out = headOn && x < OX ? -1 : 1;
+    const fits = fixed === undefined ? inside(x, y, tall) && (!wide || inside(x + out, y, tall)) : fixed !== null && onFace(x, y);
     pulls[side] = fits ? k : null;
     if (!fits || (eyeAt && Math.abs(eyeAt.x - x) < (wide ? 3 : 2))) continue;
-    if (pose.blink) for (let dx = 0; dx <= (wide ? 1 : 0); dx++) sprite.set(x + dx, y, PALETTE[keyAt[y * W + x]!].shade);
+    if (pose.blink) for (let dx = 0; dx <= (wide ? 1 : 0); dx++) sprite.set(x + dx * out, y, PALETTE[keyAt[y * W + x]!].shade);
     else {
       sprite.set(x, y, PALETTE.ink.base);
       if (tall) sprite.set(x, y - 1, PALETTE.ink.base);
       if (wide) {
-        for (const dy of [0, -1]) sprite.set(x + 1, y + dy, PALETTE.ink.base);
+        for (const dy of [0, -1]) sprite.set(x + out, y + dy, PALETTE.ink.base);
         sprite.set(x, y - 1, PALETTE.white.base); // (the glint, towards the light)
       }
     }

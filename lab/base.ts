@@ -1,4 +1,4 @@
-import { FLUSH, type Cell, type PaletteKey } from './palette.ts';
+import type { Cell, PaletteKey } from './palette.ts';
 import shapesFile from './face-shapes.json' with { type: 'json' };
 import { beardBehind, HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
 
@@ -447,18 +447,24 @@ function sideGlasses(put: Put): void {
 }
 
 
-/** The bare head and its faces seen from the front, from behind and side on. */
-export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): NonNullable<Look['views']> {
-  const shape = SHAPES[options.shape ?? 'round'];
-  const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
-  const side = parseStamp(pad(sideRows(options.shape ?? 'round'), 6), {}, skin);
+/** The bare head side on, its nose warmed. */
+function sideHead(skin: PaletteKey, shape: HeadShape = 'round'): Stamp {
+  const side = parseStamp(pad(sideRows(shape), 6), {}, skin);
   // The tip of the nose side on is the one pixel that stands out furthest in front.
   const reach = side.map((row) => row.reduce((last, cell, x) => (cell ? x : last), -1));
   const tip = reach.indexOf(Math.max(...reach));
   if (reach.filter((r) => r === reach[tip]).length === 1) {
     // The tip, the pixel behind it and the bridge above that: the whole nose side on.
-    for (const [x, y] of [[reach[tip], tip], [reach[tip] - 1, tip], [reach[tip] - 1, tip - 1]]) if (side[y][x]) side[y][x] = { ...side[y][x]!, flush: FLUSH };
+    for (const [x, y] of [[reach[tip], tip], [reach[tip] - 1, tip], [reach[tip] - 1, tip - 1]]) if (side[y][x]) side[y][x] = { ...side[y][x]!, flush: true };
   }
+  return side;
+}
+
+/** The bare head and its faces seen from the front, from behind and side on. */
+export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): NonNullable<Look['views']> {
+  const shape = SHAPES[options.shape ?? 'round'];
+  const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
+  const side = sideHead(skin, options.shape);
   return {
     S: { head: straight, faces: faceSet(straight, 'front', skin, options, hair, mood) },
     N: { head: straight, faces: {} },
@@ -485,7 +491,7 @@ function faceSet(head: Stamp, view: FaceView, skin: PaletteKey, options: FaceOpt
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
   const make = (as: Mood, blink: boolean, aside = false) => {
     const rows = pad(faceRows(options, as, blink, aside, view), 0);
-    return parseStamp(rows, legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? (rows[y][x] === 'n' || rows[y][x] === 'N' ? { ...cell!, flush: FLUSH } : cell) : null)));
+    return parseStamp(rows, legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? (rows[y][x] === 'n' || rows[y][x] === 'N' ? { ...cell!, flush: true } : cell) : null)));
   };
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
   // 'aside' looks away from where the face points: left on screen when the face points right.
@@ -625,7 +631,7 @@ export function beardFor(item: Item, skin: PaletteKey, shape: HeadShape = 'round
   const round = headFor(skin), worn = headFor(skin, shape);
   const front = fittedBeard(item.head.front, round.front, worn.front);
   const side = item.views?.E;
-  const views = side ? { ...item.views, E: { ...side, head: fittedBeard(side.head, viewsFor(skin).E!.head, viewsFor(skin, { ...DEFAULT_FACE, shape }).E!.head) } } : item.views;
+  const views = side ? { ...item.views, E: { ...side, head: fittedBeard(side.head, sideHead(skin), sideHead(skin, shape)) } } : item.views;
   return { ...item, head: { front, back: beardFromBehind(front) }, ...(views ? { views } : {}) };
 }
 

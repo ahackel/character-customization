@@ -1,4 +1,4 @@
-import { darker, FLUSH, hexOf, SHADOW, type Cell, type PaletteKey } from './palette.ts';
+import { darker, hexOf, SHADOW, type Cell, type PaletteKey } from './palette.ts';
 
 // ------------------------------------------------------------------ geometry
 
@@ -311,14 +311,17 @@ interface Layer {
  * on every row, inside a run of the row's main paint, so a badge or a stripe keeps its size and
  * shape; the outline widens the same either way.
  */
+/** The paint most cells have. */
+function mainKey(cells: (Cell | null | undefined)[]): string | undefined {
+  const tally = new Map<string, number>();
+  for (const cell of cells) if (cell) tally.set(cell.key, (tally.get(cell.key) ?? 0) + 1);
+  return [...tally].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
 export function widened(stamp: Stamp, col: number, times: number): Stamp {
   const same = (a: Cell | null | undefined, b: Cell | null | undefined) =>
     (!a && !b) || (!!a && !!b && a.key === b.key && !!a.shade === !!b.shade && !!a.light === !!b.light && a.mix === b.mix);
-  const mains = stamp.map((row) => {
-    const tally = new Map<string, number>();
-    for (const cell of row) if (cell) tally.set(cell.key, (tally.get(cell.key) ?? 0) + 1);
-    return [...tally].sort((a, b) => b[1] - a[1])[0]?.[0];
-  });
+  const mains = stamp.map(mainKey);
   // One column for the whole stamp, so the rows of a detail stay in line.
   const plain = (c: number) => stamp.every((row, y) => (!row[c] || row[c]!.key === mains[y]) && same(row[c - 1], row[c]) && same(row[c], row[c + 1]));
   const at = [0, -1, 1, -2, 2, -3, 3, -4, 4].map((d) => col + d).find(plain) ?? col;
@@ -528,7 +531,7 @@ export function faceOn(stamp: Stamp, front: boolean, hat = false): Stamp {
   // Sampling the 3/4 row about the middle can miss its one middle pixel; a gap of one between two
   // pixels of the same paint is filled.
   const closed = out.map((row) => row.map((cell, x) => cell ?? (row[x - 1] && row[x + 1] && row[x - 1]!.key === row[x + 1]!.key ? row[x - 1] : null)));
-  const final = hat && front ? centredBadge(stamp, closed, middle - 0.5) : closed;
+  const final = hat && front ? centredBadge(stamp, closed, HEAD_FRAME.ax) : closed;
   cached[slot] = final;
   return final;
 }
@@ -539,9 +542,7 @@ export function faceOn(stamp: Stamp, front: boolean, hat = false): Stamp {
  * dot patterns are left as they are.
  */
 function centredBadge(diagonal: Stamp, straight: Stamp, axis: number): Stamp {
-  const count = new Map<string, number>();
-  for (const cell of diagonal.flat()) if (cell) count.set(cell.key, (count.get(cell.key) ?? 0) + 1);
-  const main = [...count].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const main = mainKey(diagonal.flat());
   const seen = new Set<string>();
   const patches: [number, number][][] = [];
   diagonal.forEach((row, y) =>
@@ -587,11 +588,13 @@ function centredBadge(diagonal: Stamp, straight: Stamp, axis: number): Stamp {
  * skull in the head-stamp grid: the near ear on the left edge in front 3/4 and on the right edge
  * from behind, both edges face on and from behind, and in the middle side on.
  */
+const LEFT_EAR: [number, number][] = [[2, 6], [2, 7], [2, 8], [2, 9], [3, 7], [3, 8]];
+const RIGHT_EAR: [number, number][] = [[18, 6], [18, 7], [18, 8], [18, 9], [17, 7], [17, 8]];
 const EARS: Record<'front' | 'back' | OwnView, [number, number][]> = {
-  front: [[2, 6], [2, 7], [2, 8], [2, 9], [3, 7], [3, 8]],
-  back: [[18, 6], [18, 7], [18, 8], [18, 9], [17, 7], [17, 8]],
-  S: [[2, 6], [2, 7], [2, 8], [2, 9], [3, 7], [3, 8], [18, 6], [18, 7], [18, 8], [18, 9], [17, 7], [17, 8]],
-  N: [[2, 6], [2, 7], [2, 8], [2, 9], [3, 7], [3, 8], [18, 6], [18, 7], [18, 8], [18, 9], [17, 7], [17, 8]],
+  front: LEFT_EAR,
+  back: RIGHT_EAR,
+  S: [...LEFT_EAR, ...RIGHT_EAR],
+  N: [...LEFT_EAR, ...RIGHT_EAR],
   E: [[8, 6], [9, 6], [7, 7], [7, 8], [8, 9], [9, 9]],
 };
 /** The ear cells of a view in the head frame, for a head stamp whose skull starts at row `top`. */
@@ -1105,6 +1108,8 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   const hairItem = ordered.find((item) => item.slot === 'hair' && item.head);
   const earsHidden = !!hairItem && coversEars(hairItem.head!.front, look.head.front);
   const ears = earCells(hv ?? (headBack ? 'back' : 'front'), skullTop(bareHead()));
+  const earSet = new Set(ears.map(([x, y]) => `${x},${y}`));
+  const onEar = (x: number, y: number) => earSet.has(`${x},${y}`);
   const withEars = (hair: Stamp): Stamp => {
     const out = hair.map((row) => [...row]);
     for (const [x, y] of ears) {
@@ -1118,7 +1123,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     if (!earsHidden) return head;
     const hair = withEars(itemHead(hairItem!));
     // An ear the hair does not reach loses its bump on the outline, or side on its shape.
-    return head.map((row, y) => row.map((cell, x) => (cell && ears.some(([ex, ey]) => ex === x && ey === y) && !hair[y][x] ? (hv === 'E' ? { ...cell, shade: false, light: false } : null) : cell)));
+    return head.map((row, y) => row.map((cell, x) => (cell && onEar(x, y) && !hair[y][x] ? (hv === 'E' ? { ...cell, shade: false, light: false } : null) : cell)));
   };
   // An item without its own stamp for the view falls back to its 3/4 stamp on the same side.
   const fallback = (item: Item): Stamp => {
@@ -1181,7 +1186,8 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     const edgeOf = (stamp: Stamp, y: number) => stamp[y]?.findIndex((cell, x) => cell && !earAt.get(stamp)!.has(`${x},${y}`)) ?? -1;
     let last = [edgeOf(near, 0), edgeOf(straightHead, 0)];
     const straight = front.map((row, y) => {
-      if (edgeOf(near, y) >= 0 && edgeOf(straightHead, y) >= 0) last = [edgeOf(near, y), edgeOf(straightHead, y)];
+      const edges = [edgeOf(near, y), edgeOf(straightHead, y)];
+      if (edges.every((e) => e >= 0)) last = edges;
       const [e34, eS] = last;
       const half = row.map((_, x) => {
         if (x > mid) return null;
@@ -1246,12 +1252,13 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       as('head');
       // Ears the hair leaves free are warmed a little, like the nose.
       const patch = earPatch(hv ?? (headBack ? 'back' : 'front'), ears);
-      const head = earsHidden ? headOf() : headOf().map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: FLUSH } : cell)));
+      const bare = headOf();
+      const head = earsHidden ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
       stampInto(sprite, headStamp(head).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
       if (options.parts && !earsHidden) {
         // The ears in a colour of their own, so a script can tell whether they show.
         as('ear');
-        stampInto(sprite, headStamp(headOf().map((row, y) => row.map((cell, x) => (cell && ears.some(([ex, ey]) => ex === x && ey === y) ? cell : null)))), HEAD_FRAME, hx, hy);
+        stampInto(sprite, headStamp(bare.map((row, y) => row.map((cell, x) => (cell && onEar(x, y) ? cell : null)))), HEAD_FRAME, hx, hy);
       }
       as('face');
       // In the parts drawing blush is skin: hair may lie over a cheek, not over the features.
@@ -1262,26 +1269,25 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         const top = Math.min(...ears.map(([, y]) => y));
         const temples = ears.filter(([, y]) => y === top).flatMap(([x, y]) => [[x, y], [x < HEAD_FRAME.ax ? x + 1 : x - 1, y]]);
         const key = look.glasses;
-        stampInto(sprite, headStamp(headOf().map((row, y) => row.map((_, x) => (temples.some(([tx, ty]) => tx === x && ty === y) ? { key, shade: false } : null)))), HEAD_FRAME, hx, hy);
+        stampInto(sprite, headStamp(bare.map((row, y) => row.map((_, x) => (temples.some(([tx, ty]) => tx === x && ty === y) ? { key, shade: false } : null)))), HEAD_FRAME, hx, hy);
       }
+      // A beard's sideburn runs in front of the ear, so an ear the hair leaves free shows past it in
+      // every view: a beard pixel on the ear moves onto the face beside it, if that is free.
+      const clear = (beard: Stamp): Stamp => {
+        const out = beard.map((row, y) => row.map((cell, x) => (onEar(x, y) ? null : cell)));
+        for (const [x, y] of ears) {
+          if (!beard[y]?.[x] || hv === 'E') continue;
+          let to = x;
+          do to += x < HEAD_FRAME.ax ? 1 : -1;
+          while (onEar(to, y));
+          if (!beard[y][to]) out[y][to] = beard[y][x];
+        }
+        return out;
+      };
       for (const item of ordered) {
         // From straight behind a beard does not show.
         if (!item.head) continue;
         const raw = headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : item === hairItem ? withEars(itemHead(item)) : itemHead(item);
-        // A beard's sideburn runs in front of the ear, so an ear the hair leaves free shows past it in
-        // every view: a beard pixel on the ear moves onto the face beside it, if that is free.
-        const onEar = (x: number, y: number) => ears.some(([ex, ey]) => ex === x && ey === y);
-        const clear = (beard: Stamp): Stamp => {
-          const out = beard.map((row, y) => row.map((cell, x) => (onEar(x, y) ? null : cell)));
-          for (const [x, y] of ears) {
-            if (!beard[y]?.[x] || hv === 'E') continue;
-            let to = x;
-            do to += x < HEAD_FRAME.ax ? 1 : -1;
-            while (onEar(to, y));
-            if (!beard[y][to]) out[y][to] = beard[y][x];
-          }
-          return out;
-        };
         const stamp = headStamp(item.slot === 'beard' && !earsHidden ? clear(raw) : raw);
         as(item.slot === 'hair' ? 'hair' : item.slot === 'beard' ? 'beard' : 'hat');
         stampInto(sprite, item.slot === 'hair' ? offFace(lagged(stamp)) : stamp, HEAD_FRAME, hx, hy);
@@ -1294,7 +1300,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         const features = face.map((row) => row.map((cell) => (cell && ((cell.key !== look.skin && cell.key !== 'blush') || cell.flush) ? cell : null)));
         stampInto(sprite, features, HEAD_FRAME, fx, hy);
         as('head');
-        stampInto(sprite, headStamp(headOf().map((row) => row.map((cell) => (cell?.flush ? cell : null)))), HEAD_FRAME, hx, hy);
+        stampInto(sprite, headStamp(bare.map((row) => row.map((cell) => (cell?.flush ? cell : null)))), HEAD_FRAME, hx, hy);
       }
     },
   });

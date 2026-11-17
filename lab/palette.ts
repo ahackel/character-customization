@@ -110,20 +110,19 @@ export interface Cell {
   light?: boolean;
   /** Drawn see-through over what is already there, at this strength from 0 to 1: stubble. */
   mix?: number;
-  /** Warmed towards the blush colour at this strength from 0 to 1: ears and nose. */
-  flush?: number;
+  /** Warmed a little towards the blush colour: ears and nose. */
+  flush?: boolean;
 }
 
 /** How far ears and the nose are warmed towards the blush colour. */
-export const FLUSH = 0.3;
+const FLUSH = 0.3;
 
 const flushed = new Map<string, string>();
 export const hexOf = (cell: Cell): string => {
   const hex = PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];
   if (!cell.flush) return hex;
-  const id = hex + cell.flush;
-  let out = flushed.get(id);
-  if (!out) flushed.set(id, (out = hexFrom(mix(rgbOf(hex), rgbOf(PALETTE.blush.base), cell.flush))));
+  let out = flushed.get(hex);
+  if (!out) flushed.set(hex, (out = hexFrom(mix(rgbOf(hex), rgbOf(PALETTE.blush.base), FLUSH))));
   return out;
 };
 

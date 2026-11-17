@@ -4,12 +4,12 @@ import { defineConfig, type Plugin } from 'vite';
 
 /**
  * The wardrobe's shape editor saves the eye and mouth shapes through the dev server into
- * lab/face-shapes.json, so they are part of the project. Only while developing; the published
+ * engine/character/face-shapes.json, so they are part of the project. Only while developing; the published
  * site has no such endpoint and the editor there cannot save. The editor already shows what it
  * saved, so its own saves do not reload the page; an edit to the file by hand still does.
  */
 function faceShapes(): Plugin {
-  const file = fileURLToPath(new URL('./lab/face-shapes.json', import.meta.url));
+  const file = fileURLToPath(new URL('./engine/character/face-shapes.json', import.meta.url));
   const rows = (v: unknown) => Array.isArray(v) && v.length <= 8 && v.every((r) => typeof r === 'string' && r.length <= 12 && /^[.ICTM%e]*$/.test(r));
   const valid = (data: any) =>
     data && typeof data === 'object' && ['eyes', 'mouths', 'brows'].every((k) => data[k] && typeof data[k] === 'object') &&
@@ -46,19 +46,23 @@ function faceShapes(): Plugin {
 }
 
 // Relative base so the built site works from any path (static hosting, file previews).
-// `vite build` builds every page for local use, the lab included. `vite build --mode site` builds
-// the published site (andreashackel.de/pixel-art/): the start page, the wardrobe, the animal editor, the object editor,
-// the flora tool and the scene editor.
-export default defineConfig(({ mode }) => {
-  const site = mode === 'site';
-  const pages = { main: 'index.html', wardrobe: 'wardrobe/index.html', animals: 'animals/index.html', objects: 'objects/index.html', flora: 'flora/index.html', scene: 'scene/index.html' };
-  return {
-    base: './',
-    plugins: [faceShapes()],
-    build: {
-      outDir: site ? 'dist-site' : 'dist',
-      chunkSizeWarningLimit: 900,
-      rollupOptions: { input: site ? pages : { ...pages, lab: 'lab/index.html' } },
+// `vite build` builds the published site (andreashackel.de/pixel-art/): the start page and the five
+// tools in `tools/`: wardrobe, animal editor, object editor, flora tool and scene editor.
+export default defineConfig({
+  base: './',
+  plugins: [faceShapes()],
+  build: {
+    outDir: 'dist',
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        wardrobe: 'tools/wardrobe/index.html',
+        animals: 'tools/animals/index.html',
+        objects: 'tools/objects/index.html',
+        flora: 'tools/flora/index.html',
+        scene: 'tools/scene/index.html',
+      },
     },
-  };
+  },
 });

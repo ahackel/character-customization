@@ -1,4 +1,4 @@
-// The scene editor's round brush. No DOM, so `node lab/tools/brush-check.mjs` can test it.
+// The scene editor's round brush. No DOM, so `node scripts/brush-check.mjs` can test it.
 
 /** The tiles a round brush of `size` tiles across covers around a centre tile, as offsets. */
 export function roundBrush(size: number): [number, number][] {

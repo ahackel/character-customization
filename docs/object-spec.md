@@ -18,7 +18,7 @@ engine's look and in all four camera turns. An object is a small JSON descriptio
 | Points | Named points in object space, reported per frame in sprite pixels with a visibility flag, like the animals' anchors: `bed` (where an animal lies or stands, its feet), `screen`, `seat1`, `seat2` and so on |
 | Presets | Every object of `animal-hospital/src/data.js` but the flora plants (pine, bush, sunflower): reception, outdoor desk, bench, potted plant, exam table, bandage table, desk, cabinet, nest, stand, log, trough, hay, litter tray, feeder, fountain; and the four cars: car, bubble car (pets), jeep (wild), truck (big) |
 | Saving | Like the other editors: a named list on the device, export and import as JSON (`type: "pixel-object"`) |
-| For the game | `drawObject(object, turn, frame)` from `lab/object.ts` gives the sprite and the points; the pivot is the middle of the footprint on the floor. `npm run bake` also writes every preset × turn × frame into the atlas, with the points per frame. Car colours: swap the body's palette key before drawing |
+| For the game | `drawObject(object, turn, frame)` from `engine/objects/object.ts` gives the sprite and the points; the pivot is the middle of the footprint on the floor. `npm run bake` also writes every preset × turn × frame into the atlas, with the points per frame. Car colours: swap the body's palette key before drawing |
 
 ## Not in this version
 Feeder fill levels (the game shows the bowl's contents itself for now), thought bubbles, droppings, food.

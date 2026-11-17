@@ -7,7 +7,7 @@ back to front. This page describes how to get from one to the other and how to d
 
 ## 1. Bake to texture atlases
 
-`node lab/tools/bake.mjs [outDir] [pageSize]` writes what the game draws:
+`node scripts/bake.mjs [outDir] [pageSize]` writes what the game draws:
 
 - `atlas-<n>.png`: pages of trimmed frames, packed on shelves.
 - `atlas.json`: per frame its page, rectangle and **pivot** (the pixel that stands on the ground),
@@ -20,7 +20,7 @@ What it bakes today:
 | Each plant, rock, driftwood | 4 variants × 8 wind frames | Hard plants (cacti, rocks, wood) are identical in every wind frame and stored once. |
 | Their ground shadows | 1 per variant | A separate mask frame, see *Shadows* below. |
 | A character | every clip × 4 facings | Facings 1 and 2 are mirrors of 0 and 3; a game can bake two and flip the quad. |
-| Each animal preset | 6 clips × 4 facings | `anchors` in `atlas.json` gives each frame's symptom points (eye, nose, mouth, top, head, body, back, foot) as `[x, y, visible]` from the pivot. A game can also skip baking and call `drawAnimal()` from `lab/animal.ts` at load time. |
+| Each animal preset | 6 clips × 4 facings | `anchors` in `atlas.json` gives each frame's symptom points (eye, nose, mouth, top, head, body, back, foot) as `[x, y, visible]` from the pivot. A game can also skip baking and call `drawAnimal()` from `engine/animals/animal.ts` at load time. |
 
 The whole current catalogue bakes in about a second into two 1024² pages, half full. Size and
 season are two more axes when they are needed: bake the sizes the level design uses (for example
@@ -86,7 +86,7 @@ The flora page does exactly this in software for its preview and its island.
 
 ## 5. Terrain
 
-`lab/terrain.ts` is the start of the ground: a height map with one whole level per one-metre
+`engine/world/terrain.ts` is the start of the ground: a height map with one whole level per one-metre
 tile, level 0 at the water line, one level is 8 screen pixels (about a third of a metre). From
 the heights alone, by rule:
 

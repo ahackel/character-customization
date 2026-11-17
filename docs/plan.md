@@ -186,11 +186,11 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 - **Skirts.** Anything a top or bottom paints below the hips is treated as a skirt. Each of its rows is stretched towards whichever knee has swung out, more so towards the hem, so a dress follows the stride instead of hanging as a fixed block. Painted bottoms that flare past the legs (the pleated skirt, the leaf skirts) are now kept whole for this; trousers and shorts still become a waist plus a strip per leg.
 - **Headbands.** Whether a hat covers the crown is now measured where the top of the hair sits. A headband paints nothing there, so the hair above it stays; caps, straw hats and head-wraps still tuck the hair.
 
-`lab/tools/pass5.mjs` renders the check sheet for these three.
+`scripts/pass5.mjs` renders the check sheet for these three.
 
 ### Sixth pass
 
-- **Condition is a value of the character.** Items are drawn once, neat. A level from 0 to 3 (neat, worn, ragged, tattered) ages them by rule (`lab/wear.ts`): hems fray, stains appear in small blocks, holes open, a patch appears from "ragged" on, sleeves and trouser legs shorten from the free end, a skirt frays at the hem, boots slump and lose their cuff, shoes scuff and finally open at the toe, and hat brims fray. Damage is decided per pixel from the item's name, and each level keeps the damage of the one before, so a character can move up the levels during play without the damage jumping around. Tools do not age.
+- **Condition is a value of the character.** Items are drawn once, neat. A level from 0 to 3 (neat, worn, ragged, tattered) ages them by rule (`engine/character/wear.ts`): hems fray, stains appear in small blocks, holes open, a patch appears from "ragged" on, sleeves and trouser legs shorten from the free end, a skirt frays at the hem, boots slump and lose their cuff, shoes scuff and finally open at the toe, and hat brims fray. Damage is decided per pixel from the item's name, and each level keeps the damage of the one before, so a character can move up the levels during play without the damage jumping around. Tools do not age.
 - **Hair follows the condition.** Stray pixels break the outline, the gloss goes, the ends grow down in clumps and the fringe creeps over the forehead, never past the brows. Beards grow longer.
 - **A smaller list.** The 15 candidates that were drawn ragged (torn shirts, cut-offs, patched trousers, the cropped rag, the ragged vest) are left out of the wardrobe, along with two duplicates and the two colour-only shoes that the new footwear replaces. Jeans at "tattered" are cut-offs; nobody has to draw them.
 - **Hair.** Three further model calls produced nine hairstyles: high ponytail, pigtails, long braid, mohawk, side parting, buzz cut, long wavy, tight curls, shoulder-length with a centre parting. All nine were valid as returned. The format gained an optional third stamp for hair that hangs behind the head and body in the front view; five of the nine used it.
@@ -198,9 +198,9 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 - **Belly.** The sturdy build carries a belly: the lower torso stands out up to three pixels on the side the character faces, lit on top and shaded underneath. Clothing that reaches the edge of the body is carried out over it.
 - **Beards from behind.** The back view of a beard is now worked out from its front view: whatever stands out past the jaw on the side the face points to, above the shoulders. Big beards show; small ones do not.
 - **Glasses** take one of nine frame colours.
-- **Languages.** The wardrobe's text lives in `wardrobe/i18n.ts`, English and German, with a switch in the header. The compiler checks that a language has every key. Item names come from the model in English; other languages carry a name per catalogue id and fall back to English, and the development build reports ids without one.
+- **Languages.** The wardrobe's text lives in `tools/wardrobe/i18n.ts`, English and German, with a switch in the header. The compiler checks that a language has every key. Item names come from the model in English; other languages carry a name per catalogue id and fall back to English, and the development build reports ids without one.
 
-`lab/tools/pass6.mjs` renders the check sheets (wear, belly, shoes, hair).
+`scripts/pass6.mjs` renders the check sheets (wear, belly, shoes, hair).
 
 ### Seventh pass
 
@@ -210,20 +210,20 @@ A fault found and fixed on the way: mirrored facings were one pixel off-centre.
 - **Motion, all written by hand as key poses now.** Idle stands still and blinks every three seconds. Wave moves only the arm, held far enough out to show from behind. Run is rewritten: a small lean, elbows at a right angle swinging against the legs, the free knee carried high. Chop is replaced by a generic "use": one foot forward, the right arm works out to the side where it reads from the front and from behind. A short tool turns with the forearm; a long one stays tilted forward and is thrust.
 - The poses sampled from the 3D clips remain in the lab page as the comparison they were, but the wardrobe no longer uses them.
 
-`lab/tools/pass7.mjs` renders the check sheets (moods, motion, belly).
+`scripts/pass7.mjs` renders the check sheets (moods, motion, belly).
 
 ### Foliage
 
-The same approach, extended to plants (`lab/flora.ts`, page `flora/`).
+The same approach, extended to plants (`engine/flora/flora.ts`, page `flora/`).
 
-- **Format.** The model never paints a plant. It writes a small tree of parts: `stem` (trunks, stalks, cactus columns and arms: length, taper, lean, curve, texture, cap), `leaf` (frond, blade, broad or needle: length, width, rise, droop, texture), `blob` (bushes, barrel cacti, pads, fruit: size and texture), and `stamp`, a tiny text grid for details such as flowers. Copies are spread round the stem or over a fan, at a range of heights. The description is `lab/generated/spec-plant.md`.
+- **Format.** The model never paints a plant. It writes a small tree of parts: `stem` (trunks, stalks, cactus columns and arms: length, taper, lean, curve, texture, cap), `leaf` (frond, blade, broad or needle: length, width, rise, droop, texture), `blob` (bushes, barrel cacti, pads, fruit: size and texture), and `stamp`, a tiny text grid for details such as flowers. Copies are spread round the stem or over a fan, at a range of heights. The description is `docs/specs/spec-plant.md`.
 - **Rules.** Parts grow in 3D and are projected in the same 2:1 view as the characters, sorted by depth, and shaded with the shared palette: stems lit on the left, leaf undersides and fronds that point away in shade, bushes built from shaded clumps, one ground shadow under the canopy and one under each stem. Five plant colours were added to the palette (jungle, lime, moss, sage, bark); they are kept out of the clothing colours.
 - **Variants, wind, season.** A seed varies sizes and angles within each part's jitter, and odd seeds are mirrored. Wind is eight frames: the whole plant bends with height by the amount of the part that grows from the ground, so a crown stays on its trunk; leaves, fruit and flowers also flutter towards their tips; a storm adds a steady lean. Hard plants do not move at all: cacti, and any ribbed or spiny part with everything that grows on it, whatever their description says. Dryness from 0 to 1 is the plants' version of the clothing condition: leaves droop, turn olive then straw or brown in patches, tear and drop, and flowers and small fruit go first.
 - **Size.** A grow option from 0.5 to 2, set where the plant is placed rather than in its recipe. It scales lengths, widths, spacing and masses before drawing, so pixels stay one pixel and rings, ribs and spines keep their spacing; hand-drawn stamps keep their size. The same seed has the same shape at every size. Plants larger than 1 get a larger canvas (`canvasFor`).
 - **Generation.** Four model calls, one per group, produced 19 plants: three palms, six grasses and ground covers, four cacti, six jungle plants. All 19 were valid as returned, none needed clamping, and none ran off the canvas. Palms, the saguaro, the prickly pear, the hibiscus bush and the bamboo read well to me; the monstera reads as a dark lettuce, and the grasses are correct but small, as they should be at this scale.
 - **Page.** A preview with four variants, size, wind, season and ground, the person for scale, colour swaps, and the model's recipe in an editor that regrows the plant as you type and keeps edits in the browser. An island scene scatters the current group round a survivor, each plant within 80 to 120% of the chosen size. English and German.
 
-`lab/tools/flora-sheet.mjs` renders plants to sheets (variants, wind frames, drying stages, sizes).
+`scripts/flora-sheet.mjs` renders plants to sheets (variants, wind frames, drying stages, sizes).
 
 #### Rocks, driftwood, terrain (second foliage pass)
 
@@ -233,10 +233,10 @@ The same approach, extended to plants (`lab/flora.ts`, page `flora/`).
 - **Shadows** are a separate mask on each plant picture, not see-through pixels. Scenes collect all masks and darken the ground once, so overlapping shadows no longer add up.
 - **Spikes.** Every green part of a cactus gets spikes by rule: staggered light ticks along the edges of stems and around the outline of rounded parts, and areoles down the ribs.
 - **Round shapes** are lit as spheres: a highlight up and to the left, away from the edge, and a shaded crescent on the lower right. Bush clumps are each lit that way, and clumps on the shaded side of the bush stay in shade.
-- **Terrain** (`lab/terrain.ts`): a height map of whole levels per one-metre tile, level 0 the water line, 8 pixels per level. Surface, cliffs, foam, walking (`canStep`) and placement follow from the heights. The flora page's scene is now a 16 × 16 generated island; each group grows on the surfaces it belongs on, and higher ground in front hides what stands behind it.
+- **Terrain** (`engine/world/terrain.ts`): a height map of whole levels per one-metre tile, level 0 the water line, 8 pixels per level. Surface, cliffs, foam, walking (`canStep`) and placement follow from the heights. The flora page's scene is now a 16 × 16 generated island; each group grows on the surfaces it belongs on, and higher ground in front hides what stands behind it.
 - **Slopes.** Each tile's corners take the average of the four tiles round them, kept within one level of the tile; neighbours up to two levels apart share a slope, larger steps stay cliffs. Slopes are lit by their direction, low ground is sand whatever the tile, and the sea floor slopes too: water is laid over everything below level 0 in bands by depth (foam, sand showing through, shallow, deep), so beaches run into the sea in curves.
-- **Site.** The start page (`index.html`, `home/`), the wardrobe and the flora tool are published with GitHub Pages at andreashackel.de/pixel-art/ (`npm run build:site`, `.github/workflows/pages.yml`). The 3D prototype moved to `prototype/`; it and the lab stay out of the published site. Island scattering and painting is shared by the flora page and the start page (`lab/island.ts`).
-- **Export.** `lab/tools/bake.mjs` bakes the catalogue to atlases (trimmed frames, pivots, animations, shadow masks, duplicates stored once): 1,189 frames, 730 different, two 1024² pages, in about a second. `docs/export.md` covers baking at build or load time, composing characters once per look, palette-indexed recolouring, sorting, wind phases, shadow layers and terrain chunks.
+- **Site.** The start page (`index.html`, `home/`), the wardrobe and the flora tool are published with GitHub Pages at andreashackel.de/pixel-art/ (`npm run build:site`, `.github/workflows/pages.yml`). The 3D prototype moved to `prototype/`; it and the lab stay out of the published site. Island scattering and painting is shared by the flora page and the start page (`engine/world/island.ts`).
+- **Export.** `scripts/bake.mjs` bakes the catalogue to atlases (trimmed frames, pivots, animations, shadow masks, duplicates stored once): 1,189 frames, 730 different, two 1024² pages, in about a second. `docs/export.md` covers baking at build or load time, composing characters once per look, palette-indexed recolouring, sorting, wind phases, shadow layers and terrain chunks.
 
 ### Recommendation
 

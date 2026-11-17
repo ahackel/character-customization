@@ -165,7 +165,7 @@ export const word = (key: keyof typeof WORDS.en): string => WORDS[currentLang()]
 
 export type ToolId = 'home' | 'wardrobe' | 'animals' | 'objects' | 'flora' | 'scene';
 const TOOLS: { id: ToolId; href: string; icon: IconName }[] = [
-  { id: 'home', href: '../', icon: 'home' },
+  { id: 'home', href: '../../', icon: 'home' },
   { id: 'wardrobe', href: '../wardrobe/', icon: 'shirt' },
   { id: 'animals', href: '../animals/', icon: 'paw' },
   { id: 'objects', href: '../objects/', icon: 'armchair' },

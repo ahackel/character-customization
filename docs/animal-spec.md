@@ -21,7 +21,7 @@ small JSON description; rules draw it in every facing and animation.
 | Reading | Learnt from a reference set of pixel-art animals: a lit rim along the top edge of every big part (the counterpart of the sel-out); three planes (lit top, base flank, the lower third in shade); feet in the shade tone; a stroke of the nose colour down the middle of pointed, tall and round ears; on large heads (5.4 px and up, after the `eye` size: pigs and boars have small eyes) a 2×2 eye with one light glint towards the light. Four-legged animals' hind legs bend backwards at the hock (thigh forward, shin back, long foot down) |
 | Colours | Master palette only. Roles: fur, second (belly, chest, muzzle, face...), third (saddle, spots, socks...), nose, horn (horns, tusks, beak, hooves). One base added for animals: `piglet` (light pink); it is not offered for clothes |
 | Saving | Like the wardrobe: a named list on the device (save, save as, delete), export and import as JSON (`type: "pixel-animal"`) |
-| For the game | Compose at load time: import `lab/animal.ts` through the Vite alias and call `drawAnimal(animal, clip, frame, facing)`, which returns the sprite and the anchors. Or bake: `npm run bake` also writes every preset × clip × facing into the atlas, with the anchors per frame in `atlas.json` |
+| For the game | Compose at load time: import `engine/animals/animal.ts` through the Vite alias and call `drawAnimal(animal, clip, frame, facing)`, which returns the sprite and the anchors. Or bake: `npm run bake` also writes every preset × clip × facing into the atlas, with the anchors per frame in `atlas.json` |
 | Publish | Linked from the start page, part of `build:site` |
 
 ## The description

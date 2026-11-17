@@ -1,17 +1,17 @@
 import './style.css';
-import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_STORE, ANIMAL_W, CLIPS, drawAnimal, savedAnimals, type AnimalSprite, type ClipId } from '../lab/animal.ts';
-import { loadRoster, lookOf, outfitLook, pickCharacter } from '../lab/character.ts';
-import { writeStore } from '../lab/files.ts';
-import { presetById } from '../lab/animal-presets.ts';
-import { drawObject, LOOP_FRAMES, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_STORE, OBJECT_W, savedProps, type ObjectSprite, type Turn } from '../lab/object.ts';
-import { objectPresetById } from '../lab/object-presets.ts';
-import { drawPlant, FRAMES, grow, type Raster } from '../lab/flora.ts';
-import { FLORA } from '../lab/flora-catalog.ts';
-import { middleOf, paintIsland, scatter, stamp, type Pixels, type Thing } from '../lab/island.ts';
-import { isShadow } from '../lab/palette.ts';
-import { AUTHORED, type Clip } from '../lab/poses.ts';
-import { CHARACTER_ORIGIN, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
-import { generateIsland, renderTerrain } from '../lab/terrain.ts';
+import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_STORE, ANIMAL_W, CLIPS, drawAnimal, savedAnimals, type AnimalSprite, type ClipId } from '../engine/animals/animal.ts';
+import { loadRoster, lookOf, outfitLook, pickCharacter } from '../engine/character/character.ts';
+import { writeStore } from '../shared/files.ts';
+import { presetById } from '../engine/animals/animal-presets.ts';
+import { drawObject, LOOP_FRAMES, LOOP_RATE, OBJECT_H, OBJECT_ORIGIN, OBJECT_STORE, OBJECT_W, savedProps, type ObjectSprite, type Turn } from '../engine/objects/object.ts';
+import { objectPresetById } from '../engine/objects/object-presets.ts';
+import { drawPlant, FRAMES, grow, type Raster } from '../engine/flora/flora.ts';
+import { FLORA } from '../engine/flora/flora-catalog.ts';
+import { middleOf, paintIsland, scatter, stamp, type Pixels, type Thing } from '../engine/world/island.ts';
+import { isShadow } from '../engine/core/palette.ts';
+import { AUTHORED, type Clip } from '../engine/core/poses.ts';
+import { CHARACTER_ORIGIN, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Look, type Sprite } from '../engine/core/puppet.ts';
+import { generateIsland, renderTerrain } from '../engine/world/terrain.ts';
 import { h, topBar, word, type ToolId } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
 import { trimmed } from '../shared/pixels.ts';
@@ -195,15 +195,15 @@ function madeThings(): Made[] {
   // At most twelve are shown, so no list needs more than its newest twelve drawn.
   const people: Made[] = loadRoster().slice(-SHOWN).map((c) => {
     const sprite = drawCharacter(lookOf(c.state), AUTHORED.idle.frames[0], 0);
-    return { name: c.name, tool: 'wardrobe', href: './wardrobe/', pick: () => pickCharacter(c.id), picture: trimmed(sprite, SPRITE_W, SPRITE_H, THING_BOX) };
+    return { name: c.name, tool: 'wardrobe', href: './tools/wardrobe/', pick: () => pickCharacter(c.id), picture: trimmed(sprite, SPRITE_W, SPRITE_H, THING_BOX) };
   });
   const animals: Made[] = savedAnimals().slice(-SHOWN).map((s) => {
     const { sprite } = drawAnimal(s.animal, 'idle', 0, 0);
-    return { name: s.name, tool: 'animals', href: './animals/', pick: () => writeStore(ANIMAL_STORE.current, s.id), picture: trimmed(sprite, ANIMAL_W, ANIMAL_H, THING_BOX, isShadow, true) };
+    return { name: s.name, tool: 'animals', href: './tools/animals/', pick: () => writeStore(ANIMAL_STORE.current, s.id), picture: trimmed(sprite, ANIMAL_W, ANIMAL_H, THING_BOX, isShadow, true) };
   });
   const objects: Made[] = savedProps().slice(-SHOWN).map((s) => {
     const { sprite } = drawObject(s.prop, 0);
-    return { name: s.name, tool: 'objects', href: './objects/', pick: () => writeStore(OBJECT_STORE.current, s.id), picture: trimmed(sprite, OBJECT_W, OBJECT_H, THING_BOX, isShadow, true) };
+    return { name: s.name, tool: 'objects', href: './tools/objects/', pick: () => writeStore(OBJECT_STORE.current, s.id), picture: trimmed(sprite, OBJECT_W, OBJECT_H, THING_BOX, isShadow, true) };
   });
   const out: Made[] = [];
   for (let i = 1; out.length < SHOWN && i <= Math.max(people.length, animals.length, objects.length); i++) {
@@ -247,11 +247,11 @@ function mount(): void {
       bar, ...pops,
       h('main', { class: 'home' },
         h('section', { class: 'tiles', 'aria-label': t('tools') },
-          card('wardrobe', './wardrobe/', castCanvas, 'cast'),
-          card('animals', './animals/', herdCanvas, 'cast'),
-          card('objects', './objects/', setCanvas, 'cast'),
-          card('flora', './flora/', islandCanvas, 'island'),
-          card('scene', './scene/', sceneCanvas, 'island'),
+          card('wardrobe', './tools/wardrobe/', castCanvas, 'cast'),
+          card('animals', './tools/animals/', herdCanvas, 'cast'),
+          card('objects', './tools/objects/', setCanvas, 'cast'),
+          card('flora', './tools/flora/', islandCanvas, 'island'),
+          card('scene', './tools/scene/', sceneCanvas, 'island'),
         ),
         h('section', { class: 'mine', 'aria-label': t('things') },
           h('div', { class: 'mine__head' }, h('h2', {}, t('things')), h('p', {}, t('things.note'))),

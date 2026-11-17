@@ -20,14 +20,9 @@
     "resolveJsonModule": true
   },
   "include": [
-    "lab",
-    "wardrobe",
-    "flora",
-    "home",
     "engine",
-    "scene",
     "shared",
-    "animals",
-    "objects"
+    "tools",
+    "home"
   ]
 }

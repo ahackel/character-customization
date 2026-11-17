@@ -1,4 +1,4 @@
-// Undo history for a tool. No DOM, so `node lab/tools/history-check.mjs` can test it.
+// Undo history for a tool. No DOM, so `node scripts/history-check.mjs` can test it.
 
 /**
  * Undo for a tool's state, kept as JSON snapshots. Call `commit()` after every change; it records

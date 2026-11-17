@@ -24,11 +24,17 @@ export type { Thing };
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
 const SHADE_RGB = rgb(SHADE);
+/** How deep, in levels, a shadow still shows on the water; it fades out toward there. */
+const SHADOW_DEPTH = 1.5;
+const shadowFade = (depth: number) => Math.max(0, 1 - depth / SHADOW_DEPTH);
 /** How long a footprint takes to vanish. */
 const PRINT_MS = 60_000;
 /** Prints are pressed sand: tinted toward the sand's shaded side colour, at most this much. */
 const PRINT_RGB = rgb('#b39a63');
 const PRINT_DEPTH = 0.45;
+/** Wet sand where the wash has been: tinted toward this, at most this much. */
+const WET_RGB = rgb('#a8905c');
+const WET_DEPTH = 0.4;
 /** The pixels of a footprint and of a paw print, round the spot stepped on. */
 const FOOT = [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 const PAW = [[0, 0], [1, 0]] as const;
@@ -37,24 +43,85 @@ const PAW = [[0, 0], [1, 0]] as const;
 // drift, the glints and the waves come from `ocean`.
 const MARKS = { cell: 20, sway: 1.5, ms: 3500, rows: 0.3, shown: 0.3 };
 
+// Shore waves: a crest line with foam fading out behind it seaward, broken into pieces that differ
+// from wave to wave; where a crest breaks, a thin sheet of water runs up the beach, slides back
+// and leaves the sand wet for a while.
+/** Levels of depth behind a crest that its foam trails over. */
+const TRAIL = 0.2;
+/** The share of each crest left out, in pieces. */
+const GAPS = 0.3;
+/** Pixels up the beach the furthest wash reaches, and the share of a wave period it takes up and back. */
+export const WASH_RUN = 5;
+const WASH = 0.35;
+/** The share of a wave period the sand stays darker after the wash leaves it. */
+const DRY = 0.45;
+
+/** Smooth noise 0 to 1 over a grid one unit across, a different field for each seed. */
+function noiseAt(x: number, y: number, seed: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const ease = (t: number) => t * t * (3 - 2 * t);
+  const u = ease(x - ix), v = ease(y - iy);
+  const at = (a: number, b: number) => mix(a, b, seed);
+  const top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * u;
+  const bottom = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * u;
+  return top + (bottom - top) * v;
+}
+
+/** Each crest on its way in at pixel x, y: how far along (0 rising, 1 breaking) and which pass of it this is. */
+function crestsAt(x: number, y: number, ms: number): { phase: number; id: number }[] {
+  const bend = 0.1 * Math.sin(x * 0.07) + 0.06 * Math.sin(x * 0.019 + y * 0.041);
+  const out = [];
+  for (let n = 0; n < ocean.waves; n++) {
+    const t = ms / (ocean.wavePeriod * 1000) + bend + n / ocean.waves;
+    out.push({ phase: t - Math.floor(t), id: Math.floor(t) * ocean.waves + n });
+  }
+  return out;
+}
+
+/** Whether pass `id` of a crest shows at pixel x, y, or falls in one of its gaps. */
+const shownAt = (x: number, y: number, id: number) => noiseAt(x / 14, y / 8, id) >= GAPS;
+
 /**
- * How strong a wave's crest line is at ground pixel x, y, `depth` levels deep, given the depths of
- * the pixels above and to the left: the line is where the crest depth falls between them, so it is
- * one pixel wide whatever the slope. Crests rise in the shallows, run in and break on the shore;
- * the time is bent along x so crests are not rings.
+ * How strong a wave is at ground pixel x, y, `depth` levels deep, given the depths of the pixels
+ * above and to the left: the crest line is where the crest depth falls between them, so it is one
+ * pixel wide whatever the slope, and foam fades out behind it. Crests rise in the
+ * shallows, run in and break on the shore; the time is bent along x so crests are not rings.
  */
 export function waveAt(depth: number, above: number, left: number, x: number, y: number, ms: number): number {
   const reach = ocean.waveReach;
-  if (depth <= 0 || depth >= reach) return 0;
-  const bend = 0.1 * Math.sin(x * 0.07) + 0.06 * Math.sin(x * 0.019 + y * 0.041);
-  for (let n = 0; n < ocean.waves; n++) {
-    const phase = (((ms / (ocean.wavePeriod * 1000) + bend + n / ocean.waves) % 1) + 1) % 1;
+  if (depth <= 0 || depth >= reach + TRAIL) return 0;
+  let foam = 0;
+  for (const { phase, id } of crestsAt(x, y, ms)) {
+    if (!shownAt(x, y, id)) continue;
     const crest = reach * (1 - phase);
     // Only against water: next to land or a cliff the crest would otherwise outline the shore for good.
     const crosses = (other: number) => other > 0 && (depth - crest) * (other - crest) <= 0;
     if (crosses(above) || crosses(left)) return Math.sqrt(phase);
+    const behind = (depth - crest) / TRAIL;
+    if (behind > 0 && behind < 1) foam = Math.max(foam, 0.6 * Math.sqrt(phase) * (1 - behind));
   }
-  return 0;
+  return foam;
+}
+
+/**
+ * The wash on beach pixel x, y, `dist` pixels from the water: how much a sheet of water covers it
+ * (its front brighter) and how wet the sand is where a sheet has just left.
+ */
+export function washAt(dist: number, x: number, y: number, ms: number): { sheet: number; wet: number } {
+  let sheet = 0, wet = 0;
+  for (const { phase, id } of crestsAt(x, y, ms)) {
+    // The wash comes from the pass that just broke.
+    if (phase >= WASH + DRY || !shownAt(x, y, id - ocean.waves)) continue;
+    const run = WASH_RUN * (0.4 + 0.6 * noiseAt(x / 9, y / 5, id + 7919));
+    if (dist > run) continue;
+    const s = phase / WASH;
+    const front = s < 1 ? run * Math.sin(Math.PI * s) : 0;
+    if (dist <= front) sheet = Math.max(sheet, dist > front - 1 ? 0.75 : 0.35);
+    // Wet from when the sliding sheet uncovered it.
+    const left = WASH * (1 - Math.asin(Math.min(1, dist / run)) / Math.PI);
+    if (phase > left) wet = Math.max(wet, 1 - (phase - left) / DRY);
+  }
+  return { sheet, wet: Math.min(1, wet) };
 }
 
 const mix = (a: number, b: number, k: number) => ((Math.imul(a * 7 + k, 73856093) ^ Math.imul(b * 13 + k, 19349663)) >>> 0) % 1000 / 1000;
@@ -424,6 +491,7 @@ export class World {
     const FOAM = rgb(ocean.wave);
     const FAR = rgb(ocean.far);
     const g = this.ground;
+    const shore = this.shoreOf(g);
     const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
     const d = image.data;
     const baseKey = `${view.x},${view.y},${w},${h}|${ms}|${grid}`;
@@ -451,6 +519,10 @@ export class World {
         else if (depth > 0) {
           const mark = markAt(gx, gy, depth, ms);
           if (mark) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * mark;
+        } else if (shore[p] <= WASH_RUN) {
+          const { sheet, wet } = washAt(shore[p], gx, gy, ms);
+          if (wet) for (let k = 0; k < 3; k++) d[o + k] += (WET_RGB[k] - d[o + k]) * wet * WET_DEPTH;
+          if (sheet) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * sheet;
         }
         if (depth > 0) for (let k = 0; k < 3; k++) d[o + k] += (FAR[k] - d[o + k]) * far;
         if (grid) {
@@ -500,7 +572,8 @@ export class World {
         if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
           mask[y * w + x] = 1;
           const o = (y * w + x) * 4;
-          for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * SHADE_ALPHA;
+          const a = SHADE_ALPHA * shadowFade(g.depth[p]);
+          for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * a;
         }
       }
     }
@@ -510,6 +583,27 @@ export class World {
     }
     if (outline) this.drawEdge(image, view);
     return image;
+  }
+
+  private shore: { ground: TerrainImage; dist: Uint8Array } | null = null;
+
+  /**
+   * Per ground pixel, how many pixels a beach pixel lies from the water, up to `WASH_RUN`; 255
+   * elsewhere. Only ground at the water line counts, so higher ground drawn next to water is left dry.
+   */
+  private shoreOf(g: TerrainImage): Uint8Array {
+    if (this.shore?.ground === g) return this.shore.dist;
+    const dist = new Uint8Array(g.w * g.h).fill(255);
+    for (let p = 0; p < dist.length; p++) if (g.depth[p] > 0) dist[p] = 0;
+    for (let k = 1; k <= WASH_RUN; k++) {
+      for (let p = 0; p < dist.length; p++) {
+        if (dist[p] !== 255 || !g.tops[p] || g.height[p] > SEA_LEVEL + 0.5) continue;
+        const x = p % g.w;
+        if ((x > 0 && dist[p - 1] === k - 1) || (x < g.w - 1 && dist[p + 1] === k - 1) || (p >= g.w && dist[p - g.w] === k - 1) || (p + g.w < dist.length && dist[p + g.w] === k - 1)) dist[p] = k;
+      }
+    }
+    this.shore = { ground: g, dist };
+    return dist;
   }
 
   /** The ground and water of the last window composed without a highlight: in Play the water moves ten times a second, the rest every frame. */
@@ -542,8 +636,8 @@ export class World {
         const side = (x - t.foot.x) / TILE_W;
         const i = t.spot.i + side + up * SHADOW_RUN[0];
         const j = t.spot.j - side + up * SHADOW_RUN[1];
-        // No shadows on the water: off the map, or where the ground lies under the water line.
-        if (!inside(this.map, Math.floor(i), Math.floor(j)) || heightAt(this.map, i, j) < SEA_LEVEL) continue;
+        // No shadows off the map, nor on water too deep for them to show.
+        if (!inside(this.map, Math.floor(i), Math.floor(j)) || SEA_LEVEL - heightAt(this.map, i, j) >= SHADOW_DEPTH) continue;
         const level = standingHeight(this.map, i, j);
         const at = footOf(g, { i, j, level });
         if (at.x < 0 || at.y < 0 || at.x >= g.w || at.y >= g.h) continue;

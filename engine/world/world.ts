@@ -15,6 +15,7 @@ import { turnFacing, type Facing } from '../core/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
 import { fishPixels, type Fish } from './fish.ts';
+import { CLEAR, drawWeather, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
 import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
@@ -201,7 +202,7 @@ const grownCache = new Map<string, { grown: Grown; still: boolean }>();
 const rasterCache = new Map<string, Raster>();
 const sizeStep = (s: number) => Math.round(s * 10) / 10;
 /** One wind frame of a placed plant. Shared by every plant with the same recipe, variant, size and turn. */
-export function rasterOf(p: Pick<PlacedPlant, 'plant' | 'seed' | 'size'> & { turn?: number }, frame: number): Raster | null {
+export function rasterOf(p: Pick<PlacedPlant, 'plant' | 'seed' | 'size'> & { turn?: number }, frame: number, wind = 1): Raster | null {
   const entry = plantById(p.plant);
   if (!entry) return null;
   const turn = ((p.turn ?? 0) % TURNS + TURNS) % TURNS;
@@ -213,11 +214,11 @@ export function rasterOf(p: Pick<PlacedPlant, 'plant' | 'seed' | 'size'> & { tur
   }
   // What the wind does not move is drawn and kept once, not once per frame.
   const at = grown.still ? 0 : frame;
-  const full = `${key}|${at}`;
+  const full = `${key}|${at}|${grown.still ? 0 : wind}`;
   let raster = rasterCache.get(full);
   if (!raster) {
     // shortcut: unbounded only by the number of distinct plants a scene uses; clear if memory ever matters.
-    rasterCache.set(full, (raster = drawPlant(grown.grown, { frame: at, wind: 1 })));
+    rasterCache.set(full, (raster = drawPlant(grown.grown, { frame: at, wind })));
   }
   return raster;
 }
@@ -265,6 +266,13 @@ export class World {
 
   /** In Play, the items where they lie now (picked up and set down again); in Edit, null, and the scene's own. */
   loose: PlacedItem[] | null = null;
+  /** The weather now; set it with `setWeather`. */
+  weather: Weather = CLEAR;
+  /** Changes the weather: the sea, the plants' sway, shadows and the overlays follow it. */
+  setWeather(w: Weather): void {
+    this.weather = w;
+    weatherSea(w);
+  }
   /** Fish under the water, in view coordinates on `floor`; the game moves them (see fish.ts). */
   fish: Fish[] = [];
 
@@ -458,7 +466,7 @@ export class World {
     for (const p of this.viewPlants()) {
       // Each plant sways a little behind or ahead of its neighbours, and turns with the view.
       const lag = ((Math.imul(Math.floor(p.i * 97), 73856093) ^ Math.imul(Math.floor(p.j * 89), 19349663)) >>> 0) % WIND_LAG;
-      const raster = rasterOf({ ...p, turn: (p.turn ?? 0) + this.rot * (TURNS / 4) }, (frame + lag) % FRAMES);
+      const raster = rasterOf({ ...p, turn: (p.turn ?? 0) + this.rot * (TURNS / 4) }, (frame + lag) % FRAMES, plantWind(this.weather));
       if (raster) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
     }
     return out;
@@ -599,7 +607,7 @@ export class World {
         if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
           mask[y * w + x] = 1;
           const o = (y * w + x) * 4;
-          const a = SHADE_ALPHA * shadowFade(g.depth[p]);
+          const a = SHADE_ALPHA * shadowFade(g.depth[p]) * shadowLight(this.weather);
           for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * a;
         }
       }
@@ -607,6 +615,9 @@ export class World {
     placed.sort((a, b) => a.spot.i + a.spot.j - (b.spot.i + b.spot.j));
     for (const t of placed) {
       stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.spot.level)));
+    }
+    if (this.weather !== CLEAR) {
+      drawWeather(image, view, (gx, gy) => (gx < 0 || gy < 0 || gx >= g.w || gy >= g.h ? Infinity : g.depth[gy * g.w + gx]), ms, this.weather);
     }
     if (outline) this.drawEdge(image, view);
     return image;

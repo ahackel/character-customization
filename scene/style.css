@@ -296,3 +296,16 @@ body {
   color: var(--accent-ink);
   margin-right: 2px;
 }
+/* Frames per second, under the gauge button that switches it on. */
+.fps {
+  margin: 0;
+  padding: 2px 4px;
+  background: #0008;
+  color: #fff;
+  font: 600 0.75rem/1.4 ui-monospace, monospace;
+  text-align: center;
+  pointer-events: none;
+}
+.fps[hidden] {
+  display: none;
+}

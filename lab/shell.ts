@@ -98,7 +98,7 @@ const span = (row: (Cell | null)[] | undefined): [number, number] | null => {
   return [l, row.length - 1 - [...row].reverse().findIndex(Boolean)];
 };
 
-let measured: { sections: Section[]; heads: Record<Key, Stamp> } | null = null;
+let measured: { sections: Section[]; heads: Record<Key, Stamp>; widest: number; below: Section; reachX: number; reachZ: number } | null = null;
 /**
  * The skull as a stack of horizontal ellipses, one per row: its half width from the face-on head,
  * its depth in front of and behind the ear from the side head. Measured once, on the plain head.
@@ -123,7 +123,14 @@ function skull() {
   }
   // The ears stick out face on; the skull there is as wide as the rows around it.
   for (const h of EAR_ROWS) sections[h] = { ...sections[h], a: Math.max(sections[EAR_ROWS[0] - 1].a, sections[EAR_ROWS.at(-1)! + 1].a) };
-  measured = { sections, heads };
+  // The widest skull row, and the section the hair falls straight down from below it.
+  const widest = sections.reduce((best, s, i) => (i <= JAW && s.a >= sections[best].a ? i : best), 0);
+  const head = sections.slice(0, JAW + 1);
+  const below = { a: sections[widest].a, front: Math.max(...head.map((q) => q.front)), back: Math.max(...head.map((q) => q.back)) };
+  // No skull section reaches further than this from the axis, sideways or front to back.
+  const reachX = Math.max(...sections.map((q) => q.a));
+  const reachZ = Math.max(...sections.map((q) => Math.max(q.front, q.back)));
+  measured = { sections, heads, widest, below, reachX, reachZ };
   return measured;
 }
 
@@ -158,18 +165,15 @@ interface Hit {
 
 /** What a ray at row `h` and sideways offset `u` meets first: skull, hair or nothing. */
 function cast(shell: Shell, h: number, u: number, yaw: number): 'skull' | Hit | null {
-  const { sections } = skull();
+  const { sections, widest, below, reachX, reachZ } = skull();
   const volume = shell.volume ?? 1;
   const crown = shell.crown ?? 0;
-  const widest = sections.reduce((best, s, i) => (i <= JAW && s.a >= sections[best].a ? i : best), 0);
   // The outer shape the hair fills: the skull grown by the volume, stretched up by the crown,
   // and below its widest row falling straight down.
   const section = (row: number): Section | null => {
     if (row < -crown) return null;
     if (row < 0) return sections[0];
-    if (row <= widest) return sections[row];
-    const head = sections.slice(0, JAW + 1);
-    return { a: sections[widest].a, front: Math.max(...head.map((q) => q.front)), back: Math.max(...head.map((q) => q.back)) };
+    return row <= widest ? sections[row] : below;
   };
   const outer = (x: number, z: number) => {
     for (let dh = -volume; dh <= volume; dh++) {
@@ -182,25 +186,31 @@ function cast(shell: Shell, h: number, u: number, yaw: number): 'skull' | Hit | 
   const t = rad(yaw);
   const right = [-Math.cos(t), Math.sin(t)];
   const toward = [Math.sin(t), Math.cos(t)];
+  const parts = (shell.parts ?? []).map((p) => {
+    const out = p.out ?? surface(p.row, p.at) + p.size / 2;
+    return { p, px: out * Math.sin(rad(p.at)), pz: out * Math.cos(rad(p.at)) };
+  });
+  const inPart = (x: number, z: number) => parts.some(({ p, px, pz }) => {
+    const r2 = (x - px) ** 2 + (z - pz) ** 2;
+    return p.kind === 'bun'
+      ? r2 + (h - p.row) ** 2 <= p.size * p.size + 0.3
+      : h >= p.row && h <= p.row + p.length! && r2 <= (p.size / 2 - (h > p.row + p.length! - 2 ? 0.5 : 0)) ** 2 + 0.3;
+  });
   for (let d = 14; d >= -14; d -= 0.25) {
     const x = u * right[0] + d * toward[0];
     const z = u * right[1] + d * toward[1];
+    // Outside every skull section grown by the volume neither the skull nor the hair can be met, only a bun or tail.
+    if (Math.abs(x) > reachX + volume || Math.abs(z) > reachZ + volume) {
+      if (inPart(x, z)) return { deg: angleOf(x, z), near: d > 0, part: true };
+      continue;
+    }
     const deg = angleOf(x, z);
     // Clumps: every other strand ends a row higher.
     const hem = hemAt(shell.hem, deg) - (Math.floor(deg / 22.5) % 2 ? 1 : 0);
     const inStrip = shell.strip === undefined || shell.strip === null || Math.abs(x) <= shell.strip;
     // Where the skull is covered, the hair lies on it even with no volume (a buzz cut).
     if (head && inEllipse(x, z, head)) return h <= hem && inStrip ? { deg, near: d > 0, part: false } : 'skull';
-    for (const p of shell.parts ?? []) {
-      const out = p.out ?? surface(p.row, p.at) + p.size / 2;
-      const px = out * Math.sin(rad(p.at));
-      const pz = out * Math.cos(rad(p.at));
-      const r2 = (x - px) ** 2 + (z - pz) ** 2;
-      const inside = p.kind === 'bun'
-        ? r2 + (h - p.row) ** 2 <= p.size * p.size + 0.3
-        : h >= p.row && h <= p.row + p.length! && r2 <= (p.size / 2 - (h > p.row + p.length! - 2 ? 0.5 : 0)) ** 2 + 0.3;
-      if (inside) return { deg, near: d > 0, part: true };
-    }
+    if (inPart(x, z)) return { deg, near: d > 0, part: true };
     if (!inStrip || !outer(x, z) || h > hem) continue;
     return { deg, near: d > 0, part: false };
   }
@@ -208,7 +218,14 @@ function cast(shell: Shell, h: number, u: number, yaw: number): 'skull' | Hit | 
 }
 
 /** Where the skull is in row `h` of the model, seen from `yaw`: the first and last offset that meet it. */
+const spans = new Map<string, [number, number] | null>();
 function modelSpan(h: number, yaw: number): [number, number] | null {
+  // The same for every shell: worked out once per row and view.
+  const id = `${h}|${yaw}`;
+  if (!spans.has(id)) spans.set(id, measureSpan(h, yaw));
+  return spans.get(id)!;
+}
+function measureSpan(h: number, yaw: number): [number, number] | null {
   const s = skull().sections[h];
   if (!s?.a) return null;
   const t = rad(yaw);

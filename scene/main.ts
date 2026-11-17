@@ -58,10 +58,12 @@ interface Prefs {
   rot: number;
   /** Tile lines on the ground while editing. */
   grid: boolean;
+  /** Frames per second under the zoom buttons. */
+  fps: boolean;
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -75,6 +77,7 @@ function loadPrefs(): Prefs {
     if (typeof saved?.person === 'string') prefs.person = saved.person;
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
     prefs.grid = saved?.grid === true;
+    prefs.fps = saved?.fps === true;
   } catch {
     // Settings are a convenience; without storage the defaults apply.
   }
@@ -764,7 +767,16 @@ canvas.addEventListener('wheel', (e) => {
 let last = performance.now();
 let shown = '';
 let shownThings: Thing[] = [];
+const fpsLine = h('p', { class: 'fps', 'aria-hidden': 'true' });
+let fpsCount = 0;
+let fpsSince = performance.now();
 function frame(ms: number): void {
+  fpsCount++;
+  if (ms - fpsSince >= 500) {
+    if (prefs.fps) fpsLine.textContent = `${Math.round((fpsCount * 1000) / (ms - fpsSince))} fps`;
+    fpsCount = 0;
+    fpsSince = ms;
+  }
   const dt = Math.min(0.1, (ms - last) / 1000);
   last = ms;
   repeatStroke(ms);
@@ -947,6 +959,7 @@ function showActions(): void {
     ? [tap({ class: 'stage__button actions__main', ...label(t('drop')) }, drop, icon('lower'))]
     : EMOTES.map((e) => tap({ class: 'stage__button', ...label(`${t(`emote.${e}` as Key)} (${EMOTE_KEYS[e]})`) }, () => emote(e), icon(EMOTE_ICONS[e])))));
 }
+const fpsButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ fps: !prefs.fps }), icon('gauge'));
 const gridButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ grid: !prefs.grid }), icon('grid'));
 const dock = h('nav', { class: 'toolbar' });
 const options = h('section', { class: 'opts' });
@@ -1080,6 +1093,8 @@ function render(): void {
   cast.replaceChildren(...(editing ? castOptions() : []));
   showActions();
   gridButton.setAttribute('aria-pressed', String(prefs.grid));
+  fpsButton.setAttribute('aria-pressed', String(prefs.fps));
+  fpsLine.hidden = !prefs.fps;
 }
 
 // ------------------------------------------------------------------ scene dialog
@@ -1143,6 +1158,8 @@ function mount(): void {
   canvas.setAttribute('aria-label', t('view'));
   gridButton.setAttribute('aria-label', t('zoom.grid'));
   gridButton.title = t('zoom.grid');
+  fpsButton.setAttribute('aria-label', t('zoom.fps'));
+  fpsButton.title = t('zoom.fps');
   sceneSelect.setAttribute('aria-label', t('scene'));
   sceneSelect.onchange = () => switchTo(library.scenes.find((s) => s.id === sceneSelect.value)!);
   viewport.style.background = ocean.deep;
@@ -1156,6 +1173,8 @@ function mount(): void {
       tap({ class: 'stage__button', 'aria-label': t('rotate.left'), title: t('rotate.left') }, () => rotate(-1), icon('turnLeft')),
       tap({ class: 'stage__button', 'aria-label': t('rotate.right'), title: t('rotate.right') }, () => rotate(1), icon('turnRight')),
       gridButton,
+      fpsButton,
+      fpsLine,
     ),
     actions,
     statusLine,

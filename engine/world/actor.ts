@@ -10,7 +10,7 @@ import type { Thing, World } from './world.ts';
 
 export const EMOTES = ['wave', 'use'] as const;
 export type Emote = (typeof EMOTES)[number];
-type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sit' | Emote;
+type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sitDown' | 'sit' | 'standUp' | Emote;
 
 /** Metres per second. */
 const SPEED = { walk: 1.7, run: 3.6 };
@@ -158,16 +158,25 @@ export class Actor {
 
   /** Gets a sitting character up, and starts the wait before sitting again over. */
   rouse(ms: number): void {
-    if (this.clip === 'sit' || this.clip === 'idle') {
-      this.clip = 'idle';
-      this.started = ms;
-    }
+    if (this.clip === 'sit' || this.clip === 'sitDown') this.play('standUp', ms);
+    else if (this.clip === 'idle') this.started = ms;
+  }
+
+  /** Whether the character is getting up and will not walk until it stands. */
+  get rising(): boolean {
+    return this.clip === 'standUp';
+  }
+
+  /** Whether the clip playing has played through once. */
+  private played(ms: number): boolean {
+    const clip = AUTHORED[this.clip];
+    return ms - this.started >= (clip.frames.length / clip.rate) * 1000;
   }
 
   carry(what: Carried | null): void {
     this.carrying = what;
     this.held = new WeakMap();
-    if (this.clip === 'sit' || (EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
+    if (this.clip === 'sit' || this.clip === 'sitDown' || this.clip === 'standUp' || (EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
   }
 
   /** A spot on the map about `far` metres in front of the character. */
@@ -219,11 +228,18 @@ export class Actor {
       this.facing = turnToward(this.facing, this.aim);
       this.turned = ms;
     }
+    // Getting up finishes before anything else; asked to move while sitting, the character gets up first.
+    if (this.clip === 'standUp') {
+      if (!this.played(ms)) return;
+      this.play('idle', ms);
+    }
+    if (length >= 1e-6 && (this.clip === 'sit' || this.clip === 'sitDown')) return this.play('standUp', ms);
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
       const emoting = (EMOTES as readonly string[]).includes(this.clip);
-      if (this.clip === 'sit') return;
-      if (this.clip === 'idle' && !this.carrying && ms - this.started >= this.sitAfter && this.depth(world) <= 0) return this.play('sit', ms);
+      if (this.clip === 'sitDown' && this.played(ms)) this.play('sit', ms);
+      if (this.clip === 'sit' || this.clip === 'sitDown') return;
+      if (this.clip === 'idle' && !this.carrying && ms - this.started >= this.sitAfter && this.depth(world) <= 0) return this.play('sitDown', ms);
       if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play(this.carrying ? 'hold' : 'idle', ms);
       return;
     }

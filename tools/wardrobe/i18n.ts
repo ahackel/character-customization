@@ -52,6 +52,8 @@ const en = {
   'clip.wave': 'Wave',
   'clip.use': 'Use',
   'clip.sit': 'Sit',
+  'clip.sitDown': 'Sit down',
+  'clip.standUp': 'Stand up',
   'clip.lie': 'Lie',
   'clip.look': 'Look',
 
@@ -220,6 +222,8 @@ const de: Record<Key, string> = {
   'clip.wave': 'Winken',
   'clip.use': 'Benutzen',
   'clip.sit': 'Sitzen',
+  'clip.sitDown': 'Hinsetzen',
+  'clip.standUp': 'Aufstehen',
   'clip.lie': 'Liegen',
   'clip.look': 'Schauen',
 

@@ -142,6 +142,15 @@ const waveFrames: Pose[] = [-0.6, 0.6, 1.8, 0.6].map((sway) => {
 // arms at the sides; the renderer lays the figure down. Both only blink.
 const SIT = buildPose({ bob: -9, legL: { swing: 90, out: 4 }, legR: { swing: 90, out: 4 }, armL: { swing: 35, bend: 25 }, armR: { swing: 35, bend: 25 } });
 const LIE: Pose = { ...buildPose({ armL: { swing: 0, out: 8 }, armR: { swing: 0, out: 8 }, legL: { swing: 0, out: 3 }, legR: { swing: 0, out: 3 } }), lie: true };
+// Sitting down: bend the knees into a crouch leaning forward, drop onto the seat with the knees
+// up, then stretch the legs out. Each bob keeps the feet near the ground. Standing up is the same
+// played backwards.
+const SIT_DOWN = [
+  { bob: -1, lean: 10, legL: { swing: 25, bend: 45 }, legR: { swing: 25, bend: 45 }, armL: { swing: 20, bend: 10 }, armR: { swing: 20, bend: 10 } },
+  { bob: -2.5, lean: 20, legL: { swing: 50, bend: 90 }, legR: { swing: 50, bend: 90 }, armL: { swing: 40, bend: 20 }, armR: { swing: 40, bend: 20 } },
+  { bob: -6, lean: 12, legL: { swing: 95, bend: 120 }, legR: { swing: 95, bend: 120 }, armL: { swing: 30, bend: 20 }, armR: { swing: 30, bend: 20 } },
+  { bob: -9, lean: 4, legL: { swing: 100, bend: 70, out: 4 }, legR: { swing: 100, bend: 70, out: 4 }, armL: { swing: 35, bend: 25 }, armR: { swing: 35, bend: 25 } },
+].map(buildPose);
 const resting = (pose: Pose): Pick<Clip, 'rate' | 'frames' | 'faces'> => ({
   rate: 5,
   frames: Array<Pose>(15).fill(pose),
@@ -168,7 +177,9 @@ export const AUTHORED: Record<string, Clip> = {
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
   carry: { name: 'Carry', rate: 7, frames: withHair([...carryHalf, ...carryHalf.map(mirrored)]) },
   hold: { name: 'Hold', ...resting(HOLD) },
+  sitDown: { name: 'Sit down', rate: 8, frames: SIT_DOWN },
   sit: { name: 'Sit', ...resting(SIT) },
+  standUp: { name: 'Stand up', rate: 8, frames: [...SIT_DOWN].reverse() },
   lie: { name: 'Lie', ...resting(LIE) },
   look: { name: 'Look around', rate: 3, frames: LOOK_STEPS.map(([pose]) => pose), faces: LOOK_STEPS.map(([, face]) => face) },
 };

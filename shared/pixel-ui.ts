@@ -50,11 +50,10 @@ export function drawRows(ctx: CanvasRenderingContext2D, rows: readonly string[],
   }));
 }
 
-/** Words alone, on nothing. */
+/** Words alone, on nothing: the whole text cell, so umlaut dots and tails fit. */
 export function label(s: string, color: string, scale: number): HTMLCanvasElement {
-  const { canvas, ctx } = pixelCanvas(textWidth(s), LINE_H - 2, scale);
+  const { canvas, ctx } = pixelCanvas(textWidth(s), LINE_H, scale);
   text(ctx, s, 0, 1, color);
-  canvas.style.marginTop = canvas.style.marginBottom = `${scale}px`;
   return canvas;
 }
 

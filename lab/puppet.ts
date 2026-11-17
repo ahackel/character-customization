@@ -103,6 +103,19 @@ function project(p: Vec3, facing: View): Point {
   };
 }
 
+/**
+ * Where the two hands meet on the sprite, for something carried in them; `back` when the body hides
+ * it, and `ahead` the way the character faces on screen when seen side on (1 right, -1 left), else 0.
+ */
+export function handsOn(pose: Pose, facing: Facing): { x: number; y: number; back: boolean; ahead: number } {
+  const v = FACING_VIEWS[facing];
+  const view: View = v.drawn === 4 ? 'S' : v.drawn === 6 ? 'N' : v.drawn === 7 ? 'E' : v.drawn;
+  const mid = [0, 1, 2].map((n) => (pose.handL[n] + pose.handR[n]) / 2) as Vec3;
+  const p = project(v.mirror ? [-mid[0], mid[1], mid[2]] : mid, view);
+  // A mirrored view is flipped about the centre line, as `Sprite.mirrored` does.
+  return { x: v.mirror ? SPRITE_W - p.x : p.x, y: p.y, back: v.back, ahead: v.face === 'side' ? (v.mirror ? -1 : 1) : 0 };
+}
+
 // ------------------------------------------------------------------ paint
 
 /** A small pixel image. Rows of cells; null is transparent. */
@@ -231,9 +244,14 @@ export class Sprite {
   readonly pixels: (string | null)[] = new Array(SPRITE_W * SPRITE_H).fill(null);
   /** While set, everything is drawn in this colour instead: the parts drawing. */
   part: string | null = null;
+  /** While true, what is drawn is an arm on the camera's side of the body. */
+  drawingNearArm = false;
+  /** 1 where such an arm (with its hand) shows in the finished picture, for drawing it over something carried. */
+  readonly nearArm = new Uint8Array(SPRITE_W * SPRITE_H);
   set(x: number, y: number, color: string): void {
     if (x < 0 || y < 0 || x >= SPRITE_W || y >= SPRITE_H) return;
     this.pixels[y * SPRITE_W + x] = this.part && color !== SHADOW ? this.part : color;
+    this.nearArm[y * SPRITE_W + x] = this.drawingNearArm ? 1 : 0;
   }
   get(x: number, y: number): string | null {
     return this.pixels[y * SPRITE_W + x] ?? null;
@@ -243,7 +261,10 @@ export class Sprite {
     const out = new Sprite();
     for (let y = 0; y < SPRITE_H; y++) {
       // Mirror about the character's centre line, which lies between two columns.
-      for (let x = 1; x < SPRITE_W; x++) out.pixels[y * SPRITE_W + (SPRITE_W - x)] = this.pixels[y * SPRITE_W + x];
+      for (let x = 1; x < SPRITE_W; x++) {
+        out.pixels[y * SPRITE_W + (SPRITE_W - x)] = this.pixels[y * SPRITE_W + x];
+        out.nearArm[y * SPRITE_W + (SPRITE_W - x)] = this.nearArm[y * SPRITE_W + x];
+      }
     }
     return out;
   }
@@ -1034,6 +1055,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       depth: armDepth,
       draw: () => {
         as(s === working ? 'workArm' : 'freeArm');
+        sprite.drawingNearArm = !far;
         drawLimb(sprite, [shoulder, elbow, hand], build.arm, (t, across, tall) => {
           // The nearer arm's inner edge is shaded all along, or its underside where it is held out,
           // so it separates from the body and reads as round.
@@ -1051,6 +1073,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         for (let dy = 0; dy < 3; dy++) {
           for (let dx = 0; dx < handW; dx++) sprite.set(left + dx, top + dy, tone(skin, far || (dy === 2 && dx !== 1 && dx !== handW - 2)));
         }
+        sprite.drawingNearArm = false;
       },
     });
   }

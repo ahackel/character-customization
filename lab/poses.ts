@@ -77,6 +77,12 @@ const walkHalf: PoseSpec[] = [
   { legR: { swing: -4 }, legL: { swing: 16, bend: 38 }, armL: { swing: -4, bend: 10 }, armR: { swing: 6, bend: 12 }, lean: 2 },
 ];
 
+// Carry: both forearms held out in front, hands together at the waist, as under a box. The legs
+// walk as in the walk; the arms stay put and only bob with the body.
+const carryArms = { armL: { swing: 30, bend: 60, out: -14 }, armR: { swing: 30, bend: 60, out: -14 } };
+const carryHalf: PoseSpec[] = walkHalf.map((spec) => ({ ...spec, ...carryArms, lean: -1 }));
+export const HOLD = buildPose(carryArms);
+
 export interface Clip {
   name: string;
   /** Frames shown per second. */
@@ -160,6 +166,8 @@ export const AUTHORED: Record<string, Clip> = {
   // Only the arm moves; the body stays where it is.
   wave: { name: 'Wave', rate: 7, frames: waveFrames, faces: waveFrames.map(() => 'happy') },
   use: { name: 'Use', rate: 8, frames: useFrames.map(buildPose), swing: true },
+  carry: { name: 'Carry', rate: 7, frames: withHair([...carryHalf, ...carryHalf.map(mirrored)]) },
+  hold: { name: 'Hold', ...resting(HOLD) },
   sit: { name: 'Sit', ...resting(SIT) },
   lie: { name: 'Lie', ...resting(LIE) },
   look: { name: 'Look around', rate: 3, frames: LOOK_STEPS.map(([pose]) => pose), faces: LOOK_STEPS.map(([, face]) => face) },

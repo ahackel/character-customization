@@ -11,11 +11,12 @@ import {
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
-import { turnFacing } from '../lab/puppet.ts';
+import { turnFacing, type Facing } from '../lab/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
+import { ITEM_ROOM, itemPicture, type PlacedItem } from './items.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
-import { mapOf, TURNS, type PlacedPlant, type Scene } from './scene.ts';
+import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export type { Thing };
@@ -188,6 +189,9 @@ export class World {
   /** The ground as drawn: the map, with the sea floor sloping gently from every coast. Walkers wade on it. */
   floor!: HeightMap;
 
+  /** In Play, the items where they lie now (picked up and set down again); in Edit, null, and the scene's own. */
+  loose: PlacedItem[] | null = null;
+
   constructor(scene: Scene, rot = 0) {
     this.scene = scene;
     this.rot = ((rot % 4) + 4) % 4;
@@ -275,6 +279,7 @@ export class World {
   viewPlants() { return this.seen(this.scene.plants); }
   viewDecor() { return this.seen(this.scene.decor); }
   viewAnimals() { return this.seen(this.scene.animals); }
+  viewItems() { return this.seen(this.loose ?? this.scene.items); }
 
   /** The plant whose picture covers a pixel of the ground image, the front-most one, or null. */
   plantAt(x: number, y: number): PlacedPlant | null {
@@ -349,6 +354,10 @@ export class World {
     return out;
   }
 
+  itemThings(): Thing[] {
+    return this.viewItems().map((it) => ({ spot: { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) }, ...itemPicture(it.item, this.rot) }));
+  }
+
   private animalFrames = new WeakMap<Animal, Map<string, AnimalSprite>>();
   private animalKinds = new Map<string, Map<string, AnimalSprite>>();
 
@@ -357,28 +366,35 @@ export class World {
    * others, or as the herd has them in Play.
    */
   animalThings(ms: number, herd?: Herd): Thing[] {
-    return this.scene.animals.map((placed, k) => {
+    return this.scene.animals.flatMap((placed, k) => {
       const pose = herd?.poses[k];
-      const clipId: ClipId = pose?.clip ?? 'idle';
-      const clip = CLIPS[clipId];
-      const lag = ((Math.imul(Math.floor(placed.i * 97), 73856093) ^ Math.imul(Math.floor(placed.j * 89), 19349663)) >>> 0) % clip.frames;
-      const n = (Math.floor(((ms - (pose?.started ?? 0)) / 1000) * clip.rate) + lag) % clip.frames;
-      const v = this.toView(pose ?? placed);
-      const facing = turnFacing((pose ?? placed).facing, this.rot * 2);
-      let frames = this.animalFrames.get(placed.animal);
-      if (!frames) {
-        // Every placed animal is its own copy, so the same animal placed twice is found by what it is.
-        const same = JSON.stringify(placed.animal);
-        if (this.animalKinds.size > 60) this.animalKinds.clear();
-        frames = this.animalKinds.get(same) ?? new Map();
-        this.animalKinds.set(same, frames);
-        this.animalFrames.set(placed.animal, frames);
-      }
-      const key = `${clipId}|${n}|${facing}`;
-      let sprite = frames.get(key);
-      if (!sprite) frames.set(key, (sprite = drawAnimal(placed.animal, clipId, n, facing).sprite));
-      return { spot: { i: v.i, j: v.j, level: standingHeight(this.map, v.i, v.j) }, picture: sprite, w: ANIMAL_W, h: ANIMAL_H, foot: ANIMAL_ORIGIN };
+      if (pose?.carried) return [];
+      return [this.animalSprite(placed, k, ms, herd)];
     });
+  }
+
+  /** One animal's sprite in its current frame, as the herd has it in Play; the carried one too. */
+  animalSprite(placed: PlacedAnimal, k: number, ms: number, herd?: Herd, facingNow?: Facing): Thing {
+    const pose = herd?.poses[k];
+    const clipId: ClipId = pose?.clip ?? 'idle';
+    const clip = CLIPS[clipId];
+    const lag = ((Math.imul(Math.floor(placed.i * 97), 73856093) ^ Math.imul(Math.floor(placed.j * 89), 19349663)) >>> 0) % clip.frames;
+    const n = (Math.floor(((ms - (pose?.started ?? 0)) / 1000) * clip.rate) + lag) % clip.frames;
+    const v = this.toView(pose ?? placed);
+    const facing = facingNow ?? turnFacing((pose ?? placed).facing, this.rot * 2);
+    let frames = this.animalFrames.get(placed.animal);
+    if (!frames) {
+      // Every placed animal is its own copy, so the same animal placed twice is found by what it is.
+      const same = JSON.stringify(placed.animal);
+      if (this.animalKinds.size > 60) this.animalKinds.clear();
+      frames = this.animalKinds.get(same) ?? new Map();
+      this.animalKinds.set(same, frames);
+      this.animalFrames.set(placed.animal, frames);
+    }
+    const key = `${clipId}|${n}|${facing}`;
+    let sprite = frames.get(key);
+    if (!sprite) frames.set(key, (sprite = drawAnimal(placed.animal, clipId, n, facing).sprite));
+    return { spot: { i: v.i, j: v.j, level: standingHeight(this.map, v.i, v.j) }, picture: sprite, w: ANIMAL_W, h: ANIMAL_H, foot: ANIMAL_ORIGIN };
   }
 
   /**
@@ -564,6 +580,10 @@ export class World {
       const near = Math.hypot(p.vi - to.i, p.vj - to.j);
       // Moving away is always allowed, so nobody gets stuck inside a plant placed on them.
       if (near < r && near < Math.hypot(p.vi - from.i, p.vj - from.j)) return false;
+    }
+    for (const it of this.viewItems()) {
+      const near = Math.hypot(it.vi - to.i, it.vj - to.j);
+      if (near < ITEM_ROOM && near < Math.hypot(it.vi - from.i, it.vj - from.j)) return false;
     }
     return true;
   }

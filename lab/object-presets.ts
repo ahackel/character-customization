@@ -115,6 +115,11 @@ export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
     box(1, 0, 3, 30, 10, 2, 'wood'), box(1, 0, 11, 30, 10, 2, 'wood'),
     box(1, 0, 5, 2, 10, 6, 'wood'), box(29, 0, 5, 2, 10, 6, 'wood'),
   ]) },
+  { id: 'crate', name: 'Crate', prop: make('furniture', 1, 1, [
+    box(4, 0, 4, 8, 8, 8, 'wood'),
+    box(3, 0, 3, 10, 2, 10, 'bark'), box(3, 6, 3, 10, 2, 10, 'bark'),
+    box(3, 0, 3, 2, 8, 2, 'bark'), box(11, 0, 3, 2, 8, 2, 'bark'), box(3, 0, 11, 2, 8, 2, 'bark'), box(11, 0, 11, 2, 8, 2, 'bark'),
+  ]) },
   { id: 'hay', name: 'Hay', prop: make('furniture', 1, 1, [
     box(2, 0, 3, 12, 9, 10, 'straw'),
     box(5, 0, 2, 1, 10, 12, 'tan'), box(10, 0, 2, 1, 10, 12, 'tan'),

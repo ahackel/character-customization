@@ -70,6 +70,8 @@ export interface Animal extends Record<NumberKey, number> {
   colors: Record<Role, PaletteKey>;
   /** The run is a hop: hind legs together, the body in an arc. */
   hops: boolean;
+  /** Small enough for a character to pick up and carry in Play. */
+  pickable: boolean;
 }
 
 export const DEFAULT_ANIMAL: Animal = {
@@ -79,6 +81,7 @@ export const DEFAULT_ANIMAL: Animal = {
   horns: 'none', hornSize: 0, trunk: 0, features: [], marks: [],
   colors: { fur: 'orange', second: 'white', third: 'brown', nose: 'black', horn: 'cream' },
   hops: false,
+  pickable: false,
 };
 
 /** Colours an animal may use: the whole palette apart from the face colours with a fixed meaning. */
@@ -107,6 +110,7 @@ export function cleanAnimal(input: unknown): Animal {
     if (isOf(COLOR_KEYS, key)) out.colors[role] = key;
   }
   out.hops = src.hops === true;
+  out.pickable = src.pickable === true;
   return out;
 }
 

@@ -8,6 +8,7 @@ import type { Facing } from '../lab/puppet.ts';
 import { plantById } from '../lab/flora-catalog.ts';
 import { cleanAnimal, type Animal } from '../lab/animal.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
+import { itemById, type PlacedItem } from './items.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from '../lab/terrain.ts';
 
 export interface PlacedPlant {
@@ -47,6 +48,8 @@ export interface Scene {
   /** Starfish, shells and the like, lying on the ground. */
   decor: PlacedDecor[];
   animals: PlacedAnimal[];
+  /** Crates and the like, standing on the ground, that can be carried in Play. */
+  items: PlacedItem[];
   spawn: { i: number; j: number };
 }
 
@@ -63,7 +66,7 @@ export function createScene(name: string, w: number, h: number, island: boolean,
   w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
   h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
   const map = island ? generateIsland(seed, w, h) : createHeightMap(w, h, -1);
-  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], animals: [], spawn: { i: w / 2, j: h / 2 } };
+  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], animals: [], items: [], spawn: { i: w / 2, j: h / 2 } };
 }
 
 /** The scene's ground as the terrain code reads it. */
@@ -85,6 +88,7 @@ export function resized(scene: Scene, w: number, h: number): Scene {
     plants: scene.plants.filter((p) => p.i < w && p.j < h),
     decor: scene.decor.filter((d) => d.i < w && d.j < h),
     animals: scene.animals.filter((a) => a.i < w && a.j < h),
+    items: scene.items.filter((it) => it.i < w && it.j < h),
     spawn: { i: Math.min(scene.spawn.i, w - 0.5), j: Math.min(scene.spawn.j, h - 0.5) },
   };
 }
@@ -124,10 +128,13 @@ export function cleanScene(input: unknown): Scene {
       j: num(a.j, 0, h, h / 2),
       facing: Math.round(num(a.facing, 0, 7, 0)) as Facing,
     }));
+  const items = (Array.isArray(s.items) ? s.items : [])
+    .filter((it): it is PlacedItem => !!it && typeof it === 'object' && !!itemById(it.item))
+    .map((it) => ({ item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2) }));
   return {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
     name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : 'Island',
-    w, h, levels, paint, plants, decor, animals,
+    w, h, levels, paint, plants, decor, animals, items,
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
 }

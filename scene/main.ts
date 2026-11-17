@@ -3,9 +3,10 @@ import './style.css';
 import { defaultState, download, loadRoster, lookOf, pickFile, type Saved } from '../lab/character.ts';
 import { FRAMES } from '../lab/flora.ts';
 import { FLORA, plantById } from '../lab/flora-catalog.ts';
-import { castShadow, layShadow, ROOM, stamp, type Picture } from '../lab/island.ts';
+import { castShadow, footOf, layShadow, ROOM, stamp, type Picture } from '../lab/island.ts';
 import { inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
-import { Actor, EMOTES, type Emote } from '../engine/actor.ts';
+import { Actor, EMOTES, type Carried, type Emote } from '../engine/actor.ts';
+import { ITEMS, itemPicture, type PlacedItem } from '../engine/items.ts';
 import { Herd } from '../engine/herd.ts';
 import {
   createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPlant, type Scene,
@@ -13,7 +14,7 @@ import {
 import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../engine/world.ts';
 import { DECOR, decorById, decorPixels } from '../engine/decor.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../lab/animal.ts';
-import type { Facing } from '../lab/puppet.ts';
+import { FACING_RING, turnFacing, type Facing } from '../lab/puppet.ts';
 import { PRESETS } from '../lab/animal-presets.ts';
 import { ocean } from '../engine/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
@@ -27,13 +28,13 @@ import { t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'erase', 'spawn'] as const;
+const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'item', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
 const BRUSH_MAX = 7;
 const TOOL_ICONS: Record<Tool, IconName> = {
-  raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', erase: 'eraser', spawn: 'flag',
+  raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', item: 'box', erase: 'eraser', spawn: 'flag',
 };
 
 interface Prefs {
@@ -200,6 +201,8 @@ function cannotEdit(at: { i: number; j: number }): boolean {
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'decor':
       return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
+    case 'item':
+      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'raise':
       return brushCells(at).every((c) => world.map.levels[c] >= MAX_LEVEL);
     case 'lower':
@@ -261,6 +264,14 @@ function placeAnimal(at: { i: number; j: number }): void {
   world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
 }
 
+/** A crate in the middle of a tile, on land; one per tile. */
+function placeItem(at: { i: number; j: number }): void {
+  if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
+  const seen = world.viewItems();
+  world.scene.items = world.scene.items.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
+  world.scene.items.push({ item: ITEMS[0].id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }) });
+}
+
 /**
  * Applies the tool once to a tile. `stroke.touched` keeps a drag from raising, lowering or
  * painting a tile twice; smoothing works again on every tile the drag enters, and levelling
@@ -299,12 +310,16 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
     case 'animal':
       if (fresh.length) placeAnimal(at);
       break;
+    case 'item':
+      if (fresh.length) placeItem(at);
+      break;
     case 'erase': {
       const cells = new Set(brushCells(at));
       const kept = <T>(list: T[], seen: { vi: number; vj: number }[]) => list.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
       world.scene.plants = kept(world.scene.plants, world.viewPlants());
       world.scene.decor = kept(world.scene.decor, world.viewDecor());
       world.scene.animals = kept(world.scene.animals, world.viewAnimals());
+      world.scene.items = kept(world.scene.items, world.viewItems());
       break;
     }
     case 'spawn':
@@ -319,7 +334,13 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
 let roster: Saved[] = [];
 let actor: Actor | null = null;
 let herd: Herd | null = null;
-let target: { i: number; j: number; run: boolean } | null = null;
+/** Something that can be picked up in Play: a loose item by its place in `world.loose`, or an animal by its place in the scene. */
+type Pickable = { item: PlacedItem } | { animal: number };
+let target: { i: number; j: number; run: boolean; pick?: Pickable } | null = null;
+/** What the character holds, if anything. */
+let held: Pickable | null = null;
+/** How near the character must come to pick something up, in metres. */
+const REACH = 0.7;
 
 function characterLook() {
   const saved = roster.find((c) => c.id === prefs.character);
@@ -334,7 +355,9 @@ function startPlay(): void {
   }
   actor = new Actor(characterLook(), at);
   herd = new Herd(world, performance.now());
+  world.loose = structuredClone(world.scene.items);
   target = null;
+  held = null;
   // The camera stays where it is, unless the character would start out of sight.
   const p = world.screenOf(at.i, at.j);
   const view = viewRect();
@@ -358,7 +381,79 @@ function rotate(step: number): void {
   centerOn(v);
   version++;
 }
-function walkTo(e: PointerEvent): void {
+/** Where a pickable stands now, in view coordinates. */
+function whereIs(p: Pickable): { i: number; j: number } {
+  return world.toView('item' in p ? p.item : herd!.poses[p.animal]);
+}
+
+/** The thing to pick up under a ground-image pixel, the front-most, or null. Animals count only when they may be carried. */
+function pickableAt(x: number, y: number, ms: number): Pickable | null {
+  // Animals too big to carry still count, so one standing in front hides what is behind it.
+  const found: [Pickable | null, Thing][] = [
+    ...world.itemThings().map((thing, n): [Pickable, Thing] => [{ item: world.loose![n] }, thing]),
+    ...world.scene.animals.flatMap((a, k): [Pickable | null, Thing][] => (herd?.poses[k].carried ? [] : [[a.animal.pickable ? { animal: k } : null, world.animalSprite(a, k, ms, herd ?? undefined)]])),
+  ];
+  let best: Pickable | null = null;
+  let front = -Infinity;
+  for (const [p, thing] of found) {
+    const at = footOf(world.ground, thing.spot);
+    // A pixel of slack all round, since the small animals are only a few pixels across.
+    const hit = [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => {
+      const px = Math.floor(x) + dx - (at.x - thing.foot.x);
+      const py = Math.floor(y) + dy - (at.y - thing.foot.y);
+      const c = px >= 0 && py >= 0 && px < thing.w && py < thing.h ? thing.picture.get(px, py) : null;
+      return !!c && !isShadow(c);
+    }));
+    if (hit && thing.spot.i + thing.spot.j > front) {
+      front = thing.spot.i + thing.spot.j;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/** Takes up what is in reach into the character's arms. */
+function pickUp(p: Pickable, ms: number): void {
+  if (!actor || !herd || held) return;
+  let carried: Carried;
+  if ('item' in p) {
+    world.loose = world.loose!.filter((it) => it !== p.item);
+    // Eight views: the item turns with the character, an eighth of a turn per facing.
+    carried = (facing) => ({ ...itemPicture(p.item.item, FACING_RING.indexOf(facing) / 2), below: 2 });
+  } else {
+    herd.pickUp(p.animal, ms);
+    const placed = world.scene.animals[p.animal];
+    carried = (facing, now) => ({ ...world.animalSprite(placed, p.animal, now, herd!, facing), below: 3 });
+  }
+  held = p;
+  actor.carry(carried);
+  showActions();
+}
+
+/** Sets down what is held, just in front of the character, on land a walker could reach. */
+function drop(): void {
+  if (!actor || !herd || !held) return;
+  const spot = actor.ahead(0.55);
+  const dry = inside(world.map, Math.floor(spot.i), Math.floor(spot.j)) && levelAt(world.map, Math.floor(spot.i), Math.floor(spot.j)) >= SEA_LEVEL;
+  if (!dry || !world.canWalk(actor, spot)) return say(t('drop.cannot'));
+  const at = world.toData(spot);
+  if ('item' in held) world.loose!.push({ item: held.item.item, ...at });
+  else herd.setDown(held.animal, at, turnFacing(actor.facing, -world.rot * 2), performance.now());
+  held = null;
+  actor.carry(null);
+  showActions();
+}
+
+function walkTo(e: PointerEvent, start = false): void {
+  if (start && actor && !held) {
+    const p = groundPixel(e);
+    const pick = pickableAt(p.x, p.y, performance.now());
+    if (pick) {
+      target = { ...whereIs(pick), run: false, pick };
+      return;
+    }
+  }
+  if (target?.pick) return;
   const tile = tileUnder(e);
   if (!tile || !actor) return;
   const d = Math.hypot(tile.i + 0.5 - actor.i, tile.j + 0.5 - actor.j);
@@ -448,7 +543,7 @@ canvas.addEventListener('pointerdown', (e) => {
     } else {
       gesture = { kind: 'walk' };
       target = null;
-      walkTo(e);
+      walkTo(e, true);
     }
   }
 });
@@ -514,17 +609,26 @@ function frame(ms: number): void {
     let run = keys.has('ShiftLeft') || keys.has('ShiftRight');
     if (di || dj) target = null;
     else if (target) {
+      // Something to pick up is followed as it moves, and taken once in reach.
+      if (target.pick) Object.assign(target, whereIs(target.pick));
       di = target.i - actor.i;
       dj = target.j - actor.j;
       run = target.run;
-      if (Math.hypot(di, dj) < 0.08) {
+      if (target.pick && Math.hypot(di, dj) < REACH) {
+        actor.update(world, dt, di * 1e-4, dj * 1e-4, false, ms);
+        pickUp(target.pick, ms);
+        target = null;
+        di = dj = 0;
+      } else if (Math.hypot(di, dj) < 0.08) {
         target = null;
         di = dj = 0;
       }
     }
     const before = [actor.i, actor.j];
     actor.update(world, dt, di, dj, run, ms);
-    herd?.update(world, dt, ms);
+    // The animal being fetched waits to be picked up; the others shy away from the character.
+    const fetching = target?.pick && 'animal' in target.pick ? target.pick.animal : undefined;
+    herd?.update(world, dt, ms, world.toData(actor), fetching);
     // A target that cannot be reached is given up rather than walked against forever.
     if (target && before[0] === actor.i && before[1] === actor.j) target = null;
   } else if (kx || ky) {
@@ -538,7 +642,7 @@ function frame(ms: number): void {
   const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
   const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
-    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined)];
+    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings()];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
@@ -637,9 +741,22 @@ function decorThumb(id: string): HTMLCanvasElement {
 
 const sceneSelect = h('select', { class: 'select bar__things' });
 const barSlot = h('div', { style: 'display: contents' });
+/** What the character can do in Play, as icons floating over the scene: the emotes, or putting down what it holds. */
+const actions = h('div', { class: 'actions' });
+const EMOTE_ICONS: Record<Emote, IconName> = { wave: 'hand', use: 'hammer' };
+const EMOTE_KEYS: Record<Emote, string> = { wave: 'E', use: 'F' };
+function showActions(): void {
+  actions.hidden = prefs.mode !== 'play';
+  const label = (text: string) => ({ 'aria-label': text, title: text });
+  actions.replaceChildren(...(held
+    ? [tap({ class: 'stage__button actions__main', ...label(t('drop')) }, drop, icon('lower'))]
+    : EMOTES.map((e) => tap({ class: 'stage__button', ...label(`${t(`emote.${e}` as Key)} (${EMOTE_KEYS[e]})`) }, () => emote(e), icon(EMOTE_ICONS[e])))));
+}
 const gridButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ grid: !prefs.grid }), icon('grid'));
 const dock = h('nav', { class: 'toolbar' });
 const options = h('section', { class: 'opts' });
+/** Who walks around in Play: picked while editing. */
+const cast = h('section', { class: 'opts opts--cast' });
 
 /** Pictures to pick from: plants, decorations or animals. */
 function picks<T extends { id: string; name: string; picture: HTMLElement }>(label: string, list: T[], current: string, choose: (id: string) => void): HTMLElement {
@@ -692,7 +809,9 @@ function editOptions(): Node[] {
   return out;
 }
 
-function playOptions(): Node[] {
+function castOptions(): Node[] {
+  roster = loadRoster();
+  if (prefs.character && !roster.some((c) => c.id === prefs.character)) prefs.character = '';
   const select = h('select', { class: 'select', 'aria-label': t('character') },
     h('option', { value: '' }, t('character.default')),
     ...roster.map((c) => h('option', { value: c.id }, c.name)),
@@ -705,17 +824,13 @@ function playOptions(): Node[] {
   });
   return [
     h('div', { class: 'opts__head' }, icon('person'), h('b', {}, t('character'))),
-    h('p', { class: 'opts__tip' }, t('tip.play')),
     select,
     h('a', { class: 'opts__link', href: '../wardrobe/' }, t('character.edit')),
   ];
 }
 
-/** One line of tool icons in Edit; the emotes in Play. */
+/** One line of tool icons, in Edit only: Play's actions float over the scene. */
 function toolbar(): Node[] {
-  if (prefs.mode === 'play') {
-    return EMOTES.map((e) => tap({ class: 'toolbar__btn toolbar__btn--text' }, () => emote(e), t(`emote.${e}` as Key)));
-  }
   return TOOLS.map((tool) => tap({ class: 'toolbar__btn', 'aria-pressed': String(tool === prefs.tool), 'aria-label': t(`tool.${tool}` as Key), title: t(`tool.${tool}` as Key) }, () => set({ tool }), icon(TOOL_ICONS[tool])));
 }
 
@@ -724,7 +839,10 @@ function set(change: Partial<Prefs>): void {
   Object.assign(prefs, change);
   savePrefs();
   if (entering) startPlay();
-  if (prefs.mode === 'edit') actor = herd = null;
+  if (prefs.mode === 'edit') {
+    actor = herd = held = null;
+    world.loose = null;
+  }
   hover = null;
   version++;
   render();
@@ -752,8 +870,13 @@ function render(): void {
     relabel: mount,
   });
   barSlot.replaceChildren(bar, ...pops);
-  dock.replaceChildren(...toolbar());
-  options.replaceChildren(...(prefs.mode === 'edit' ? editOptions() : playOptions()));
+  const editing = prefs.mode === 'edit';
+  dock.hidden = !editing;
+  dock.replaceChildren(...(editing ? toolbar() : []));
+  options.hidden = cast.hidden = !editing;
+  options.replaceChildren(...(editing ? editOptions() : []));
+  cast.replaceChildren(...(editing ? castOptions() : []));
+  showActions();
   gridButton.setAttribute('aria-pressed', String(prefs.grid));
 }
 
@@ -824,6 +947,7 @@ function mount(): void {
   viewport.replaceChildren(
     canvas,
     options,
+    cast,
     h('div', { class: 'zoom' },
       tap({ class: 'stage__button', 'aria-label': t('zoom.in'), title: t('zoom.in') }, () => setZoom(zoom + 1), icon('zoomIn')),
       tap({ class: 'stage__button', 'aria-label': t('zoom.out'), title: t('zoom.out') }, () => setZoom(zoom - 1), icon('zoomOut')),
@@ -831,6 +955,7 @@ function mount(): void {
       tap({ class: 'stage__button', 'aria-label': t('rotate.right'), title: t('rotate.right') }, () => rotate(1), icon('turnRight')),
       gridButton,
     ),
+    actions,
     statusLine,
   );
   document.getElementById('scene')!.replaceChildren(
@@ -847,9 +972,11 @@ statusLine.hidden = true;
 mount();
 // Characters saved in the wardrobe in another tab show up when coming back.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && prefs.mode === 'play') {
+  if (document.visibilityState !== 'visible') return;
+  if (prefs.mode === 'edit') cast.replaceChildren(...castOptions());
+  else {
     roster = loadRoster();
-    render();
+    actor?.setLook(characterLook());
   }
 });
 new ResizeObserver(fitCanvas).observe(viewport);

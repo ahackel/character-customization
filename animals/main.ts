@@ -374,6 +374,9 @@ function panelFor(id: TabId): HTMLElement[] {
         }), featureToggles(['spines', 'wings']), h('div', { class: 'toggles' }, toggle(L('Hops when running', 'Hoppelt beim Rennen'), animal.hops, () => {
           animal.hops = !animal.hops;
           changed();
+        }), toggle(L('Can be carried', 'Kann getragen werden'), animal.pickable, () => {
+          animal.pickable = !animal.pickable;
+          changed();
         }))),
         section(L('Body', 'Körper'), ...sliders('body')),
         section(L('Head', 'Kopf'), ...sliders('head')),

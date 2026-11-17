@@ -16,19 +16,19 @@ export const PRESETS: Preset[] = [
     scale: 1.15, fur: 0.5,
     length: 4.5, girth: 4.4, width: 0.95, legs: 2.4, legWidth: 1.2, neck: 0, neckAngle: 55, head: 4.4, muzzle: 1.6, muzzleWidth: 2, snoutDown: 15,
     ears: 'lop', earSize: 2.6, earColor: 'third', tail: 'stub', tailLength: 2, features: ['blush'], marks: ['tailTip'],
-    colors: { fur: 'white', second: 'cream', third: 'driftwood', nose: 'pink', horn: 'cream' }, hops: true, // (ears: beige)
+    colors: { fur: 'white', second: 'cream', third: 'driftwood', nose: 'pink', horn: 'cream' }, pickable: true, hops: true, // (ears: beige)
   }),
   make('guineapig', 'Guinea pig', {
     scale: 1.2, fur: 0.7,
     length: 5.5, girth: 4.6, width: 1, legs: 2.4, legWidth: 1, neck: 0, neckAngle: 30, head: 4.2, muzzle: 1.8, muzzleWidth: 2, snoutDown: 15,
     ears: 'round', earSize: 1.3, earColor: 'nose', tail: 'none', features: ['blush'], marks: ['saddle', 'hood', 'face', 'belly'],
-    colors: { fur: 'white', second: 'white', third: 'tan', nose: 'pink', horn: 'cream' }, hops: true, // (camel)
+    colors: { fur: 'white', second: 'white', third: 'tan', nose: 'pink', horn: 'cream' }, pickable: true, hops: true, // (camel)
   }),
   make('hedgehog', 'Hedgehog', {
     scale: 1.15, fur: 0,
     length: 4.5, girth: 4.8, width: 1.05, legs: 2.4, legWidth: 1, neck: 0, neckAngle: 20, head: 3.4, muzzle: 2.4, muzzleWidth: 1.4, snoutDown: 15,
     ears: 'tiny', earSize: 1.2, earColor: 'second', tail: 'none', features: ['spines'], marks: ['face', 'muzzle', 'belly', 'socks'],
-    colors: { fur: 'brown', second: 'cream', third: 'hairBlack', nose: 'black', horn: 'cream' }, // (face: beige)
+    colors: { fur: 'brown', second: 'cream', third: 'hairBlack', nose: 'black', horn: 'cream' }, pickable: true, // (face: beige)
   }),
   make('squirrel', 'Squirrel', {
     scale: 0.95, fur: 0.6,
@@ -53,19 +53,19 @@ export const PRESETS: Preset[] = [
     scale: 1.1, fur: 0.4,
     length: 5.5, girth: 3.6, width: 0.9, legs: 3.8, legWidth: 1.0, neck: 0.5, neckWidth: 2.6, neckAngle: 50, head: 3.8, muzzle: 1.3, muzzleWidth: 1.6,
     ears: 'pointed', earSize: 1.6, tail: 'thin', tailLength: 7, tailUp: 25, tailCurl: 70, marks: ['bands', 'muzzle', 'chest', 'belly'],
-    colors: { fur: 'orange', second: 'white', third: 'hairRed', nose: 'pink', horn: 'cream' }, // (tan, ochre stripes)
+    colors: { fur: 'orange', second: 'white', third: 'hairRed', nose: 'pink', horn: 'cream' }, pickable: true, // (tan, ochre stripes)
   }),
   make('dog', 'Dog', {
     scale: 1.2, fur: 0.4,
     length: 6.5, girth: 4.2, width: 0.85, legs: 4.8, legWidth: 1.3, neck: 1.2, neckWidth: 2.8, neckAngle: 55, head: 4.3, muzzle: 2.2, muzzleWidth: 2, snoutDown: 10,
     ears: 'lop', earSize: 2.2, earColor: 'second', tail: 'thin', tailLength: 6, tailUp: 50, features: ['blush'], marks: ['saddle', 'hood'],
-    colors: { fur: 'white', second: 'brown', third: 'tan', nose: 'black', horn: 'cream' },
+    colors: { fur: 'white', second: 'brown', third: 'tan', nose: 'black', horn: 'cream' }, pickable: true,
   }),
   make('fox', 'Fox', {
     scale: 1.25, fur: 0.6,
     length: 6, girth: 3.5, width: 0.8, legs: 4.6, legWidth: 0.75, neck: 1, neckWidth: 2.4, neckAngle: 50, head: 3.7, muzzle: 2.4, muzzleWidth: 1.4, snoutDown: 5,
     ears: 'pointed', earSize: 2.2, tail: 'bushy', tailLength: 10, tailUp: 10, marks: ['muzzle', 'chest', 'belly', 'tailTip', 'socks'],
-    colors: { fur: 'orange', second: 'white', third: 'hairBlack', nose: 'black', horn: 'cream' },
+    colors: { fur: 'orange', second: 'white', third: 'hairBlack', nose: 'black', horn: 'cream' }, pickable: true,
   }),
   make('wolf', 'Wolf', {
     scale: 1.35, fur: 0.7,

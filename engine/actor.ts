@@ -1,7 +1,7 @@
 // A character walking around a world: position in metres, facing, which clip plays, and the
 // sprite for the current frame. Movement slides along whatever blocks it.
 import { AUTHORED, STAND, type Clip } from '../lab/poses.ts';
-import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, handsOn, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Sprite } from '../lab/puppet.ts';
 import { SHADOW } from '../lab/palette.ts';
 import type { Picture } from '../lab/island.ts';
 import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight } from '../lab/terrain.ts';
@@ -10,7 +10,7 @@ import type { Thing, World } from './world.ts';
 
 export const EMOTES = ['wave', 'use'] as const;
 export type Emote = (typeof EMOTES)[number];
-type ClipId = 'idle' | 'walk' | 'run' | Emote;
+type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | Emote;
 
 /** Metres per second. */
 const SPEED = { walk: 1.7, run: 3.6 };
@@ -46,6 +46,12 @@ const REST: [number, number] = [1.5, 4.5];
 const between = ([a, b]: [number, number]) => (a + Math.random() * (b - a)) * 1000;
 
 interface Fidget { look?: number; glance?: 1 | -1; face?: string; until: number }
+
+/**
+ * Something in the character's arms: its picture for the facing and time (kept pictures, so the
+ * drawing can be cached), and how many pixels its ground point sits below the hands.
+ */
+export type Carried = (facing: Facing, ms: number) => { picture: Picture; w: number; h: number; foot: { x: number; y: number }; below: number };
 
 interface Drop { i: number; j: number; z: number; vi: number; vj: number; vz: number; pale: boolean }
 
@@ -101,12 +107,16 @@ export class Actor {
   private started = 0;
   private look: Look;
   private frames = new Map<string, Sprite>();
-  private wet = new Map<string, Picture>();
+  /** Wading pictures of each drawn picture, by rows under water. */
+  private wet = new WeakMap<Picture, Map<number, Picture>>();
   private drops: Drop[] = [];
   private splashClock = 0;
   /** The fidget playing while standing, and when the next one starts. */
   private fidget: Fidget | null = null;
   private nextFidget = 0;
+  /** What is held, if anything; the character walks (never runs) while carrying. */
+  carrying: Carried | null = null;
+  private held = new WeakMap<Picture, Map<string, Picture>>();
 
   constructor(look: Look, at: { i: number; j: number }) {
     this.look = look;
@@ -117,11 +127,23 @@ export class Actor {
   setLook(look: Look): void {
     this.look = look;
     this.frames.clear();
-    this.wet.clear();
+    this.wet = new WeakMap();
   }
 
   emote(emote: Emote, ms: number): void {
-    this.play(emote, ms);
+    // Hands full: no waving.
+    if (!this.carrying) this.play(emote, ms);
+  }
+
+  carry(what: Carried | null): void {
+    this.carrying = what;
+    this.held = new WeakMap();
+    if ((EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
+  }
+
+  /** A spot on the map about `far` metres in front of the character. */
+  ahead(far: number): { i: number; j: number } {
+    return { i: this.i + Math.cos(this.heading) * far, j: this.j + Math.sin(this.heading) * far };
   }
 
   private play(clip: ClipId, ms: number): void {
@@ -171,10 +193,11 @@ export class Actor {
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
       const emoting = (EMOTES as readonly string[]).includes(this.clip);
-      if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play('idle', ms);
+      if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play(this.carrying ? 'hold' : 'idle', ms);
       return;
     }
-    this.play(run ? 'run' : 'walk', ms);
+    if (this.carrying) run = false;
+    this.play(this.carrying ? 'carry' : run ? 'run' : 'walk', ms);
     const depth = this.depth(world);
     const step = (run ? SPEED.run : SPEED.walk) * (depth > 0 ? WADING : 1) * Math.min(dt, 0.1);
     if (depth > 0) this.splash(Math.min(dt, 0.1), run);
@@ -244,21 +267,60 @@ export class Actor {
     const face = clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
     const look = fidget?.look ?? 0;
     const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
-    const key = `${this.clip}|${n}|${facing}|${face}|${look}`;
-    let sprite = this.frames.get(key);
-    if (!sprite) {
-      const pose = look ? { ...STAND, look } : clip.frames[n];
-      this.frames.set(key, (sprite = drawCharacter(this.look, pose, facing, { face, swing: clip.swing })));
+    const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}`;
+    const pose = look ? { ...STAND, look } : clip.frames[n];
+    let body = this.frames.get(key);
+    // Hands full, the tool is put away.
+    if (!body) {
+      const worn = this.carrying ? { ...this.look, items: this.look.items.filter((it) => it.slot !== 'tool') } : this.look;
+      this.frames.set(key, (body = drawCharacter(worn, pose, facing, { face, swing: clip.swing })));
+    }
+    let sprite: Picture = body;
+    if (this.carrying) {
+      const held = this.carrying(facing, ms);
+      let kept = this.held.get(held.picture);
+      if (!kept) this.held.set(held.picture, (kept = new Map()));
+      let both = kept.get(key);
+      if (!both) kept.set(key, (both = holding(body, held, handsOn(pose, facing))));
+      sprite = both;
     }
     const depth = this.depth(world);
     if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: SPRITE_W, h: SPRITE_H, foot: FEET };
     // In the shallows the feet stand on the sea floor, under the surface.
     const rows = Math.round(depth * LEVEL_PX);
-    const wetKey = `${key}|${rows}`;
-    let picture = this.wet.get(wetKey);
-    if (!picture) this.wet.set(wetKey, (picture = wading(sprite, rows)));
+    let wet = this.wet.get(sprite);
+    if (!wet) this.wet.set(sprite, (wet = new Map()));
+    let picture = wet.get(rows);
+    if (!picture) wet.set(rows, (picture = wading(sprite, rows)));
     return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: SPRITE_W, h: SPRITE_H, foot: FEET };
   }
+}
+
+/** Pixels a carried thing is held further out in front when the character is seen side on. */
+const SIDE_REACH = 4;
+
+/**
+ * A character sprite with a carried picture laid at its hands, in front of the body or, seen from
+ * behind, behind it. In front, the arms and hands on the camera's side of the body are drawn over it.
+ */
+function holding(body: Sprite, held: ReturnType<Carried>, hands: { x: number; y: number; back: boolean; ahead: number }): Picture {
+  // Side on, the thing is held out in front, clear of the chest, rather than centred on the hands.
+  const dx = Math.round(hands.x) + hands.ahead * SIDE_REACH - held.foot.x;
+  const dy = Math.round(hands.y) + held.below - held.foot.y;
+  const out: (string | null)[] = new Array(SPRITE_W * SPRITE_H);
+  for (let y = 0; y < SPRITE_H; y++) for (let x = 0; x < SPRITE_W; x++) {
+    const own = body.get(x, y);
+    const hx = x - dx;
+    const hy = y - dy;
+    let c = hx >= 0 && hy >= 0 && hx < held.w && hy < held.h ? held.picture.get(hx, hy) : null;
+    // The held thing's own ground shadow stays on the ground, under the character's.
+    if (c === SHADOW) c = null;
+    out[y * SPRITE_W + x] = hands.back ? (own && own !== SHADOW ? own : c ?? own) : (c ?? own);
+  }
+  if (!hands.back) body.nearArm.forEach((on, k) => {
+    if (on && body.pixels[k] && body.pixels[k] !== SHADOW) out[k] = body.pixels[k];
+  });
+  return { get: (x, y) => out[y * SPRITE_W + x] ?? null };
 }
 
 const dots = new Map<string, Picture>();

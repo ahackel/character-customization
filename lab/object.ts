@@ -115,9 +115,15 @@ export interface ObjectFrame {
 }
 
 type V = [number, number, number];
-/** A quarter turn of a floor vector, `turn` times. */
+/**
+ * A quarter turn of a floor vector, `turn` times. Whole turns are exact; what is left of a
+ * fractional turn (an eighth, for something a character carries) is turned by angle.
+ */
 const rotate = (u: number, v: number, turn: number): [number, number] => {
-  for (let i = 0; i < turn; i++) [u, v] = [-v, u];
+  const whole = Math.floor(turn);
+  for (let i = 0; i < whole; i++) [u, v] = [-v, u];
+  const rest = (turn - whole) * (Math.PI / 2);
+  if (rest) [u, v] = [u * Math.cos(rest) - v * Math.sin(rest), u * Math.sin(rest) + v * Math.cos(rest)];
   return [u, v];
 };
 
@@ -172,8 +178,8 @@ const AXES_INDEX: Record<Axis, number> = { x: 0, y: 1, z: 2 };
 
 const hash = cellHash;
 
-/** Draws one frame of an object in one camera turn. */
-export function drawObject(prop: Prop, turn: Turn, frame = 0): ObjectFrame {
+/** Draws one frame of an object in one camera turn. A half turn (0.5, 1.5…) is an eighth turn, for an object in a character's arms. */
+export function drawObject(prop: Prop, turn: Turn | number, frame = 0): ObjectFrame {
   const W = OBJECT_W, H = OBJECT_H;
   const f = ((frame % LOOP_FRAMES) + LOOP_FRAMES) % LOOP_FRAMES;
   const cx = (prop.w * UNIT) / 2, cz = (prop.d * UNIT) / 2;

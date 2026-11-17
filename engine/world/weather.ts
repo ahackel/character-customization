@@ -140,7 +140,8 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
       const speed = 160 + 80 * hash(k, 3);
       const span = vh + len + 8;
       const y0 = ((t * speed + hash(k, 4) * span) % span) - len;
-      const x0 = hash(k, 5) * (vw + vh * slant) - y0 * slant;
+      // Drops drift with the wind, to the right like the gusts, along the line their streak draws.
+      const x0 = hash(k, 5) * (vw + vh * slant) - vh * slant + y0 * slant;
       for (let n = 0; n < len; n++) {
         const x = Math.floor(x0 - n * slant), y = Math.floor(y0 - n);
         if (x >= 0 && y >= 0 && x < vw && y < vh) toward(d, (y * vw + x) * 4, RAIN, 0.45);

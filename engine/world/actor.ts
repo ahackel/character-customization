@@ -10,7 +10,7 @@ import type { Thing, World } from './world.ts';
 
 export const EMOTES = ['wave', 'use'] as const;
 export type Emote = (typeof EMOTES)[number];
-type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | Emote;
+type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sit' | Emote;
 
 /** Metres per second. */
 const SPEED = { walk: 1.7, run: 3.6 };
@@ -41,6 +41,20 @@ const FIDGETS: { weight: number; look?: 1; glance?: boolean; face?: string; seco
   { weight: 0.06, face: 'happy', seconds: [0.8, 1.4] },
   { weight: 0.05, face: 'surprised', seconds: [0.5, 1] },
 ];
+/**
+ * The mouth while talking: a new shape every `TALK_MS`, picked at random but never the same twice
+ * running, so it chatters unevenly like the old adventure games rather than ticking.
+ */
+const TALK_MS = 90;
+const TALK_FACES = ['neutral', 'talkHalf', 'talkOpen'] as const;
+function talkFace(ms: number): string {
+  const slot = Math.floor(ms / TALK_MS);
+  const pick = (k: number) => (Math.imul(k, 2654435761) >>> 0) % TALK_FACES.length;
+  const was = pick(slot - 1);
+  const now = pick(slot);
+  return TALK_FACES[now === was ? (now + 1) % TALK_FACES.length : now];
+}
+
 /** Seconds of plain standing between two fidgets. */
 const REST: [number, number] = [1.5, 4.5];
 const between = ([a, b]: [number, number]) => (a + Math.random() * (b - a)) * 1000;
@@ -116,6 +130,10 @@ export class Actor {
   private foot = 1;
   /** The fidget playing while standing, and when the next one starts. */
   private fidget: Fidget | null = null;
+  /** Until when (page time, ms) the character is talking: its mouth moves. */
+  talkUntil = 0;
+  /** Milliseconds of standing still, hands empty and on dry ground, before the character sits down; the game sets it. */
+  sitAfter = Infinity;
   private nextFidget = 0;
   /** What is held, if anything; the character walks (never runs) while carrying. */
   carrying: Carried | null = null;
@@ -138,10 +156,18 @@ export class Actor {
     if (!this.carrying) this.play(emote, ms);
   }
 
+  /** Gets a sitting character up, and starts the wait before sitting again over. */
+  rouse(ms: number): void {
+    if (this.clip === 'sit' || this.clip === 'idle') {
+      this.clip = 'idle';
+      this.started = ms;
+    }
+  }
+
   carry(what: Carried | null): void {
     this.carrying = what;
     this.held = new WeakMap();
-    if ((EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
+    if (this.clip === 'sit' || (EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
   }
 
   /** A spot on the map about `far` metres in front of the character. */
@@ -196,6 +222,8 @@ export class Actor {
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
       const emoting = (EMOTES as readonly string[]).includes(this.clip);
+      if (this.clip === 'sit') return;
+      if (this.clip === 'idle' && !this.carrying && ms - this.started >= this.sitAfter && this.depth(world) <= 0) return this.play('sit', ms);
       if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play(this.carrying ? 'hold' : 'idle', ms);
       return;
     }
@@ -271,10 +299,11 @@ export class Actor {
 
   thing(world: World, ms: number): Thing {
     const clip: Clip = AUTHORED[this.clip];
-    const n = Math.floor(((ms - this.started) / 1000) * clip.rate) % clip.frames.length;
+    // A clip started from an event's time can begin a moment after this frame's time; never count back.
+    const n = Math.floor((Math.max(0, ms - this.started) / 1000) * clip.rate) % clip.frames.length;
     const fidget = this.fidgetAt(ms);
     // Blinking goes on through a fidget.
-    const face = clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
+    const face = ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
     const look = fidget?.look ?? 0;
     const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
     const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}`;

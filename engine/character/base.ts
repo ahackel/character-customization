@@ -358,6 +358,16 @@ export function headRows(view: FaceView, shape: HeadShape = 'round'): string[] {
   return [...Array<string>(6).fill('.'.repeat(HEAD_STAMP.w)), ...rows];
 }
 
+/**
+ * Talking mouths, half open and open, per view: a talking character flips between these and its
+ * mood's own mouth, as in the old point-and-click adventures. The mood stays in the eyes and brows.
+ */
+export const TALK_MOUTHS: Record<FaceView, Record<'half' | 'open', string[]>> = {
+  diagonal: { half: ['.MMMM.', '..II..', '......'], open: ['.MMMM.', '.MIIM.', '..MM..'] },
+  front: { half: ['.MMMMM.', '..III..', '.......'], open: ['.MMMMM.', '.MIIIM.', '..MMM..'] },
+  side: { half: ['.MM', '.I.', '...'], open: ['.MM', '.II', '.M.'] },
+};
+
 /** Which eye stamp a mood shows. A laugh squeezes the eyes shut even mid-blink; dark moods keep their lids looking aside. */
 export function eyeState(mood: Mood, blink: boolean, aside: boolean): EyeState {
   if (mood === 'laughing') return 'laughing';
@@ -367,7 +377,7 @@ export function eyeState(mood: Mood, blink: boolean, aside: boolean): EyeState {
 }
 
 /** The face features of one view as rows on the head grid: eye, brow and mouth stamps, with nose, blush, freckles and glasses by rule. */
-export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: boolean, view: FaceView): string[] {
+export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: boolean, view: FaceView, talk?: 'half' | 'open'): string[] {
   const grid = Array.from({ length: HEAD_STAMP.h }, () => Array<string>(HEAD_STAMP.w).fill('.'));
   const at = (x: number, y: number, ch: string) => {
     if (grid[y]?.[x] !== undefined) grid[y][x] = ch;
@@ -393,7 +403,7 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
     frontRules(o, put, view === 'front');
   }
   place(FACE_SHAPES.brows[view][o.brows][browState(mood)], FACE_REGIONS.brows[view]);
-  place(FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
+  place(talk ? TALK_MOUTHS[view][talk] : FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
   if (o.glasses) view === 'side' ? sideGlasses(put) : frontGlasses(put, view === 'front');
   return grid.map((row) => row.join(''));
 }
@@ -478,8 +488,8 @@ export function headFor(skin: PaletteKey, shape: HeadShape = 'round'): StampPair
 
 /**
  * Builds the faces a character can show: 'neutral' is the mood itself, 'blink' the same with the
- * eyes shut, and 'happy' what a cheerful action such as waving puts on, which is a laugh unless
- * the mood is a dark one. Brows take the hair colour.
+ * eyes shut, 'happy' what a cheerful action such as waving puts on, which is a laugh unless
+ * the mood is a dark one, and 'talkHalf' and 'talkOpen' the mood with its mouth open. Brows take the hair colour.
  */
 export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): Record<string, Stamp> {
   return faceSet(headFor(skin, options.shape).front, 'diagonal', skin, options, hair, mood);
@@ -489,8 +499,8 @@ export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
 function faceSet(head: Stamp, view: FaceView, skin: PaletteKey, options: FaceOptions, hair: PaletteKey, mood: Mood): Record<string, Stamp> {
   const legend = { N: skin, I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
-  const make = (as: Mood, blink: boolean, aside = false) => {
-    const rows = pad(faceRows(options, as, blink, aside, view), 0);
+  const make = (as: Mood, blink: boolean, aside = false, talk?: 'half' | 'open') => {
+    const rows = pad(faceRows(options, as, blink, aside, view, talk), 0);
     return parseStamp(rows, legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? (rows[y][x] === 'n' || rows[y][x] === 'N' ? { ...cell!, flush: true } : cell) : null)));
   };
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
@@ -499,6 +509,7 @@ function faceSet(head: Stamp, view: FaceView, skin: PaletteKey, options: FaceOpt
   return {
     neutral: make(mood, false), blink: make(mood, true), happy: make(cheerful ? 'laughing' : mood, false), aside: make(mood, false, true),
     smile: make(cheerful ? 'smile' : mood, false), surprised: make('surprised', false),
+    talkHalf: make(mood, false, false, 'half'), talkOpen: make(mood, false, false, 'open'),
   };
 }
 

@@ -76,8 +76,9 @@ With the dev server running, open `/lab/` for the comparison page.
 | `lab/items.ts` | The two item formats, their checks, and conversion to one common item shape |
 | `lab/base.ts`, `lab/palette.ts` | Generated base body, faces and hairstyles, and the master palette |
 | `lab/catalog.ts` | Turns every generated file into wardrobe items and handles colour swaps |
+| `lab/shell.ts` | Hair as one shape round the skull (`lab/generated/shell-hair.json`): every view, and the left-hand views of an uneven style, are drawn from it |
 | `lab/generated/` | Format descriptions given to the model, its unedited answers, sampled poses, the 3D reference sheet |
-| `lab/tools/` | Scripts that write the format descriptions, sample the 3D clips and render preview sheets; `review.mjs` renders wardrobe characters in every facing and walking; `parts-check.mjs` draws every hairstyle, hat and tool in flat part colours from all sides and reports broken frames |
+| `lab/tools/` | Scripts that write the format descriptions, sample the 3D clips and render preview sheets; `review.mjs` renders wardrobe characters in every facing and walking; `parts-check.mjs` draws every hairstyle, hat and tool in flat part colours from all sides and reports broken frames; `turntable-check.mjs` (`npm run check:turntable`) measures each hairstyle, hat and garment in the five drawn views and reports where they disagree |
 
 The format descriptions and generated items in `lab/generated/` belong to the first base body. Running `lab/tools/make-specs.mjs` rewrites the descriptions for the current body; items should then be generated again.
 

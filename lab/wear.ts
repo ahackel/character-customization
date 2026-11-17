@@ -199,6 +199,7 @@ export function weathered(item: Item, level: Wear): Item {
     out.headBehind = pair(item.headBehind, (stamp) => unkempt(stamp, seed, level, false, false));
     // Face on and side on the hair keeps off the face, as in front; from behind it grows freely.
     out.views = views(item, (stamp, view, behind) => unkempt(stamp, seed, level, view !== 'N' && !behind, !behind));
+    out.left = item.left && views({ ...item, views: item.left }, (stamp, _view, behind) => unkempt(stamp, seed, level, !behind, !behind));
   } else if (item.slot === 'beard' && level >= 2 && !item.short) {
     // A beard only grows longer. It has no back view.
     out.head = item.head && { front: unkempt(item.head.front, seed, level, false, false), back: item.head.back };

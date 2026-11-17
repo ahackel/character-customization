@@ -20,6 +20,7 @@ for (const file of fs.readdirSync('lab/generated').filter((f) => /^(sprite|recip
   list.forEach((candidate, i) => {
     const result = compile(format, candidate);
     if (!result.ok) { rejected++; console.log(`${file} #${i + 1} "${candidate.name}" REJECTED: ${result.error}`); return; }
+    for (const w of result.compiled.warnings ?? []) console.log(`${file} #${i + 1} "${candidate.name}" views disagree: ${w}`);
     if (result.compiled.repairs.length) { repaired++; console.log(`${file} #${i + 1} "${candidate.name}" repaired: ${result.compiled.repairs.join('; ')}`); } else valid++;
     const dressed = wear(look, result.compiled.item);
     row.push(drawCharacter(dressed, STAND, 0), drawCharacter(dressed, STAND, 3));

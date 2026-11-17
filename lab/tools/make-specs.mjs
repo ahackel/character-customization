@@ -214,6 +214,11 @@ ${numbered(headRows(3))}
 - A hat usually covers the default hair (rows 4 to 9) and may rise to row 0 and spread to columns 0 and 20.
 - A beard covers the jaw around and below the mouth and may hang to row 25.
 - Long hair may fall to row 28 behind the shoulders.
+- Both stamps show the same item turned half way round, and the game works out the face-on, side
+  and straight-behind views from them. So they must agree: the same top row, the lower edge at the
+  same height on the sides, the same colours. Only something on the front (a badge, a fringe) may
+  be missing behind. Do not copy the front's design onto the back.
+- For hair, prefer the shape format below: it gives every view from one description.
 - Hair only, optional: \`"behind"\`, a third stamp of the same size for the front view, drawn behind
   the head and the body. Use it for hair that hangs down the back (a ponytail, a braid, long loose
   hair), so that it shows beside the neck and below the head and not on top of the shoulders. In
@@ -221,12 +226,11 @@ ${numbered(headRows(3))}
 
 ## Tools
 
-A stamp 15 wide by 44 tall, for the front view and the back view. The right hand grips the stamp at column 7, row 30. The ground is at row 43.
+One stamp 15 wide by 44 tall, used from every side. The right hand grips the stamp at column 7, row 30. The ground is at row 43.
 
 \`\`\`json
 { "name": "short name", "slot": "tool", "legend": { "W": "wood" },
-  "front": ["15 characters", "... 44 rows in total"],
-  "back": ["15 characters", "... 44 rows in total"] }
+  "front": ["15 characters", "... 44 rows in total"] }
 \`\`\`
 
 The body inside that frame in the front view, for reference (the arm is drawn over the tool):
@@ -235,5 +239,31 @@ The body inside that frame in the front view, for reference (the arm is drawn ov
 ${ruler(15)}
 ${numbered(toolRows(0))}
 \`\`\`
+
+## Hair as a shape
+
+Instead of stamps, a hairstyle may be given as one shape round the head. The game draws every view
+from it, so it looks the same from all sides, and an uneven style keeps its side when the character
+turns. Angles go round the head: 0 is the face, 90 the character's right, 180 the back, 270 the left.
+
+\`\`\`json
+{ "name": "High ponytail", "slot": "hair", "color": "hairBrown",
+  "hem": [2, 5, 8, 11, 12, 11, 8, 5],
+  "volume": 1, "crown": 0, "strip": null, "parting": null, "curl": false,
+  "parts": [{ "kind": "tail", "at": 180, "row": 1, "size": 3, "length": 14 }] }
+\`\`\`
+
+- \`hem\`: eight numbers, where the hair ends at 0, 45, 90 ... 315 degrees, in rows below the top of
+  the skull. The skull is 14 rows: brows at 4, eyes 5 to 8, ears 6 and 7, nape 11 or 12, chin 13,
+  shoulders about 18. A fringe is 2 to 5 at 0; short hair reaches 11 or 12 at 180; hair to the
+  shoulders is about 19 at 90, 135, 180, 225 and 270. Different values at 45 and 315 make it uneven.
+- \`volume\`: 0 (cropped close, a buzz cut) to 3 (an afro): how many pixels it stands off the skull.
+- \`crown\`: 0 to 4 extra rows of height on top.
+- \`strip\`: null, or 0.5 to 6: only a crest this many pixels either side of the middle (a mohawk).
+- \`parting\`: null, or the angle of a parting line on the crown (0 a centre parting, 60 to one side).
+- \`curl\`: true breaks the outline into curls.
+- \`parts\`: buns and tails. \`at\` the angle, \`row\` the height (negative is above the skull),
+  \`size\` a bun's radius or a tail's width (1 to 6), \`length\` how many rows a tail hangs.
+  A ponytail is one tail at 180, pigtails are two at about 110 and 250, a top bun is a bun at row -3.
 `);
 console.log(fs.readFileSync('lab/generated/spec-sprite.md', 'utf8').split('\n').slice(34, 100).join('\n'));

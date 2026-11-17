@@ -1,3 +1,4 @@
+import { checkShell, compileShell } from './shell.ts';
 import { PALETTE, type Cell, type PaletteKey } from './palette.ts';
 import { hashOf } from './random.ts';
 import {
@@ -47,10 +48,14 @@ function gripOf(pair: StampPair): { front: number; back: number } {
   return { front: offset(pair.front), back: offset(pair.back) };
 }
 
-/** Result of turning model output into an item. `repairs` lists what had to be fixed automatically. */
+/**
+ * Result of turning model output into an item. `repairs` lists what had to be fixed automatically,
+ * `warnings` where its views disagree, worded so they can be handed back to the model.
+ */
 export interface Compiled {
   item: Item;
   repairs: string[];
+  warnings?: string[];
 }
 
 const isKey = (k: unknown): k is PaletteKey => typeof k === 'string' && k in PALETTE;
@@ -359,10 +364,49 @@ export function compileRecipe(input: any): Compiled {
   return { item, repairs };
 }
 
-/** Compiles one candidate in either format, turning any failure into a message instead of throwing. */
-export function compile(format: 'sprite' | 'recipe', input: unknown): { ok: true; compiled: Compiled } | { ok: false; error: string } {
+/**
+ * Where the two drawn views of an item disagree. The other views are worked out from these two, so
+ * a difference here shows in every view: a hat whose top or brim jumps when the character turns, a
+ * colour that comes and goes, a back that repeats the front's design.
+ */
+export function viewWarnings(item: Item): string[] {
+  const out: string[] = [];
+  const rows = (stamp: Stamp) => stamp.flatMap((row, y) => (row.some(Boolean) ? [y] : []));
+  const keys = (stamp: Stamp) => {
+    const tally = new Map<string, number>();
+    stamp.forEach((row) => row.forEach((c) => c && tally.set(c.key, (tally.get(c.key) ?? 0) + 1)));
+    return tally;
+  };
+  const pair = item.head ?? item.torso;
+  if (!pair || item.slot === 'beard') return out;
+  const [f, b] = [rows(pair.front), rows(pair.back)];
+  if (f.length && b.length && Math.abs(f[0] - b[0]) > 1) out.push(`front starts on row ${f[0]} but back on row ${b[0]}: the top must be the same height from both sides`);
+  if (item.slot === 'hat' && f.length && b.length && Math.abs(f.at(-1)! - b.at(-1)!) > 2) {
+    out.push(`front ends on row ${f.at(-1)} but back on row ${b.at(-1)}: the brim or band must be at the same height`);
+  }
+  const [kf, kb] = [keys(pair.front), keys(pair.back)];
+  const total = [...kf.values()].reduce((a, n) => a + n, 0);
+  for (const [key, n] of kf) {
+    if (n / total >= 0.15 && !kb.has(key)) out.push(`colour ${key} covers ${Math.round((100 * n) / total)}% of the front but is missing from the back`);
+  }
+  // A back that is the front again: a small detail down the chest (a placket, buttons, a pocket: a
+  // colour in at most three columns) in exactly the same places. Stripes, checks and belts run all
+  // round and may repeat.
+  if (item.slot === 'top' && item.torso && kf.size >= 2) {
+    const main = [...kf.entries()].sort((a, c) => c[1] - a[1])[0][0];
+    const columns = (k: string) => new Set(pair.front.flatMap((row) => row.flatMap((c, x) => (c?.key === k ? [x] : [])))).size;
+    const repeated = [...kf.keys()].some((k) => k !== main && columns(k) <= 3 && pair.front.every((row, y) => row.every((c, x) => c?.key !== k || pair.back[y]?.[x]?.key === k)));
+    if (repeated) out.push('the back repeats the front: buttons, a placket or a pocket on the chest do not show from behind');
+  }
+  return out;
+}
+
+/** Compiles one candidate in any format, turning any failure into a message instead of throwing. */
+export function compile(format: 'sprite' | 'recipe' | 'shell', input: unknown): { ok: true; compiled: Compiled } | { ok: false; error: string } {
   try {
-    return { ok: true, compiled: format === 'sprite' ? compileSprite(input) : compileRecipe(input) };
+    const compiled: Compiled = format === 'shell' ? { item: compileShell(checkShell(input)), repairs: [] } : format === 'sprite' ? compileSprite(input) : compileRecipe(input);
+    if (format !== 'shell') compiled.warnings = viewWarnings(compiled.item);
+    return { ok: true, compiled };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }

@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "build:site": "tsc --noEmit && vite build --mode site",
     "bake": "node lab/tools/bake.mjs",
+    "check:turntable": "node lab/tools/turntable-check.mjs",
     "preview": "vite preview --host"
   },
   "devDependencies": {

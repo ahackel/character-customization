@@ -1,5 +1,6 @@
 import { BEARD_STYLES, beardFromBehind, catalogHairViews, stubbled, tidyBeard } from './base.ts';
 import { compile } from './items.ts';
+import shellFile from './generated/shell-hair.json' with { type: 'json' };
 import { JOB_ITEMS } from './jobs.ts';
 import { ANIMAL_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from './palette.ts';
 import type { Item, Slot, Stamp, StampPair } from './puppet.ts';
@@ -9,8 +10,8 @@ export interface Entry {
   id: string;
   label: string;
   slot: Slot;
-  /** Which format the model wrote it in. */
-  format: 'paint' | 'recipe';
+  /** Which format the model wrote it in. 'shell' is a hairstyle given as one shape round the head. */
+  format: 'paint' | 'recipe' | 'shell';
   /** Made or found on the island, so nobody had it before the wreck. */
   island: boolean;
   item: Item;
@@ -67,6 +68,7 @@ function mapCells(item: Item, cell: (c: Cell | null) => Cell | null): Item {
     head: pair(item.head),
     headBehind: pair(item.headBehind),
     views: views(item.views),
+    left: views(item.left),
     torso: pair(item.torso),
     tool: pair(item.tool),
     arm: item.arm?.map(cell),
@@ -124,6 +126,16 @@ function build(): Entry[] {
       });
     });
   }
+  // Hairstyles written as one shape round the head replace the drawn ones of the same id (others are
+  // added): every view comes from that one shape. One that fails its check leaves the drawn one in place.
+  (shellFile as ({ id?: string } & Record<string, unknown>)[]).forEach(({ id, ...raw }, index) => {
+    const result = compile('shell', raw);
+    if (!result.ok) return console.warn(`shell ${id ?? index}: ${result.error}`);
+    const item = result.compiled.item;
+    const entry = entries.find((e) => e.id === id);
+    if (entry) Object.assign(entry, { item, format: 'shell', colors: colorsOf(item) });
+    else entries.push({ id: id ?? `shell-hair-${index}`, label: sentence(item.name), slot: 'hair', format: 'shell', island: false, item, colors: colorsOf(item) });
+  });
   // Job clothes for Animal Hospital's staff.
   for (const job of JOB_ITEMS) {
     entries.push({ id: `job-${job.id}`, label: job.label, slot: job.item.slot, format: 'recipe', island: false, item: job.item, colors: colorsOf(job.item) });

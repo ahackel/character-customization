@@ -23,7 +23,8 @@ const FACINGS = [0, 1, 2, 3, 4, 5, 6, 7];
 const characters = [];
 const plain = { hat: null, tool: null };
 for (const hair of [...HAIR_STYLES.map((s) => s.id), ...CATALOG.filter((e) => e.slot === 'hair').map((e) => e.id)]) {
-  characters.push({ name: `hair ${hair}`, state: { hair, frame: 'f' }, worn: plain, clips: ['idle', 'walk', 'look'] });
+  // A hairstyle given as one shape may be narrow face on (a crest): that is its shape, not a lost view.
+  characters.push({ name: `hair ${hair}`, state: { hair, frame: 'f' }, worn: plain, clips: ['idle', 'walk', 'look'], shell: CATALOG.find((e) => e.id === hair)?.format === 'shell' });
 }
 for (const e of CATALOG.filter((e) => e.slot === 'hat')) {
   characters.push({ name: `hat ${e.id}`, state: { hair: 'recipe-hair-loose-0' }, worn: { hat: e.id, tool: null }, clips: ['idle', 'walk', 'look'] });
@@ -130,7 +131,7 @@ for (const ch of characters) {
         const diagonal = seenAreas[0];
         for (const facing of FACINGS) {
           if (/^(hair|hat) /.test(ch.name) && Object.values(earsSeen).some(Boolean) && !earsSeen[facing]) report('ears show in some views but not in this one', `${ch.name} · facing ${facing}: ears ${FACINGS.map((f) => earsSeen[f]).join(' ')}`, drawCharacter(look, pose, facing), drawCharacter(look, pose, facing, { parts: true }));
-          if (diagonal > 20 && seenAreas[facing] < diagonal * 0.6) report('hair or hat mostly gone in one view', `${ch.name} · facing ${facing}: ${seenAreas[facing]} of ${diagonal} pixels`, drawCharacter(look, pose, facing), drawCharacter(look, pose, facing, { parts: true }));
+          if (!ch.shell && diagonal > 20 && seenAreas[facing] < diagonal * 0.6) report('hair or hat mostly gone in one view', `${ch.name} · facing ${facing}: ${seenAreas[facing]} of ${diagonal} pixels`, drawCharacter(look, pose, facing), drawCharacter(look, pose, facing, { parts: true }));
         }
       }
     });

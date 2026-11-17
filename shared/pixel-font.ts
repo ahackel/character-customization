@@ -1,0 +1,82 @@
+// A pixel font, from Lop Hop: capitals 3 pixels wide (M and W 5) and 5 tall, in a cell of 7 rows (a row above and
+// below for umlaut dots and tails). Text is written in capitals; ß as SS.
+//
+// A letter: its rows top to bottom, each a number in base 32 whose bits are its pixels, 3 wide or, where a row needs
+// more, 5 wide. Five rows (the letter) or seven (with the rows above and below). A letter is as wide as the columns it
+// uses, a space 2, with a pixel between letters.
+export const GLYPHS: Record<string, string> = {
+  A: '25755', B: '65656', C: '34443', D: '65556', E: '74647', F: '74644', G: '34553', H: '55755', I: '22222', J: '11152', K: '55655', L: '44447', M: 'hrlhh',
+  N: '65555', O: '25552', P: '65644', Q: '0255522', R: '65655', S: '34216', T: '72222', U: '55557', V: '55552', W: 'hhlla', X: '55255', Y: '55222', Z: '71247',
+  0: '75557', 1: '26222', 2: '61247', 3: '61216', 4: '55711', 5: '74616', 6: '34757', 7: '71222', 8: '75757', 9: '75716',
+  Ä: '5257550', Ö: '5255520', Ü: '5055570',
+  ' ': '00000', '.': '00002', ':': '02020', '!': '22202', '-': '00700', '/': '1122244', '+': '02720', '<': '12421', '>': '42124', '?': '61202',
+  '(': '1222221', ')': '4222224', ',': '0000022', "'": '22000', '%': '51245', '×': '05250',
+};
+const ABOVE = 1;
+/** Rows of the text cell: the 5 of a letter and one above and below. */
+export const LINE_H = 7;
+
+interface Glyph { rows: number[]; full: number; from: number; w: number }
+const glyphs = new Map<string, Glyph>();
+function glyphOf(written: string): Glyph {
+  let g = glyphs.get(written);
+  if (g) return g;
+  const nums = [...written].map((c) => parseInt(c, 32));
+  const rows = nums.length === 5 ? [0, ...nums, 0] : nums;
+  const full = rows.some((r) => r > 7) ? 5 : 3;
+  const all = rows.reduce((a, r) => a | r, 0);
+  const on = (c: number) => all & (1 << (full - 1 - c));
+  let from = 0;
+  let to = full - 1;
+  while (from < full && !on(from)) from++;
+  while (to > from && !on(to)) to--;
+  g = { rows, full, from: from < full ? from : 0, w: from < full ? to - from + 1 : 2 };
+  glyphs.set(written, g);
+  return g;
+}
+
+/** Text as the font writes it: capitals, and what it has no letter for spelled with what it has. */
+export const normal = (s: string) =>
+  String(s).replace(/ß/g, 'SS').replace(/…/g, '...').replace(/[’‘`]/g, "'").replace(/[—–]/g, '-').replace(/[“”„"]/g, "'").toUpperCase();
+
+const glyphFor = (ch: string) => glyphOf(GLYPHS[ch] ?? GLYPHS[' ']);
+
+/** How wide text is, in font pixels. */
+export function textWidth(s: string): number {
+  s = normal(s);
+  let w = -1;
+  for (const ch of s) w += glyphFor(ch).w + 1;
+  return Math.max(0, w);
+}
+
+/** Writes text with its letters' tops at y. */
+export function text(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, color: string, align: 'left' | 'center' | 'right' = 'left'): void {
+  s = normal(s);
+  if (align === 'center') x -= textWidth(s) / 2;
+  if (align === 'right') x -= textWidth(s);
+  x = Math.round(x);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  let at = 0;
+  for (const ch of s) {
+    const g = glyphFor(ch);
+    for (let r = 0; r < LINE_H; r++) for (let c = 0; c < g.w; c++) if (g.rows[r] & (1 << (g.full - 1 - g.from - c))) ctx.rect(x + at + c, y + r - ABOVE, 1, 1);
+    at += g.w + 1;
+  }
+  ctx.fill();
+}
+
+/** Breaks text into lines no wider than `max` font pixels, at spaces. */
+export function wrap(s: string, max: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of s.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && textWidth(next) > max) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}

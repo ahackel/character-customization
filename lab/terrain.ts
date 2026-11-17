@@ -461,7 +461,9 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
         const level = w0 * p[0][2] + w1 * p[1][2] + w2 * p[2][2];
         const from = groundCell(i, j, w0 * p[0][0] + w1 * p[1][0] + w2 * p[2][0], w0 * p[0][1] + w1 * p[1][1] + w2 * p[2][1]);
-        const kind = groundAt(surfaces[from], level, paintAt(map, from % map.w, Math.floor(from / map.w)) > 0);
+        let kind = groundAt(surfaces[from], level, paintAt(map, from % map.w, Math.floor(from / map.w)) > 0);
+        // Rock is the bottom layer: other ground spreads over it, it never spreads over them.
+        if (kind === 'rock' && from !== index) kind = groundAt(surface, level, painted);
         const sandy = kind === 'sand' || kind === 'wet';
         let tone = tones[kind];
         if (!tone) {

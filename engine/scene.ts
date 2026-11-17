@@ -7,6 +7,7 @@ import { TURNS } from '../lab/flora.ts';
 import type { Facing } from '../lab/puppet.ts';
 import { plantById } from '../lab/flora-catalog.ts';
 import { cleanAnimal, type Animal } from '../lab/animal.ts';
+import { PRESETS } from '../lab/animal-presets.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
 import { itemById, type PlacedItem } from './items.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from '../lab/terrain.ts';
@@ -28,6 +29,8 @@ export interface PlacedAnimal {
   /** The name it had in the animal editor; the animal itself is copied in, so the scene keeps it. */
   name: string;
   animal: Animal;
+  /** For an animal set down from a preset, its id: it then always takes the preset as it is now. */
+  preset?: string;
   /** Where it stands, in metres from the north corner of the map. */
   i: number;
   j: number;
@@ -121,13 +124,21 @@ export function cleanScene(input: unknown): Scene {
     .map((d) => ({ decor: d.decor, i: num(d.i, 0, w, w / 2), j: num(d.j, 0, h, h / 2) }));
   const animals = (Array.isArray(s.animals) ? s.animals : [])
     .filter((a): a is PlacedAnimal => !!a && typeof a === 'object')
-    .map((a) => ({
-      name: typeof a.name === 'string' ? a.name.slice(0, 40) : '',
-      animal: cleanAnimal(a.animal),
-      i: num(a.i, 0, w, w / 2),
-      j: num(a.j, 0, h, h / 2),
-      facing: Math.round(num(a.facing, 0, 7, 0)) as Facing,
-    }));
+    .map((a) => {
+      const animal = cleanAnimal(a.animal);
+      const name = typeof a.name === 'string' ? a.name.slice(0, 40) : '';
+      // Scenes from before presets were linked: a preset's name and colours mark one of its animals.
+      const preset = PRESETS.find((p) => (typeof a.preset === 'string' ? p.id === a.preset
+        : p.name === name && JSON.stringify(p.animal.colors) === JSON.stringify(animal.colors)));
+      return {
+        name,
+        animal: preset ? structuredClone(preset.animal) : animal,
+        ...(preset && { preset: preset.id }),
+        i: num(a.i, 0, w, w / 2),
+        j: num(a.j, 0, h, h / 2),
+        facing: Math.round(num(a.facing, 0, 7, 0)) as Facing,
+      };
+    });
   const items = (Array.isArray(s.items) ? s.items : [])
     .filter((it): it is PlacedItem => !!it && typeof it === 'object' && !!itemById(it.item))
     .map((it) => ({ item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2) }));

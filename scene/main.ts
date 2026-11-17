@@ -4,7 +4,7 @@ import { defaultState, download, loadRoster, lookOf, pickFile, type Saved } from
 import { FRAMES } from '../lab/flora.ts';
 import { FLORA, plantById } from '../lab/flora-catalog.ts';
 import { castShadow, footOf, layShadow, ROOM, stamp, type Picture } from '../lab/island.ts';
-import { inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt } from '../lab/terrain.ts';
+import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt, TILE_H, TILE_W } from '../lab/terrain.ts';
 import { Actor, EMOTES, type Carried, type Emote } from '../engine/actor.ts';
 import { ITEMS, itemPicture, type PlacedItem } from '../engine/items.ts';
 import { Herd } from '../engine/herd.ts';
@@ -28,13 +28,13 @@ import { t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'item', 'erase', 'spawn'] as const;
+const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'item', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
 const BRUSH_MAX = 7;
 const TOOL_ICONS: Record<Tool, IconName> = {
-  raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', item: 'box', erase: 'eraser', spawn: 'flag',
+  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', item: 'box', erase: 'eraser', spawn: 'flag',
 };
 
 interface Prefs {
@@ -114,6 +114,7 @@ function switchTo(scene: Scene): void {
   if (saveTimer) store();
   if (!library.scenes.includes(scene)) library.scenes.push(scene);
   library.current = scene.id;
+  selected = null;
   world = new World(scene, prefs.rot);
   store();
   centerOn(world.toView(scene.spawn));
@@ -261,7 +262,7 @@ function placeAnimal(at: { i: number; j: number }): void {
   // An animal set down on another's tile takes its place.
   const seen = world.viewAnimals();
   world.scene.animals = world.scene.animals.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
+  world.scene.animals.push({ name: choice.name, animal: structuredClone(choice.animal), ...(choice.id.startsWith('preset:') && { preset: choice.id.slice(7) }), ...world.toData({ i, j }), facing: Math.floor(Math.random() * 8) as Facing });
 }
 
 /** A crate in the middle of a tile, on land; one per tile. */
@@ -329,6 +330,59 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
   sceneChanged();
 }
 
+/** A placed thing the Move tool holds: the object in the scene (data coordinates) and what it is. */
+type Selected = { kind: 'plant' | 'decor' | 'animal' | 'item' | 'spawn'; obj: { i: number; j: number } };
+let selected: Selected | null = null;
+
+/** The placed thing under a ground-image pixel, the front-most; decorations lie flat, so they come last. */
+function objectAt(x: number, y: number): Selected | null {
+  const s = world.toView(world.scene.spawn);
+  const flag = world.screenOf(s.i, s.j);
+  const found: [Selected, { i: number; j: number }, boolean][] = [
+    ...world.scene.animals.map((a, k): [Selected, { i: number; j: number }, boolean] => {
+      const thing = world.animalSprite(a, k, 0);
+      return [{ kind: 'animal', obj: a }, thing.spot, covers(thing, x, y)];
+    }),
+    ...world.itemThings().map((thing, k): [Selected, { i: number; j: number }, boolean] => [{ kind: 'item', obj: world.scene.items[k] }, thing.spot, covers(thing, x, y)]),
+    [{ kind: 'spawn', obj: world.scene.spawn }, s, x >= flag.x - 1 && x <= flag.x + 6 && y >= flag.y - 13 && y <= flag.y + 1],
+  ];
+  const plant = world.plantAt(x, y);
+  if (plant) found.push([{ kind: 'plant', obj: plant }, world.toView(plant), true]);
+  let best: Selected | null = null;
+  let front = -Infinity;
+  for (const [sel, at, hit] of found) if (hit && at.i + at.j > front) [best, front] = [sel, at.i + at.j];
+  if (best) return best;
+  const decor = world.viewDecor().findIndex((d) => {
+    const at = footOf(world.ground, { i: d.vi, j: d.vj, level: heightAt(world.floor, d.vi, d.vj) });
+    return Math.abs(x - at.x) <= 3 && Math.abs(y - at.y) <= 3;
+  });
+  return decor >= 0 ? { kind: 'decor', obj: world.scene.decor[decor] } : null;
+}
+
+/** Whether a selected thing may stand at a view point: the same rules as setting it down. */
+function canStand(sel: Selected, at: { i: number; j: number }): boolean {
+  const i = Math.floor(at.i);
+  const j = Math.floor(at.j);
+  if (!inside(world.map, i, j)) return false;
+  if (sel.kind === 'plant') return grows(world.map, (sel.obj as PlacedPlant).plant, at.i, at.j);
+  if (sel.kind === 'decor') return levelAt(world.floor, i, j) >= DECOR_DEPTH;
+  return levelAt(world.map, i, j) >= SEA_LEVEL;
+}
+
+/**
+ * The view point under a ground-image pixel: the tile drawn there, and within it the spot the
+ * pixel stands for at that tile's height.
+ */
+function pointAt(x: number, y: number): { i: number; j: number } | null {
+  const tile = world.tileAt(x, y);
+  if (!tile) return null;
+  const mid = world.screenOf(tile.i + 0.5, tile.j + 0.5);
+  const dx = (x - mid.x) / TILE_W;
+  const dy = (y - mid.y) / TILE_H;
+  const clamp = (v: number) => Math.max(-0.49, Math.min(0.49, v));
+  return { i: tile.i + 0.5 + clamp(dx + dy), j: tile.j + 0.5 + clamp(dy - dx) };
+}
+
 // ------------------------------------------------------------------ playing
 
 let roster: Saved[] = [];
@@ -386,6 +440,17 @@ function whereIs(p: Pickable): { i: number; j: number } {
   return world.toView('item' in p ? p.item : herd!.poses[p.animal]);
 }
 
+/** Whether a thing's picture covers a ground-image pixel, with a pixel of slack all round since the small animals are only a few pixels across. */
+function covers(thing: Thing, x: number, y: number): boolean {
+  const at = footOf(world.ground, thing.spot);
+  return [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => {
+    const px = Math.floor(x) + dx - (at.x - thing.foot.x);
+    const py = Math.floor(y) + dy - (at.y - thing.foot.y);
+    const c = px >= 0 && py >= 0 && px < thing.w && py < thing.h ? thing.picture.get(px, py) : null;
+    return !!c && !isShadow(c);
+  }));
+}
+
 /** The thing to pick up under a ground-image pixel, the front-most, or null. Animals count only when they may be carried. */
 function pickableAt(x: number, y: number, ms: number): Pickable | null {
   // Animals too big to carry still count, so one standing in front hides what is behind it.
@@ -396,15 +461,7 @@ function pickableAt(x: number, y: number, ms: number): Pickable | null {
   let best: Pickable | null = null;
   let front = -Infinity;
   for (const [p, thing] of found) {
-    const at = footOf(world.ground, thing.spot);
-    // A pixel of slack all round, since the small animals are only a few pixels across.
-    const hit = [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => {
-      const px = Math.floor(x) + dx - (at.x - thing.foot.x);
-      const py = Math.floor(y) + dy - (at.y - thing.foot.y);
-      const c = px >= 0 && py >= 0 && px < thing.w && py < thing.h ? thing.picture.get(px, py) : null;
-      return !!c && !isShadow(c);
-    }));
-    if (hit && thing.spot.i + thing.spot.j > front) {
+    if (covers(thing, x, y) && thing.spot.i + thing.spot.j > front) {
       front = thing.spot.i + thing.spot.j;
       best = p;
     }
@@ -423,7 +480,8 @@ function pickUp(p: Pickable, ms: number): void {
   } else {
     herd.pickUp(p.animal, ms);
     const placed = world.scene.animals[p.animal];
-    carried = (facing, now) => ({ ...world.animalSprite(placed, p.animal, now, herd!, facing), below: 3 });
+    // Held across the arms: a quarter turn from the way the character faces.
+    carried = (facing, now) => ({ ...world.animalSprite(placed, p.animal, now, herd!, turnFacing(facing, 2)), below: 3 });
   }
   held = p;
   actor.carry(carried);
@@ -472,6 +530,15 @@ window.addEventListener('keydown', (e) => {
   if (typing(e) || e.metaKey || e.ctrlKey) return;
   if (prefs.mode === 'play' && e.code === 'KeyE') emote('wave');
   if (prefs.mode === 'play' && e.code === 'KeyF') emote('use');
+  if (prefs.mode === 'edit' && selected && selected.kind !== 'spawn' && (e.code === 'Delete' || e.code === 'Backspace')) {
+    const gone = selected.obj;
+    world.scene.plants = world.scene.plants.filter((p) => p !== gone);
+    world.scene.decor = world.scene.decor.filter((d) => d !== gone);
+    world.scene.animals = world.scene.animals.filter((a) => a !== gone);
+    world.scene.items = world.scene.items.filter((it) => it !== gone);
+    selected = null;
+    sceneChanged();
+  }
   if (e.code === 'KeyQ') rotate(-1);
   if (e.code === 'KeyR') rotate(1);
   if (/^(Arrow|Key[WASD]$|Shift|Space)/.test(e.code)) {
@@ -492,6 +559,7 @@ function keyDirection(): [number, number] {
 type Gesture =
   | { kind: 'stroke'; touched: Set<number>; last: string; level?: number; placed?: Set<PlacedPlant>; tile?: { i: number; j: number }; at: number }
   | { kind: 'walk' }
+  | { kind: 'move'; sel: Selected; grab: { x: number; y: number }; from: { i: number; j: number } }
   | { kind: 'pan'; x: number; y: number; cam: { x: number; y: number } }
   | { kind: 'pinch'; dist: number; zoom: number; mid: { x: number; y: number }; cam: { x: number; y: number } };
 let gesture: Gesture | null = null;
@@ -537,7 +605,16 @@ canvas.addEventListener('pointerdown', (e) => {
     gesture = { kind: 'pinch', dist, zoom, mid, cam: { ...cam } };
   } else if (pointers.size === 1) {
     if (e.button === 1 || e.button === 2 || keys.has('Space')) gesture = { kind: 'pan', x: e.clientX, y: e.clientY, cam: { ...cam } };
-    else if (prefs.mode === 'edit') {
+    else if (prefs.mode === 'edit' && prefs.tool === 'move') {
+      const p = groundPixel(e);
+      selected = objectAt(p.x, p.y);
+      version++;
+      if (selected) {
+        const v = world.toView(selected.obj);
+        const foot = world.screenOf(v.i, v.j);
+        gesture = { kind: 'move', sel: selected, grab: { x: p.x - foot.x, y: p.y - foot.y }, from: { ...selected.obj } };
+      } else gesture = { kind: 'pan', x: e.clientX, y: e.clientY, cam: { ...cam } };
+    } else if (prefs.mode === 'edit') {
       gesture = { kind: 'stroke', touched: new Set(), last: '', at: 0 };
       strokeAt(e);
     } else {
@@ -557,12 +634,23 @@ canvas.addEventListener('pointermove', (e) => {
   } else if (gesture?.kind === 'pan') {
     cam.x = gesture.cam.x - (e.clientX - gesture.x) / zoom;
     cam.y = gesture.cam.y - (e.clientY - gesture.y) / zoom;
+  } else if (gesture?.kind === 'move') {
+    const p = groundPixel(e);
+    const at = pointAt(p.x - gesture.grab.x, p.y - gesture.grab.y);
+    if (at) {
+      Object.assign(gesture.sel.obj, world.toData(at));
+      sceneChanged();
+    }
   } else if (gesture?.kind === 'stroke') strokeAt(e);
   else if (gesture?.kind === 'walk') walkTo(e);
   if (prefs.mode === 'edit' && e.pointerType === 'mouse') hover = tileUnder(e);
 });
 const release = (e: PointerEvent) => {
   pointers.delete(e.pointerId);
+  if (gesture?.kind === 'move' && !canStand(gesture.sel, world.toView(gesture.sel.obj))) {
+    Object.assign(gesture.sel.obj, gesture.from);
+    sceneChanged();
+  }
   // Lifting one finger of a pinch does not start painting with the other.
   if (!pointers.size || gesture?.kind === 'pinch') gesture = pointers.size ? { kind: 'pan', x: [...pointers.values()][0].x, y: [...pointers.values()][0].y, cam: { ...cam } } : null;
 };
@@ -655,8 +743,13 @@ function frame(ms: number): void {
     shown = key;
     shownThings = things;
     const blocked = prefs.mode === 'edit' && !!hover && cannotEdit(hover);
-    const highlight = prefs.mode === 'edit' && hover ? { cells: new Set(brushCells(hover)), color: blocked ? '#e0332e99' : '#ffffff66' } : undefined;
-    canvas.style.cursor = blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';
+    let highlight = prefs.mode === 'edit' && hover ? { cells: new Set(brushCells(hover)), color: blocked ? '#e0332e99' : '#ffffff66' } : undefined;
+    if (prefs.mode === 'edit' && prefs.tool === 'move') {
+      // The Move tool marks the tile of what it holds, red where it may not stay.
+      const v = selected && world.toView(selected.obj);
+      highlight = v ? { cells: new Set([Math.floor(v.j) * world.map.w + Math.floor(v.i)]), color: canStand(selected!, v) ? '#ffd84a99' : '#e0332e99' } : undefined;
+    }
+    canvas.style.cursor = prefs.mode === 'edit' && prefs.tool === 'move' ? (gesture?.kind === 'move' ? 'grabbing' : 'default') : blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';
     const image = world.compose(view, things, highlight, prefs.mode === 'edit', waves * 100, prefs.mode === 'edit' && prefs.grid);
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
@@ -837,6 +930,7 @@ function toolbar(): Node[] {
 function set(change: Partial<Prefs>): void {
   const entering = change.mode === 'play' && prefs.mode !== 'play';
   Object.assign(prefs, change);
+  selected = null;
   savePrefs();
   if (entering) startPlay();
   if (prefs.mode === 'edit') {

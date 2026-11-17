@@ -22,6 +22,7 @@ const en = {
   'rotate.right': 'Turn right (R)',
   'view': 'Scene view',
 
+  'tool.move': 'Move',
   'tool.raise': 'Raise',
   'tool.lower': 'Lower',
   'tool.smooth': 'Smooth',
@@ -44,6 +45,7 @@ const en = {
   'decor.pebbles-brown': 'Brown pebbles',
   'decor.coral': 'Coral',
   'tool.spawn': 'Start point',
+  'tip.move': 'Tap a thing to select it, drag it to move it. Dragging elsewhere pans.',
   'tip.raise': 'Drag over the land to make it higher.',
   'tip.lower': 'Drag to dig the land down, even under water.',
   'tip.smooth': 'Drag to round off steps.',
@@ -113,6 +115,7 @@ const de: Record<Key, string> = {
   'rotate.right': 'Nach rechts drehen (R)',
   'view': 'Szenenansicht',
 
+  'tool.move': 'Verschieben',
   'tool.raise': 'Anheben',
   'tool.lower': 'Absenken',
   'tool.smooth': 'Glätten',
@@ -135,6 +138,7 @@ const de: Record<Key, string> = {
   'decor.pebbles-brown': 'Braune Kiesel',
   'decor.coral': 'Koralle',
   'tool.spawn': 'Startpunkt',
+  'tip.move': 'Tippe ein Ding an, um es auszuwählen, und ziehe es, um es zu verschieben. Anderswo ziehen verschiebt die Ansicht.',
   'tip.raise': 'Über das Land ziehen, um es anzuheben.',
   'tip.lower': 'Ziehen, um das Land abzusenken, auch unter Wasser.',
   'tip.smooth': 'Ziehen, um Stufen abzurunden.',

@@ -14,6 +14,7 @@ import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type
 import { turnFacing, type Facing } from '../core/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
+import { fishPixels, type Fish } from './fish.ts';
 import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
@@ -35,6 +36,9 @@ const PRINT_DEPTH = 0.45;
 /** Wet sand where the wash has been: tinted toward this, at most this much. */
 const WET_RGB = rgb('#a8905c');
 const WET_DEPTH = 0.4;
+/** Fish are dark shapes under the water: this colour, this much. */
+const FISH_RGB = rgb('#0f3a48');
+const FISH_ALPHA = 0.55;
 /** The pixels of a footprint and of a paw print, round the spot stepped on. */
 const FOOT = [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 const PAW = [[0, 0], [1, 0]] as const;
@@ -261,6 +265,8 @@ export class World {
 
   /** In Play, the items where they lie now (picked up and set down again); in Edit, null, and the scene's own. */
   loose: PlacedItem[] | null = null;
+  /** Fish under the water, in view coordinates on `floor`; the game moves them (see fish.ts). */
+  fish: Fish[] = [];
 
   constructor(scene: Scene, rot = 0) {
     this.scene = scene;
@@ -413,6 +419,26 @@ export class World {
     }
   }
 
+  /** Fish as dark shapes seen through the water, only where water shows, so never on the beach. */
+  private drawFish(image: Pixels, view: Rect, ms: number): void {
+    const g = this.ground;
+    const d = image.data;
+    this.fish.forEach((f, n) => {
+      const at = footOf(g, { i: f.i, j: f.j, level: SEA_LEVEL });
+      if (at.x < view.x - 4 || at.y < view.y - 4 || at.x > view.x + view.w + 4 || at.y > view.y + view.h + 4) return;
+      // On screen, x grows with i and shrinks with j.
+      const right = Math.cos(f.a) - Math.sin(f.a) > 0;
+      for (const px of fishPixels(Math.floor(ms / 200 + n * 0.37), right)) {
+        const gx = at.x + px.x, gy = at.y + px.y;
+        const x = gx - view.x, y = gy - view.y;
+        if (x < 0 || y < 0 || x >= view.w || y >= view.h || gx < 0 || gy < 0 || gx >= g.w || gy >= g.h) continue;
+        if (g.depth[gy * g.w + gx] < 0.3) continue;
+        const o = (y * view.w + x) * 4;
+        for (let k = 0; k < 3; k++) d[o + k] += (FISH_RGB[k] - d[o + k]) * FISH_ALPHA;
+      }
+    });
+  }
+
   /** Where a map point is on the ground image. */
   screenOf(i: number, j: number): { x: number; y: number } {
     return footOf(this.ground, { i, j, level: standingHeight(this.map, i, j) });
@@ -559,6 +585,7 @@ export class World {
       }
     }
     for (const [o, strength] of pressed) for (let k = 0; k < 3; k++) d[o + k] += (PRINT_RGB[k] - d[o + k]) * strength;
+    this.drawFish(image, view, ms);
     this.drawDecor(image, view);
     // Shadows reach past a thing's picture, so things just outside the window cast into it too.
     // Each ground pixel is darkened once, and not where the ground already lies in shadow.

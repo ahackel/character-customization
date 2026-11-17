@@ -19,6 +19,7 @@ export const DECOR: DecorKind[] = [
   { id: 'pebbles-grey', rows: ['.aa...', 'abba.a', '.aa.ab'], colors: { a: '#8f8b83', b: '#c9c5bd' } },
   { id: 'pebbles-brown', rows: ['.aa...', 'abba.a', '.aa.ab'], colors: { a: '#94735a', b: '#cdab88' } },
   { id: 'coral', rows: ['a.a.a', 'babab', '.bab.', '..b..'], colors: { a: '#ff9c8a', b: '#e2574c' } },
+  { id: 'driftwood', rows: ['..aab...', 'abbaaaab', '.a....a.'], colors: { a: '#9c7650', b: '#c9a679' } },
 ];
 
 export const decorById = (id: unknown) => DECOR.find((d) => d.id === id);

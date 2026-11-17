@@ -1,4 +1,4 @@
-import type { Cell, PaletteKey } from './palette.ts';
+import { FLUSH, type Cell, type PaletteKey } from './palette.ts';
 import shapesFile from './face-shapes.json' with { type: 'json' };
 import { beardBehind, HEAD_FRAME, HEAD_STAMP, TORSO_FRAME, parseStamp, type Item, type Look, type OwnView, type Slot, type Stamp, type StampPair } from './puppet.ts';
 
@@ -25,7 +25,7 @@ const ROUND_FRONT = [
   '....#############....',
   '...###############...',
   '...###############...',
-  '...####%%%%%%%%%%#...',
+  '...###############...',
   '...###############...',
   '..%###############...',
   '..%%##############...',
@@ -114,7 +114,7 @@ const SHAPES: Record<HeadShape, Record<'front' | 'back' | 'straight' | 'side', R
       1: '.....###########.....',
       2: '....#############....',
       3: '....#############....',
-      4: '....###%%%%%%%%%#....',
+      4: '....#############....',
       5: '....#############....',
       6: '..%%#############....',
       7: '..%%#############....',
@@ -201,7 +201,30 @@ const SHAPES: Record<HeadShape, Record<'front' | 'back' | 'straight' | 'side', R
     },
   },
 };
-const shaped = (rows: string[], change: Record<number, string>) => pad(rows.map((row, i) => change[i] ?? row), 6);
+const shaped = (rows: string[], change: Record<number, string>) => {
+  const sides = rows === ROUND_FRONT ? [-1] : rows === ROUND_BACK ? [1] : [-1, 1];
+  return pad(eared(rows.map((row, i) => change[i] ?? row), sides), 6);
+};
+
+/**
+ * Ears seen from the front, from behind and in 3/4 are drawn by one rule, as tall as the ear side
+ * on (rows 6 to 9): a column standing out past the head, its lobe in shade, with a
+ * two-pixel shaded hollow where it meets the head. Whatever lies between it and the head is filled.
+ * Side -1 is the left edge, 1 the right.
+ */
+const EAR_ROWS = [6, 7, 8, 9];
+function eared(rows: string[], sides: number[]): string[] {
+  const out = rows.map((row) => [...row]);
+  for (const side of sides) {
+    const outer = side < 0 ? 2 : 18;
+    for (const y of EAR_ROWS) {
+      for (let x = outer - side; out[y][x] !== '#' && x > 0 && x < out[y].length - 1; x -= side) out[y][x] = '#';
+      out[y][outer] = y === EAR_ROWS[3] ? '%' : '#';
+    }
+    out[7][outer - side] = out[8][outer - side] = '%';
+  }
+  return out.map((row) => row.join(''));
+}
 
 // Faces are composed from options, pixel by pixel, on the 21-wide head grid. The near eye is at
 // columns 9 and 10, the far eye at 14 and 15, rows 12 to 14; the face looks towards the right.
@@ -379,7 +402,10 @@ type Put = (x: number, y: number, ch: string) => void;
 
 /** Nose, blush and freckles in the diagonal and face-on views. */
 function frontRules(o: FaceOptions, put: Put, south: boolean): void {
-  put(south ? 12 : 13, 15, '%');
+  // The nose: its shaded underside and, up and towards the light, the rest of it, all warmed.
+  const nose = south ? 12 : 13;
+  for (const [x, y] of [[nose - 1, 14], [nose, 14], [nose - 1, 15]]) put(x, y, 'N');
+  put(nose, 15, 'n');
   if (o.blush) {
     put(south ? 8 : 7, 15, 'B');
     put(16, 15, 'B');
@@ -426,6 +452,13 @@ export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
   const shape = SHAPES[options.shape ?? 'round'];
   const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
   const side = parseStamp(pad(sideRows(options.shape ?? 'round'), 6), {}, skin);
+  // The tip of the nose side on is the one pixel that stands out furthest in front.
+  const reach = side.map((row) => row.reduce((last, cell, x) => (cell ? x : last), -1));
+  const tip = reach.indexOf(Math.max(...reach));
+  if (reach.filter((r) => r === reach[tip]).length === 1) {
+    // The tip, the pixel behind it and the bridge above that: the whole nose side on.
+    for (const [x, y] of [[reach[tip], tip], [reach[tip] - 1, tip], [reach[tip] - 1, tip - 1]]) if (side[y][x]) side[y][x] = { ...side[y][x]!, flush: FLUSH };
+  }
   return {
     S: { head: straight, faces: faceSet(straight, 'front', skin, options, hair, mood) },
     N: { head: straight, faces: {} },
@@ -448,10 +481,12 @@ export function facesFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, 
 
 /** The faces of one view of the head, see `facesFor`. */
 function faceSet(head: Stamp, view: FaceView, skin: PaletteKey, options: FaceOptions, hair: PaletteKey, mood: Mood): Record<string, Stamp> {
-  const legend = { I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
+  const legend = { N: skin, I: 'ink', M: 'mouth', T: 'tooth', B: 'blush', C: options.eyeColor ?? 'ink', E: hair, G: options.glassesColor ?? 'black' } as const;
   // Features stay on the head: on a narrow head a freckle or a glasses arm off the edge is left out.
-  const make = (as: Mood, blink: boolean, aside = false) =>
-    parseStamp(pad(faceRows(options, as, blink, aside, view), 0), legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? cell : null)));
+  const make = (as: Mood, blink: boolean, aside = false) => {
+    const rows = pad(faceRows(options, as, blink, aside, view), 0);
+    return parseStamp(rows, legend, skin).map((row, y) => row.map((cell, x) => (head[y]?.[x] ? (rows[y][x] === 'n' || rows[y][x] === 'N' ? { ...cell!, flush: FLUSH } : cell) : null)));
+  };
   const cheerful = mood === 'neutral' || mood === 'smile' || mood === 'happy' || mood === 'laughing';
   // 'aside' looks away from where the face points: left on screen when the face points right.
   // 'smile' and 'surprised' are passing expressions; a dark mood keeps its own mouth for a smile.
@@ -560,6 +595,40 @@ const LONG_HAIR_BACK = pad([
 /** A beard seen from behind a round head: the back stamp an item carries. The renderer works it out again for the head worn. */
 export const beardFromBehind = (front: Stamp): Stamp => beardBehind(front, parseStamp(shaped(ROUND_BACK, {}), {}, 'skinB'));
 
+/**
+ * A beard drawn for the round head, fitted row by row to the head worn: its cheeks stretched or
+ * squeezed out to that head's outline, its middle kept where the mouth is. Below the jaw it follows
+ * the last row where both heads still have a face.
+ */
+export function fittedBeard(beard: Stamp, from: Stamp, to: Stamp): Stamp {
+  const span = (s: Stamp, y: number) => {
+    const xs = s[y]?.flatMap((c, x) => (c ? [x] : [])) ?? [];
+    return xs.length ? [xs[0], xs[xs.length - 1]] : null;
+  };
+  let last: number[][] | null = null;
+  return beard.map((row, y) => {
+    const a = span(from, y), b = span(to, y);
+    if (a && b) last = [a, b];
+    if (!last || !row.some(Boolean)) return row;
+    const [[fl, fr], [tl, tr]] = last;
+    if (fl === tl && fr === tr) return row;
+    const c = (fl + fr) / 2;
+    const src = (x: number) =>
+      x < tl ? fl - (tl - x) : x > tr ? fr + (x - tr) : x < c ? c - ((c - x) * (c - fl)) / Math.max(1, c - tl) : c + ((x - c) * (fr - c)) / Math.max(1, tr - c);
+    return row.map((_, x) => row[Math.round(src(x))] ?? null);
+  });
+}
+
+/** A beard item fitted to a head shape other than the round one it is drawn for, in 3/4 and side on. */
+export function beardFor(item: Item, skin: PaletteKey, shape: HeadShape = 'round'): Item {
+  if (item.slot !== 'beard' || !item.head || shape === 'round') return item;
+  const round = headFor(skin), worn = headFor(skin, shape);
+  const front = fittedBeard(item.head.front, round.front, worn.front);
+  const side = item.views?.E;
+  const views = side ? { ...item.views, E: { ...side, head: fittedBeard(side.head, viewsFor(skin).E!.head, viewsFor(skin, { ...DEFAULT_FACE, shape }).E!.head) } } : item.views;
+  return { ...item, head: { front, back: beardFromBehind(front) }, ...(views ? { views } : {}) };
+}
+
 /** How strongly stubble and shaved hair tint the skin. */
 const STUBBLE = 0.4;
 
@@ -623,6 +692,7 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
       '..............HHHH...',
       '..............HHHH...',
       '...............HHh...',
+      '...............HH....',
       '...............hh....',
     ],
     rows: [
@@ -641,6 +711,7 @@ const BEARD_ROWS: Record<string, { label: string; rows: string[]; side: string[]
   chinstrap: {
     label: 'Chin strap',
     side: [
+      '..........HH.........',
       '..........HH.........',
       '..........HH.........',
       '..........HH.........',

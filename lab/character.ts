@@ -2,7 +2,7 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  baseLook, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP, wear,
+  baseLook, beardFor, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP, wear,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
@@ -146,7 +146,7 @@ export function lookOf(source: State, underwear = true): Look {
   if (hair) items.push(weathered(hair, source.wear));
   for (const slot of WORN_SLOTS) {
     const item = wornItem(source, slot);
-    if (item) items.push(weathered(item, source.wear));
+    if (item) items.push(weathered(beardFor(item, source.skin, source.face.shape), source.wear));
   }
   // The body is never bare.
   if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);
@@ -157,6 +157,7 @@ export function lookOf(source: State, underwear = true): Look {
     frame: source.frame,
     head: headFor(source.skin, source.face.shape),
     faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
+    ...(source.face.glasses ? { glasses: source.face.glassesColor ?? 'black' } : {}),
     views: viewsFor(source.skin, source.face, source.hairColor, source.mood),
     items,
   };

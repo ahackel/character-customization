@@ -82,8 +82,13 @@ function ramp(hex: string): Record<Tone, string> {
   };
 }
 
+// Hair catches the light more softly than cloth: a highlight closer to its base.
+const HAIR_LIGHT = 0.5;
 export const PALETTE = Object.fromEntries([
-  ...Object.entries(BASES).map(([key, hex]) => [key, ramp(hex)]),
+  ...Object.entries(BASES).map(([key, hex]) => {
+    const r = ramp(hex);
+    return [key, key.startsWith('hair') ? { ...r, light: hexFrom(mix(rgbOf(hex), rgbOf(r.light), HAIR_LIGHT)) } : r];
+  }),
   ...Object.entries(FIXED).map(([key, hex]) => [key, { base: hex, shade: hex, light: hex }]),
 ]) as Record<PaletteKey, Record<Tone, string>>;
 
@@ -105,9 +110,22 @@ export interface Cell {
   light?: boolean;
   /** Drawn see-through over what is already there, at this strength from 0 to 1: stubble. */
   mix?: number;
+  /** Warmed towards the blush colour at this strength from 0 to 1: ears and nose. */
+  flush?: number;
 }
 
-export const hexOf = (cell: Cell): string => PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];
+/** How far ears and the nose are warmed towards the blush colour. */
+export const FLUSH = 0.3;
+
+const flushed = new Map<string, string>();
+export const hexOf = (cell: Cell): string => {
+  const hex = PALETTE[cell.key][cell.shade ? 'shade' : cell.light ? 'light' : 'base'];
+  if (!cell.flush) return hex;
+  const id = hex + cell.flush;
+  let out = flushed.get(id);
+  if (!out) flushed.set(id, (out = hexFrom(mix(rgbOf(hex), rgbOf(PALETTE.blush.base), cell.flush))));
+  return out;
+};
 
 const lighter = new Map<string, string>(Object.values(PALETTE).flatMap((r) => (r.light !== r.base ? [[r.light, r.base] as const] : [])));
 const darkerCache = new Map<string, string>();

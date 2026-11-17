@@ -62,9 +62,9 @@ export const PRESETS: Preset[] = [
     colors: { fur: 'white', second: 'brown', third: 'tan', nose: 'black', horn: 'cream' }, pickable: true,
   }),
   make('fox', 'Fox', {
-    scale: 1.25, fur: 0.6,
-    length: 6, girth: 3.5, width: 0.8, legs: 4.6, legWidth: 0.75, neck: 1, neckWidth: 2.4, neckAngle: 50, head: 3.7, muzzle: 2.4, muzzleWidth: 1.4, snoutDown: 5,
-    ears: 'pointed', earSize: 2.2, tail: 'bushy', tailLength: 10, tailUp: 10, marks: ['muzzle', 'chest', 'belly', 'tailTip', 'socks'],
+    scale: 1.35, fur: 0.7, // the wolf's build: in Lop Hop they are one animal, recoloured
+    length: 6.5, girth: 3.7, width: 0.8, legs: 5, legWidth: 0.8, neck: 1, neckWidth: 2.6, neckAngle: 45, head: 3.9, muzzle: 2.6, muzzleWidth: 1.5, snoutDown: 5,
+    ears: 'pointed', earSize: 2.2, tail: 'bushy', tailLength: 10, tailUp: -15, marks: ['muzzle', 'chest', 'belly', 'tailTip', 'socks'],
     colors: { fur: 'orange', second: 'white', third: 'hairBlack', nose: 'black', horn: 'cream' }, pickable: true,
   }),
   make('wolf', 'Wolf', {

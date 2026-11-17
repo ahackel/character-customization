@@ -7,7 +7,7 @@ import { cleanSwap, FLORA_STORE, plantById, type PlantEntry } from '../lab/flora
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from '../lab/island.ts';
 import { SHADOW } from '../lab/palette.ts';
 import {
-  heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
+  GROUNDS, heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
   TILE_W, type HeightMap, type TerrainImage,
 } from '../lab/terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../lab/animal.ts';
@@ -24,6 +24,14 @@ export type { Thing };
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
 const SHADE_RGB = rgb(SHADE);
+/** How long a footprint takes to vanish. */
+const PRINT_MS = 60_000;
+/** Prints are pressed sand: tinted toward the sand's shaded side colour, at most this much. */
+const PRINT_RGB = rgb('#b39a63');
+const PRINT_DEPTH = 0.45;
+/** The pixels of a footprint and of a paw print, round the spot stepped on. */
+const FOOT = [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
+const PAW = [[0, 0], [1, 0]] as const;
 // Wavelets on the open sea sit in rows that the current carries down the screen, each row
 // swaying sideways; a wavelet grows and shrinks over `ms`. Their colours, share, length and
 // drift, the glints and the waves come from `ocean`.
@@ -245,6 +253,20 @@ export class World {
     this.rot = ((rot % 4) + 4) % 4;
     this.map = this.viewMap();
     this.ground = this.draw();
+    this.prints = [];
+  }
+
+  /** Footprints, in view coordinates; each fades away over `PRINT_MS`. */
+  private prints: { i: number; j: number; level: number; ms: number; shape: readonly (readonly [number, number])[] }[] = [];
+  /** A foot (or a paw) set down at a point: it leaves a print where the ground there is dry or wet sand. */
+  footstep(i: number, j: number, ms: number, paw = false): void {
+    const level = standingHeight(this.map, i, j);
+    const g = this.ground;
+    const at = footOf(g, { i, j, level });
+    if (at.x < 0 || at.y < 0 || at.x >= g.w || at.y >= g.h) return;
+    const kind = GROUNDS[g.tops[at.y * g.w + at.x] - 1];
+    if ((kind !== 'sand' && kind !== 'wet') || g.depth[at.y * g.w + at.x] > 0) return;
+    this.prints.push({ i, j, level, ms, shape: paw ? PAW : FOOT });
   }
 
   /** Draws the ground with the sea's current water colours. */
@@ -454,6 +476,23 @@ export class World {
         return { ...t, dx: at.x - t.foot.x - view.x, dy: at.y - t.foot.y - view.y };
       })
       .filter((t) => t.dx < w && t.dy < h && t.dx + t.w > 0 && t.dy + t.h > 0);
+    this.prints = this.prints.filter((f) => ms - f.ms < PRINT_MS);
+    // Overlapping prints do not add up: each pixel takes the darkest print on it.
+    const pressed = new Map<number, number>();
+    for (const f of this.prints) {
+      const at = footOf(g, f);
+      const strength = PRINT_DEPTH * (1 - (ms - f.ms) / PRINT_MS);
+      for (const [dx, dy] of f.shape) {
+        const gx = at.x + dx, gy = at.y + dy;
+        const x = gx - view.x, y = gy - view.y;
+        if (x < 0 || y < 0 || x >= w || y >= h || gx < 0 || gy < 0 || gx >= g.w || gy >= g.h) continue;
+        // Nearer, higher ground drawn over the spot hides the print, as with shadows.
+        if (Math.abs(Math.max(SEA_LEVEL, g.height[gy * g.w + gx]) - f.level) > 0.5) continue;
+        const o = (y * w + x) * 4;
+        pressed.set(o, Math.max(pressed.get(o) ?? 0, strength));
+      }
+    }
+    for (const [o, strength] of pressed) for (let k = 0; k < 3; k++) d[o + k] += (PRINT_RGB[k] - d[o + k]) * strength;
     this.drawDecor(image, view);
     // Shadows reach past a thing's picture, so things just outside the window cast into it too.
     // Each ground pixel is darkened once, and not where the ground already lies in shadow.

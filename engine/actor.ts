@@ -111,6 +111,9 @@ export class Actor {
   private wet = new WeakMap<Picture, Map<number, Picture>>();
   private drops: Drop[] = [];
   private splashClock = 0;
+  /** Distance walked since the last footprint, and which foot is next. */
+  private stride = 0;
+  private foot = 1;
   /** The fidget playing while standing, and when the next one starts. */
   private fidget: Fidget | null = null;
   private nextFidget = 0;
@@ -211,6 +214,13 @@ export class Actor {
       if (world.canWalk(from, to)) {
         this.i = to.i;
         this.j = to.j;
+        this.stride += Math.hypot(ti, tj);
+        if (this.stride >= (run ? 0.45 : 0.3)) {
+          this.stride = 0;
+          this.foot = -this.foot;
+          // Feet a hand apart, either side of the way walked.
+          world.footstep(this.i - Math.sin(this.heading) * 0.06 * this.foot, this.j + Math.cos(this.heading) * 0.06 * this.foot, ms);
+        }
         return;
       }
     }

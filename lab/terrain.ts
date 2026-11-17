@@ -4,7 +4,7 @@
 // (sea, beach, sand, grass, rock), where the ground slopes and where it drops as a cliff, where
 // one can walk, and how it is painted.
 
-import { pixelHash, rng } from './random.ts';
+import { cellHash, pixelHash, rng } from './random.ts';
 
 /** A ground tile on screen: one metre across. */
 export const TILE_W = 32;
@@ -193,6 +193,8 @@ export interface TerrainImage {
    * surface over it, so waves are placed by this, not by `height`.
    */
   depth: Float32Array;
+  /** Per pixel, 1 + the index in `GROUNDS` of the top ground painted there; 0 on side faces and off the map. */
+  tops: Uint8Array;
 }
 
 const COLORS = {
@@ -234,6 +236,40 @@ const LIT = '#fff6d8';
 const DIM = '#5a4060';
 
 type Ground = keyof typeof SIDES;
+export const GROUNDS = Object.keys(SIDES) as Ground[];
+
+/** Smooth noise from -1 to 1 over the map, a third of a tile across: borders between grounds wander by it. */
+function wobble(x: number, y: number, seed: number): number {
+  const gx = x * 3, gy = y * 3;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const tx = (gx - x0) * (gx - x0) * (3 - 2 * (gx - x0));
+  const ty = (gy - y0) * (gy - y0) * (3 - 2 * (gy - y0));
+  const g = (a: number, b: number) => cellHash(a, b, seed);
+  const top = g(x0, y0) + (g(x0 + 1, y0) - g(x0, y0)) * tx;
+  const bottom = g(x0, y0 + 1) + (g(x0 + 1, y0 + 1) - g(x0, y0 + 1)) * tx;
+  return (top + (bottom - top) * ty) * 2 - 1;
+}
+/** How far, in tiles, a neighbour's ground reaches into a cell where the two meet on a slope. */
+const BLEND = 0.35;
+
+/**
+ * Ground clutter, drawn into the ground itself (so it is never a thing one can pick): rows top to
+ * bottom, the last row on the ground. l, m, d: light, mid, dark; s: shadow on the ground.
+ */
+const CLUTTER: Record<Ground, { chance: number; tries: number; stamps: string[][] }> = {
+  wet: { chance: 0.3, tries: 1, stamps: [['md'], ['lm', 'mds']] },
+  sand: { chance: 0.22, tries: 2, stamps: [['lm', 'mds'], ['md'], ['l', 'ds']] },
+  grass: { chance: 0.45, tries: 3, stamps: [['  l', 'l d', 'dmd'], ['l  l', 'd ld', ' dd '], ['l', 'd'], [' l ', 'dmd']] },
+  rock: { chance: 0.35, tries: 2, stamps: [['lm', 'mds'], ['lmm', 'mdds'], ['d']] },
+};
+const PEBBLE = { l: '#d2cabb', m: '#a39886', d: '#7d7364' } as const;
+/** The colours of a clutter pixel, from the ground colour under it. */
+function clutterColor(kind: Ground, role: string, ground: string): string {
+  if (role === 's') return mixHex(ground, SHADE, 0.3);
+  if (kind === 'grass') return role === 'l' ? mixHex(ground, '#d8f5a8', 0.35) : mixHex(ground, GRASS_LIP, role === 'd' ? 0.85 : 0.5);
+  if (kind === 'rock') return role === 'l' ? mixHex(ground, LIT, 0.4) : mixHex(ground, '#000000', role === 'd' ? 0.3 : 0.14);
+  return mixHex(PEBBLE[role as keyof typeof PEBBLE], ground, 0.25);
+}
 /** What the ground is at a height, inside a cell of some surface: low ground is sand whatever the cell. */
 function groundAt(surface: Surface, h: number, painted = false): Ground {
   if (h < 0.15) return 'wet';
@@ -359,10 +395,13 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   const cell = new Int32Array(w * h).fill(-1);
   const height = new Float32Array(w * h).fill(MIN_LEVEL);
   const colors: string[] = new Array(w * h).fill(WATER[WATER.length - 1][1]);
-  const put = (x: number, y: number, hex: string, index: number, level: number) => {
+  /** Per pixel, 1 + the index in GROUNDS of the top ground painted there; 0 for side faces and sea. */
+  const tops = new Uint8Array(w * h);
+  const put = (x: number, y: number, hex: string, index: number, level: number, top: Ground | null = null) => {
     if (x < 0 || y < 0 || x >= w || y >= h) return;
     const p = y * w + x;
     colors[p] = hex;
+    tops[p] = top ? GROUNDS.indexOf(top) + 1 : 0;
     cell[p] = index;
     height[p] = level;
   };
@@ -376,9 +415,21 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   for (let j = 0; j < map.h; j++) for (let i = 0; i < map.w; i++) order.push([i, j]);
   order.sort((a, b) => a[0] + a[1] - (b[0] + b[1]) || a[0] - b[0]);
 
+  const surfaces = order.map(() => 'deep' as Surface);
+  for (const [i, j] of order) surfaces[j * map.w + i] = surfaceAt(map, i, j);
+  /** The cell whose ground shows at a map point of cell i, j: near a border on a slope, the neighbour's, along a wavy line. */
+  const groundCell = (i: number, j: number, mi: number, mj: number) => {
+    const u = mi - i, v = mj - j;
+    if (u > BLEND && u < 1 - BLEND && v > BLEND && v < 1 - BLEND) return j * map.w + i;
+    const ni = Math.floor(mi + BLEND * wobble(mi, mj, 1));
+    const nj = Math.floor(mj + BLEND * wobble(mi, mj, 2));
+    if ((ni === i && nj === j) || !inside(map, ni, nj) || !isLand(map, ni, nj) || !isLand(map, i, j)) return j * map.w + i;
+    return Math.abs(levelAt(map, ni, nj) - levelAt(map, i, j)) <= SLOPE_LEVELS ? nj * map.w + ni : j * map.w + i;
+  };
+
   for (const [i, j] of order) {
     const index = j * map.w + i;
-    const surface = surfaceAt(map, i, j);
+    const surface = surfaces[index];
     const painted = paintAt(map, i, j) > 0;
     const c = cornersOf(map, i, j);
     const at: [number, number, number][] = [[i, j, c[0]], [i + 1, j, c[1]], [i + 1, j + 1, c[2]], [i, j + 1, c[3]]];
@@ -409,7 +460,8 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         const w2 = 1 - w0 - w1;
         if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
         const level = w0 * p[0][2] + w1 * p[1][2] + w2 * p[2][2];
-        const kind = groundAt(surface, level, painted);
+        const from = groundCell(i, j, w0 * p[0][0] + w1 * p[1][0] + w2 * p[2][0], w0 * p[0][1] + w1 * p[1][1] + w2 * p[2][1]);
+        const kind = groundAt(surfaces[from], level, paintAt(map, from % map.w, Math.floor(from / map.w)) > 0);
         const sandy = kind === 'sand' || kind === 'wet';
         let tone = tones[kind];
         if (!tone) {
@@ -423,7 +475,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
           tone = tones[kind] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
         }
         const color = hash(x, y) < (sandy ? 0.01 : 0.035) ? tone[1] : tone[0];
-        put(x, y, color, index, level);
+        put(x, y, color, index, level, kind);
       }
     }
     // Side faces where this cell stands above the one in front: under the east edge (to i + 1)
@@ -464,8 +516,39 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     const p = y * w + x;
     if (cell[p] >= 0 || cell[p - w] < 0 || cell[p + w] < 0) continue;
     colors[p] = colors[p - w];
+    tops[p] = tops[p - w];
     cell[p] = cell[p - w];
     height[p] = height[p - w];
+  }
+
+  // Clutter: pebbles, grass tufts and stones at fixed random spots of each cell, by the ground
+  // under the spot. Only over ground of this cell or of cells behind it, so nearer ground still covers it.
+  const ground = groundOf(map);
+  for (const [i, j] of order) {
+    const index = j * map.w + i;
+    for (let k = 0; k < 3; k++) {
+      const mi = i + 0.1 + cellHash(i, j, 10 + k) * 0.8;
+      const mj = j + 0.1 + cellHash(i, j, 20 + k) * 0.8;
+      const at = screen(mi, mj, ground(mi, mj));
+      const ax = Math.round(at.x), ay = Math.round(at.y);
+      if (ax < 0 || ay < 0 || ax >= w || ay >= h) continue;
+      const a = ay * w + ax;
+      if (cell[a] !== index || !tops[a] || height[a] < SEA_LEVEL - 0.3) continue;
+      const kind = GROUNDS[tops[a] - 1];
+      const { chance, tries, stamps } = CLUTTER[kind];
+      if (k >= tries || cellHash(i, j, 30 + k) >= chance) continue;
+      const stamp = stamps[Math.floor(cellHash(i, j, 40 + k) * stamps.length)];
+      const base = colors[a];
+      stamp.forEach((row, r) => [...row].forEach((role, dx) => {
+        const x = ax + dx, y = ay - (stamp.length - 1 - r);
+        if (role === ' ' || x < 0 || y < 0 || x >= w || y >= h) return;
+        const p = y * w + x;
+        const c = cell[p];
+        if (c < 0 || (c % map.w) + Math.floor(c / map.w) > i + j || height[p] < SEA_LEVEL - 0.3) return;
+        if (role === 's' && !tops[p]) return;
+        colors[p] = clutterColor(kind, role, role === 's' ? colors[p] : base);
+      }));
+    }
   }
 
   // Water over everything below the water line, by depth: sand showing through
@@ -473,7 +556,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   // Then shadows from higher ground, on land only: the water stays bright.
   const horizon = horizons(map);
   const shade = new Uint8Array(w * h);
-  const floor = groundOf(map);
+  const floor = ground;
   const surfaceDepth = new Float32Array(w * h);
   // Few colours fill many pixels: each one's shaded version is mixed once, and a run of one colour is parsed once.
   const shaded = new Map<string, string>();
@@ -507,7 +590,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     if (color !== lastColor) lastRgb = rgbOf((lastColor = color));
     rgba[p * 4] = lastRgb[0]; rgba[p * 4 + 1] = lastRgb[1]; rgba[p * 4 + 2] = lastRgb[2]; rgba[p * 4 + 3] = 255;
   }
-  return { w, h, rgba, cell, height, origin, shade, depth: surfaceDepth };
+  return { w, h, rgba, cell, height, origin, shade, depth: surfaceDepth, tops };
 }
 
 const mixCache = new Map<string, string>();

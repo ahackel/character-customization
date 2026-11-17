@@ -21,7 +21,7 @@ const SHY = { near: 1.6, share: 0.8, far: 3 };
 
 export interface AnimalPose { i: number; j: number; facing: Facing; clip: ClipId; started: number; /** In a character's arms. */ carried?: boolean }
 
-interface State extends AnimalPose { aim: Facing; turned: number; hops: boolean; home: { i: number; j: number }; until: number; target: { i: number; j: number } | null; /** The character is close, and whether to flee has been decided. */ near: boolean }
+interface State extends AnimalPose { aim: Facing; turned: number; hops: boolean; home: { i: number; j: number }; until: number; target: { i: number; j: number } | null; /** The character is close, and whether to flee has been decided. */ near: boolean; /** Metres since the last paw print. */ stride?: number }
 
 export class Herd {
   poses: State[];
@@ -86,6 +86,12 @@ export class Herd {
     a.aim = facingOf(di, dj, a.aim);
     a.i = to.i;
     a.j = to.j;
+    a.stride = (a.stride ?? 0) + step;
+    if (a.stride >= 0.25) {
+      a.stride = 0;
+      const v = world.toView(a);
+      world.footstep(v.i, v.j, ms, true);
+    }
   }
 
   /** Taken up in a character's arms: it stops where it is and idles. */

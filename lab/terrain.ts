@@ -249,6 +249,8 @@ function wobble(x: number, y: number, seed: number): number {
   const bottom = g(x0, y0 + 1) + (g(x0 + 1, y0 + 1) - g(x0, y0 + 1)) * tx;
   return (top + (bottom - top) * ty) * 2 - 1;
 }
+/** A 4 × 4 ordered dither, thresholds 0 to 1. */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 /** How far, in tiles, a neighbour's ground reaches into a cell where the two meet on a slope. */
 const BLEND = 0.35;
 
@@ -257,11 +259,15 @@ const BLEND = 0.35;
  * bottom, the last row on the ground. l, m, d: light, mid, dark; s: shadow on the ground.
  */
 const CLUTTER: Record<Ground, { chance: number; tries: number; stamps: string[][] }> = {
-  wet: { chance: 0.3, tries: 1, stamps: [['md'], ['lm', 'mds']] },
+  wet: { chance: 0.45, tries: 3, stamps: [['md'], ['lm', 'mds']] },
   sand: { chance: 0.22, tries: 2, stamps: [['lm', 'mds'], ['md'], ['l', 'ds']] },
   grass: { chance: 0.45, tries: 3, stamps: [['  l', 'l d', 'dmd'], ['l  l', 'd ld', ' dd '], ['l', 'd'], [' l ', 'dmd']] },
   rock: { chance: 0.35, tries: 2, stamps: [['lm', 'mds'], ['lmm', 'mdds'], ['d']] },
 };
+/** How deep under water, in levels, pebbles still show on the sea floor, fading with depth. */
+const PEBBLE_DEPTH = 1.4;
+/** Under water a pebble pixel tints the water over it, by role: the colour and how much. */
+const UNDERWATER: Record<string, [string, number]> = { l: ['#ffffff', 0.5], m: ['#16505e', 0.3], d: ['#16505e', 0.55], s: ['#16505e', 0.2] };
 const PEBBLE = { l: '#d2cabb', m: '#a39886', d: '#7d7364' } as const;
 /** The colours of a clutter pixel, from the ground colour under it. */
 function clutterColor(kind: Ground, role: string, ground: string): string {
@@ -427,31 +433,57 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     return Math.abs(levelAt(map, ni, nj) - levelAt(map, i, j)) <= SLOPE_LEVELS ? nj * map.w + ni : j * map.w + i;
   };
 
+  // The slope's light on each triangle: brighter facing the light, darker facing away, flat ground 0.
+  const corners = order.map(() => [0, 0, 0, 0] as [number, number, number, number]);
+  const triLight: [number[], number][][] = [];
   for (const [i, j] of order) {
     const index = j * map.w + i;
-    const surface = surfaces[index];
-    const painted = paintAt(map, i, j) > 0;
-    const c = cornersOf(map, i, j);
-    const at: [number, number, number][] = [[i, j, c[0]], [i + 1, j, c[1]], [i + 1, j + 1, c[2]], [i, j + 1, c[3]]];
+    const c = (corners[index] = cornersOf(map, i, j));
     const tris = foldsNorthSouth(c) ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 3], [1, 2, 3]];
-    for (const tri of tris) {
-      const p = tri.map((k) => at[k]);
-      const s = p.map(([pi, pj, pl]) => screen(pi, pj, pl));
-      // The slope's light: brighter facing the light, darker facing away, flat ground unchanged.
+    triLight[index] = tris.map((tri) => {
+      const p = tri.map((k) => [k & 2 ? (k === 3 ? 0 : 1) : k, k >> 1, c[k]]);
       const a = [p[1][0] - p[0][0], p[1][1] - p[0][1], (p[1][2] - p[0][2]) * LEVEL_M];
       const b = [p[2][0] - p[0][0], p[2][1] - p[0][1], (p[2][2] - p[0][2]) * LEVEL_M];
       let n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
       if (n[2] < 0) n = n.map((x) => -x);
       const nl = Math.hypot(n[0], n[1], n[2]) || 1;
-      const lit = (n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / nl - LIGHT[2];
+      return [tri, (n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / nl - LIGHT[2]];
+    });
+  }
+  /**
+   * The light at a corner of a cell: the mean over the triangles that meet there at the same
+   * height, in this cell and its neighbours, so it shades smoothly over slopes and stays sharp at cliffs.
+   */
+  const cornerLight = (i: number, j: number, k: number) => {
+    const pi = i + (k === 1 || k === 2 ? 1 : 0), pj = j + (k >> 1);
+    const level = corners[j * map.w + i][k];
+    let sum = 0, count = 0;
+    for (const [ci, cj, ck] of [[pi, pj, 0], [pi - 1, pj, 1], [pi - 1, pj - 1, 2], [pi, pj - 1, 3]]) {
+      if (!inside(map, ci, cj) || Math.abs(corners[cj * map.w + ci][ck] - level) > 0.01) continue;
+      for (const [tri, lit] of triLight[cj * map.w + ci]) if (tri.includes(ck)) { sum += lit; count++; }
+    }
+    return sum / count;
+  };
+
+  for (const [i, j] of order) {
+    const index = j * map.w + i;
+    const surface = surfaces[index];
+    const painted = paintAt(map, i, j) > 0;
+    const c = corners[index];
+    const at: [number, number, number][] = [[i, j, c[0]], [i + 1, j, c[1]], [i + 1, j + 1, c[2]], [i, j + 1, c[3]]];
+    const light = [0, 1, 2, 3].map((k) => cornerLight(i, j, k));
+    for (const [tri] of triLight[index]) {
+      const p = tri.map((k) => at[k]);
+      const l = tri.map((k) => light[k]);
+      const s = p.map(([pi, pj, pl]) => screen(pi, pj, pl));
       const area = (s[1].x - s[0].x) * (s[2].y - s[0].y) - (s[2].x - s[0].x) * (s[1].y - s[0].y);
       if (Math.abs(area) < 1e-6) continue;
       const x0 = Math.floor(Math.min(s[0].x, s[1].x, s[2].x));
       const x1 = Math.ceil(Math.max(s[0].x, s[1].x, s[2].x));
       const y0 = Math.floor(Math.min(s[0].y, s[1].y, s[2].y));
       const y1 = Math.ceil(Math.max(s[0].y, s[1].y, s[2].y));
-      // The colour of each kind of ground on this triangle, plain and with a grain: the light is the same all over it.
-      const tones: Partial<Record<Ground, [string, string]>> = {};
+      // The colour of each kind of ground at each step of light, plain and with a grain.
+      const tones: Partial<Record<string, [string, string]>> = {};
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const px = x + 0.5;
         const py = y + 0.5;
@@ -465,16 +497,18 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         // Rock is the bottom layer: other ground spreads over it, it never spreads over them.
         if (kind === 'rock' && from !== index) kind = groundAt(surface, level, painted);
         const sandy = kind === 'sand' || kind === 'wet';
-        let tone = tones[kind];
+        // The light between the corners, in steps of a fiftieth, dithered so the steps do not band.
+        const lit = w0 * l[0] + w1 * l[1] + w2 * l[2];
+        const step = Math.floor(Math.min(0.22, Math.abs(lit) * 0.9) * 50 + BAYER[(y & 3) * 4 + (x & 3)]) * Math.sign(lit);
+        let tone = tones[kind + step];
         if (!tone) {
           let color: string = COLORS[kind];
-          if (lit > 0.06) color = mixHex(color, LIT, Math.min(0.22, lit * 0.9));
-          else if (lit < -0.06) color = mixHex(color, DIM, Math.min(0.22, -lit * 0.9));
+          if (step) color = mixHex(color, step > 0 ? LIT : DIM, Math.abs(step) / 50);
           // Tiles alternate faintly so the one-metre grid reads.
           if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
           // Grains: darker green on grass, the side colour elsewhere; sand gets fewer, fainter ones.
           const grain = kind === 'grass' ? GRASS_LIP : SIDES[kind][1];
-          tone = tones[kind] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
+          tone = tones[kind + step] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
         }
         const color = hash(x, y) < (sandy ? 0.01 : 0.035) ? tone[1] : tone[0];
         put(x, y, color, index, level, kind);
@@ -526,6 +560,8 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   // Clutter: pebbles, grass tufts and stones at fixed random spots of each cell, by the ground
   // under the spot. Only over ground of this cell or of cells behind it, so nearer ground still covers it.
   const ground = groundOf(map);
+  /** Per pixel, the role of a pebble lying under water there, tinted in when the water is laid. */
+  const underwater: string[] = [];
   for (const [i, j] of order) {
     const index = j * map.w + i;
     for (let k = 0; k < 3; k++) {
@@ -535,7 +571,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
       const ax = Math.round(at.x), ay = Math.round(at.y);
       if (ax < 0 || ay < 0 || ax >= w || ay >= h) continue;
       const a = ay * w + ax;
-      if (cell[a] !== index || !tops[a] || height[a] < SEA_LEVEL - 0.3) continue;
+      if (cell[a] !== index || !tops[a] || height[a] < SEA_LEVEL - PEBBLE_DEPTH) continue;
       const kind = GROUNDS[tops[a] - 1];
       const { chance, tries, stamps } = CLUTTER[kind];
       if (k >= tries || cellHash(i, j, 30 + k) >= chance) continue;
@@ -546,9 +582,10 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         if (role === ' ' || x < 0 || y < 0 || x >= w || y >= h) return;
         const p = y * w + x;
         const c = cell[p];
-        if (c < 0 || (c % map.w) + Math.floor(c / map.w) > i + j || height[p] < SEA_LEVEL - 0.3) return;
+        if (c < 0 || (c % map.w) + Math.floor(c / map.w) > i + j || height[p] < SEA_LEVEL - PEBBLE_DEPTH) return;
         if (role === 's' && !tops[p]) return;
-        colors[p] = clutterColor(kind, role, role === 's' ? colors[p] : base);
+        if (height[p] < SEA_LEVEL) underwater[p] = role;
+        else colors[p] = clutterColor(kind, role, role === 's' ? colors[p] : base);
       }));
     }
   }
@@ -575,6 +612,8 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
       const water = waterAt(depth);
       // The sand floor shows through the first half level; steps of a tenth keep the colour cache small.
       color = depth < 0.5 ? mixHex(color, water, Math.round((0.5 + depth) * 10) / 10) : water;
+      const pebble = underwater[p] && UNDERWATER[underwater[p]];
+      if (pebble) color = mixHex(color, pebble[0], Math.round(pebble[1] * Math.max(0, 1 - (depth / PEBBLE_DEPTH) ** 2) * 20) / 20);
     }
     if (cell[p] >= 0 && depth <= 0) {
       const level = height[p];

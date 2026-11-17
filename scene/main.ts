@@ -162,9 +162,37 @@ function fitCanvas(): void {
   canvas.style.height = `${vh * zoom}px`;
   version++;
 }
+const clampZoom = (z: number) => Math.max(ZOOM.min, Math.min(ZOOM.max, z));
+/** Where the zoom is heading; the view eases toward it each frame. */
+let zoomTarget = zoom;
+let zoomAnchor: { x: number; y: number } | null = null;
 function setZoom(next: number): void {
-  zoom = Math.max(ZOOM.min, Math.min(ZOOM.max, Math.round(next)));
+  zoom = zoomTarget = clampZoom(next);
   fitCanvas();
+}
+/** Sets the zoom, keeping the ground under the given screen point (default: the view's centre) in place. */
+function zoomAt(next: number, at: { x: number; y: number } | null): void {
+  next = clampZoom(next);
+  if (next === zoom) return;
+  if (at) {
+    const box = viewport.getBoundingClientRect();
+    const dx = at.x - (box.left + box.width / 2);
+    const dy = at.y - (box.top + box.height / 2);
+    cam.x += dx / zoom - dx / next;
+    cam.y += dy / zoom - dy / next;
+  }
+  zoom = next;
+  fitCanvas();
+}
+/** Steps the zoom toward its target. */
+function easeZoom(dt: number): void {
+  if (zoom === zoomTarget) return;
+  const next = zoom + (zoomTarget - zoom) * (1 - Math.exp(-14 * dt));
+  zoomAt(Math.abs(zoomTarget - next) < 0.005 ? zoomTarget : next, zoomAnchor);
+}
+function stepZoom(by: number): void {
+  zoomTarget = clampZoom(Math.round(zoomTarget) + by);
+  zoomAnchor = null;
 }
 const viewRect = (): Rect => ({ x: Math.round(cam.x - vw / 2), y: Math.round(cam.y - vh / 2), w: vw, h: vh });
 function centerOn(at: { i: number; j: number }): void {
@@ -745,17 +773,13 @@ canvas.addEventListener('pointercancel', release);
 canvas.addEventListener('pointerleave', () => (hover = null));
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // A trackpad sends a two-finger move as scrolling, which pans, and a pinch as scrolling with Ctrl
-// held, which zooms. A pinch sends many small steps, so they add up to whole zoom steps.
-let pinched = 0;
+// held, which zooms, smoothly and around the pointer.
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
   if (e.ctrlKey) {
-    pinched -= e.deltaY * scale * 0.02;
-    if (Math.abs(pinched) >= 1) {
-      setZoom(zoom + Math.trunc(pinched));
-      pinched = 0;
-    }
+    zoomTarget = clampZoom(zoomTarget * Math.exp(-e.deltaY * scale * 0.01));
+    zoomAnchor = { x: e.clientX, y: e.clientY };
     return;
   }
   cam.x += (e.deltaX * scale) / zoom;
@@ -780,6 +804,7 @@ function frame(ms: number): void {
   const dt = Math.min(0.1, (ms - last) / 1000);
   last = ms;
   repeatStroke(ms);
+  easeZoom(dt);
   if (groundDirty) {
     // shortcut: redraws the whole ground per changed tile; fine up to 64 by 64, draw only the changed rows if it ever lags.
     world.redraw();
@@ -1168,8 +1193,8 @@ function mount(): void {
     options,
     cast,
     h('div', { class: 'zoom' },
-      tap({ class: 'stage__button', 'aria-label': t('zoom.in'), title: t('zoom.in') }, () => setZoom(zoom + 1), icon('zoomIn')),
-      tap({ class: 'stage__button', 'aria-label': t('zoom.out'), title: t('zoom.out') }, () => setZoom(zoom - 1), icon('zoomOut')),
+      tap({ class: 'stage__button', 'aria-label': t('zoom.in'), title: t('zoom.in') }, () => stepZoom(1), icon('zoomIn')),
+      tap({ class: 'stage__button', 'aria-label': t('zoom.out'), title: t('zoom.out') }, () => stepZoom(-1), icon('zoomOut')),
       tap({ class: 'stage__button', 'aria-label': t('rotate.left'), title: t('rotate.left') }, () => rotate(-1), icon('turnLeft')),
       tap({ class: 'stage__button', 'aria-label': t('rotate.right'), title: t('rotate.right') }, () => rotate(1), icon('turnRight')),
       gridButton,

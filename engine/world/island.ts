@@ -3,6 +3,7 @@
 // in front hiding what stands behind it. Used by the flora page and the start page.
 import type { Category } from '../flora/flora.ts';
 import { SHADOW } from '../core/palette.ts';
+import { GLOW_ALPHA, GLOWING } from './daylight.ts';
 import { rng } from '../../shared/random.ts';
 import { hiddenByGround, standingHeight, surfaceAt, toScreen, type HeightMap, type Surface, type TerrainImage } from './terrain.ts';
 
@@ -111,13 +112,15 @@ function packedOf(picture: Picture, w: number, h: number): Packed {
     const hex = picture.get(x, y);
     if (!hex || hex === SHADOW) continue;
     xy.push(x, y);
-    rgba.push(...rgbaOf(hex));
+    const c = rgbaOf(hex);
+    if (GLOWING.has(hex)) c[3] = GLOW_ALPHA;
+    rgba.push(...c);
   }
   packed.set(picture, (p = { n: xy.length / 2, xy: Int16Array.from(xy), rgba: Uint8Array.from(rgba) }));
   return p;
 }
 
-/** Paints a picture's pixels, leaving out its ground shadow; `hide` can veto single pixels. */
+/** Paints a picture's pixels, leaving out its ground shadow; `hide` can veto single pixels. Glowing ones are marked by their alpha. */
 export function stamp(image: Pixels, picture: Picture, w: number, h: number, dx: number, dy: number, hide?: (x: number, y: number) => boolean): void {
   const { n, xy, rgba } = packedOf(picture, w, h);
   const d = image.data;
@@ -128,8 +131,8 @@ export function stamp(image: Pixels, picture: Picture, w: number, h: number, dx:
     if (hide?.(x, y)) continue;
     const r = rgba[4 * k], g = rgba[4 * k + 1], b = rgba[4 * k + 2], a = rgba[4 * k + 3];
     const o = (y * image.width + x) * 4;
-    if (a === 255 || d[o + 3] === 0) {
-      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = Math.max(a, d[o + 3]);
+    if (a === 255 || a === GLOW_ALPHA || d[o + 3] === 0) {
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = a === GLOW_ALPHA ? a : Math.max(a, d[o + 3]);
       continue;
     }
     const t = a / 255;

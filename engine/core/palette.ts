@@ -47,6 +47,10 @@ const BASES = {
   driftwood: '#bfae98',
   // Animal colours: the pig's and the ostrich's light pink skin.
   piglet: '#efb4ae',
+  // Fire: a flame's orange, its yellow and its white-hot heart, for torches. Games may let them glow (daylight.ts GLOWING).
+  flame: '#f0742a',
+  flare: '#ffd23f',
+  blaze: '#fff4c2',
 } as const;
 
 /** Colours with one fixed meaning, used by faces. They do not get derived tones. */
@@ -102,6 +106,8 @@ export const HAIR_KEYS: PaletteKey[] = ['hairBlack', 'hairBrown', 'hairBlond', '
 export const ANIMAL_KEYS: PaletteKey[] = ['piglet'];
 /** Colours meant for plants, rocks and driftwood. They are left out of the clothing colour choices too. */
 export const PLANT_KEYS: PaletteKey[] = ['jungle', 'lime', 'moss', 'sage', 'bark', 'stone', 'basalt', 'sandstone', 'driftwood'];
+/** Colours of fire. Left out of the clothing colour choices as well. */
+export const FIRE_KEYS: PaletteKey[] = ['flame', 'flare', 'blaze'];
 
 /** One pixel of paint: a palette entry in one of its tones. */
 export interface Cell {

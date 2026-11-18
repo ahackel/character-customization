@@ -1,7 +1,17 @@
 // Time of day as a colour laid over a composed picture: the light's colour multiplies every pixel,
 // and a fade darkens it toward black for screen transitions. Which tint shows when is the game's.
-// shortcut: no light sources yet (fire, torch); add a lit radius here when the first one exists.
+// Glowing colours, such as a flame's, give their own light and keep their colour through it all.
+// shortcut: a glow does not light what is around it yet; add a lit radius here when wanted.
+import { FIRE_KEYS, PALETTE } from '../core/palette.ts';
 import { rgb } from './ocean.ts';
+
+/**
+ * Colours that give their own light: the palette's fire tones. The time of day, the weather and
+ * lightning leave them as drawn, and they cast no shadow. A game may add its own before it draws them.
+ */
+export const GLOWING = new Set<string>(FIRE_KEYS.flatMap((key) => Object.values(PALETTE[key])));
+/** The alpha a composed pixel of a glowing colour has, so the passes that light a picture can leave it be. */
+export const GLOW_ALPHA = 254;
 
 /** A light colour and how strongly it tints, 0 (none) to 1 (full multiply). */
 export interface Tint { r: number; g: number; b: number; amount: number }
@@ -43,6 +53,7 @@ export function light(image: { data: Uint8ClampedArray }, t: Tint, fade = 0): vo
   const fb = (1 - t.amount + (t.amount * t.b) / 255) * keep;
   const d = image.data;
   for (let k = 0; k < d.length; k += 4) {
+    if (d[k + 3] === GLOW_ALPHA) continue;
     d[k] *= fr;
     d[k + 1] *= fg;
     d[k + 2] *= fb;

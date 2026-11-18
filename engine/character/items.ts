@@ -284,7 +284,8 @@ export function compileRecipe(input: any): Compiled {
       back: embed(grid(input.back ?? input.front, TOOL_STAMP.w, TOOL_STAMP.h, legend, 'back', repairs), TOOL_STAMP, TOOL_FRAME),
     };
     if (count(item.tool.front) === 0) throw new Error('front stamp is empty');
-    item.hold = holdOf(item.tool);
+    // A short torch or wand may say it is held in one hand; otherwise its height decides.
+    item.hold = input.hold === 'pole' || input.hold === 'carry' ? input.hold : holdOf(item.tool);
     item.gripDx = gripOf(item.tool);
   } else if (slot === 'shoes') {
     item.foot = cell(need(input.color, 'color'));

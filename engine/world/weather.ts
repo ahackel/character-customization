@@ -1,8 +1,7 @@
 // Weather as a few amounts, 0 to 1, that any game can blend: cloud, rain, wind, fog and storm.
 // They turn knobs the world already has (the sea's waves and wavelets, how hard plants sway, how
-// dark shadows are) and add overlays: drifting cloud shadows, wet ground, rain, gusts, fog and
-// lightning. Which weather comes when is the game's.
-import type { Tint } from './daylight.ts';
+// dark shadows are) and add overlays: wet ground, rain, gusts, fog and lightning. Which weather comes when is the game's.
+import { GLOW_ALPHA, type Tint } from './daylight.ts';
 import { ocean, rgb } from './ocean.ts';
 
 export interface Weather {
@@ -68,6 +67,7 @@ export function lightning(image: { data: Uint8ClampedArray }, flash: number): vo
   const pivot = 0.4;
   const lift = 0.12 * flash;
   for (let o = 0; o < d.length; o += 4) {
+    if (d[o + 3] === GLOW_ALPHA) continue;
     const l = (0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]) / 255;
     const to = Math.min(1, Math.max(0, (l - pivot) * gain + pivot + lift));
     if (to < l) {
@@ -111,7 +111,6 @@ const FOG = rgb('#e6edf2');
 const RAIN = rgb('#dbe8ff');
 const RING = rgb('#e8f6ff');
 const WET = rgb('#8a7a5a');
-const CLOUD = rgb('#1e2840');
 
 /** Smooth noise 0 to 1 on a grid one unit across. */
 function noise(x: number, y: number): number {
@@ -123,7 +122,9 @@ function noise(x: number, y: number): number {
   return top + (bottom - top) * v;
 }
 
+/** Moves a pixel toward a colour; a glowing one shines through fog, cloud and rain. */
 const toward = (d: Uint8ClampedArray, o: number, c: number[], k: number) => {
+  if (d[o + 3] === GLOW_ALPHA) return;
   d[o] += (c[0] - d[o]) * k;
   d[o + 1] += (c[1] - d[o + 1]) * k;
   d[o + 2] += (c[2] - d[o + 2]) * k;
@@ -131,27 +132,18 @@ const toward = (d: Uint8ClampedArray, o: number, c: number[], k: number) => {
 
 /**
  * Lays the weather over a composed view, `view` its place on the ground image: ground first
- * (cloud shadows, wet ground, fog), then what is in the air (rain, gusts).
+ * (wet ground, fog), then what is in the air (rain, gusts). Cloud only greys the light (`overcast`).
  */
 export function drawWeather(image: { data: Uint8ClampedArray; width: number; height: number }, view: { x: number; y: number }, depthAt: DepthAt, ms: number, w: Weather): void {
   const { width: vw, height: vh, data: d } = image;
   const t = ms / 1000;
-  // Patchy cloud throws shadows; under a closed sky the light is simply grey.
-  const patches = 0.22 * Math.sin(Math.PI * Math.min(1, w.cloud));
-  const drift = { x: t * (6 + 24 * airOf(w)), y: t * (2 + 6 * airOf(w)) };
   const wet = 0.3 * w.rain;
-  if (patches > 0.01 || wet > 0 || w.fog > 0) {
+  if (wet > 0 || w.fog > 0) {
     for (let y = 0; y < vh; y++) {
       for (let x = 0; x < vw; x++) {
         const gx = x + view.x, gy = y + view.y;
         const o = (y * vw + x) * 4;
-        const depth = depthAt(gx, gy);
-        if (patches > 0.01) {
-          const n = noise((gx - drift.x) / 48, (gy - drift.y) / 28) * 0.65 + noise((gx - drift.x) / 17, (gy - drift.y) / 11) * 0.35;
-          const k = Math.min(1, Math.max(0, (0.42 - n) / 0.06));
-          if (k > 0) toward(d, o, CLOUD, patches * k);
-        }
-        if (wet > 0 && depth === 0) toward(d, o, WET, wet);
+        if (wet > 0 && depthAt(gx, gy) === 0) toward(d, o, WET, wet);
         // Fog lies over land and sea alike, in slow banks, the same wherever the map ends.
         if (w.fog > 0) toward(d, o, FOG, w.fog * (0.55 + 0.25 * noise((gx + t * 2) / 60, gy / 34)));
       }

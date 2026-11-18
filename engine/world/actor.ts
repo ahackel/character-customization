@@ -121,6 +121,8 @@ export class Actor {
   private started = 0;
   private look: Look;
   private frames = new Map<string, Sprite>();
+  /** Drawn frames kept per look, so going back to a look (a flickering torch) draws nothing again. */
+  private framesOf = new WeakMap<Look, Map<string, Sprite>>();
   /** Wading pictures of each drawn picture, by rows under water. */
   private wet = new WeakMap<Picture, Map<number, Picture>>();
   private drops: Drop[] = [];
@@ -146,9 +148,9 @@ export class Actor {
   }
 
   setLook(look: Look): void {
+    this.framesOf.set(this.look, this.frames);
     this.look = look;
-    this.frames.clear();
-    this.wet = new WeakMap();
+    this.frames = this.framesOf.get(look) ?? new Map();
   }
 
   emote(emote: Emote, ms: number): void {

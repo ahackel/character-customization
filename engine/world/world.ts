@@ -14,6 +14,7 @@ import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type
 import { turnFacing, type Facing } from '../core/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
+import { GLOWING } from './daylight.ts';
 import { fishPixels, type Fish } from './fish.ts';
 import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
 import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
@@ -671,7 +672,7 @@ export class World {
     for (let y = 0; y < t.h; y++) {
       for (let x = 0; x < t.w; x++) {
         const hex = t.picture.get(x, y);
-        if (!hex || hex === SHADOW) continue;
+        if (!hex || hex === SHADOW || GLOWING.has(hex)) continue;
         const up = Math.max(0, t.foot.y - y) / LEVEL_PX * LEVEL_M;
         const side = (x - t.foot.x) / TILE_W;
         const i = t.spot.i + side + up * SHADOW_RUN[0];

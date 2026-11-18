@@ -2,7 +2,7 @@ import { BEARD_STYLES, beardFromBehind, catalogHairViews, stubbled, tidyBeard } 
 import { compile } from './items.ts';
 import shellFile from './data/shell-hair.json' with { type: 'json' };
 import { JOB_ITEMS } from './jobs.ts';
-import { ANIMAL_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from '../core/palette.ts';
+import { ANIMAL_KEYS, FIRE_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from '../core/palette.ts';
 import type { Item, Slot, Stamp, StampPair } from '../core/puppet.ts';
 
 /** One wearable in the wardrobe, compiled from what the model returned. */
@@ -152,5 +152,5 @@ export const entryById = (id: string | null | undefined): Entry | undefined => C
 
 /** Colours offered for clothing and hats. */
 export const CLOTH_KEYS = (Object.keys(PALETTE) as PaletteKey[]).filter(
-  (key) => !SKIN_KEYS.includes(key) && !FIXED_KEYS.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key) && !ANIMAL_KEYS.includes(key),
+  (key) => !SKIN_KEYS.includes(key) && !FIXED_KEYS.includes(key) && !key.startsWith('hair') && !PLANT_KEYS.includes(key) && !ANIMAL_KEYS.includes(key) && !FIRE_KEYS.includes(key),
 );

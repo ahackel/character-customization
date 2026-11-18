@@ -779,6 +779,10 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   // Later slots cover earlier ones.
   const ordered = SLOTS.flatMap((slot) => look.items.filter((i) => i.slot === slot));
   const tool = ordered.find((i) => i.tool);
+  // A short tool held up in one hand (a torch, a stick) would hide behind the arm, so it is drawn
+  // in front of the arm with the hand over it; a long one shows past the head anyway.
+  const toolRows = tool?.tool?.front.map((row) => row.some(Boolean)) ?? [];
+  const shortTool = tool?.hold === 'pole' && toolRows.lastIndexOf(true) - toolRows.indexOf(true) < 26;
   const build = look.build ?? BUILDS.find((b) => b.id === 'slim')!;
   // Poses are authored for the slim build. Wider builds move the limbs outwards so that arms
   // still sit just outside the torso and legs keep a one-pixel gap.
@@ -1007,7 +1011,11 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     },
   });
 
-  // ---- arms and hands. The working hand holds the tool.
+  // ---- arms and hands. The working hand holds the tool; a short tool, which the body would hide
+  // in the far hand, goes to the hand nearer the viewer.
+  const depthOf = (s: 'L' | 'R') => P(moved(pose[`shoulder${s}`], s, armShift)).depth;
+  const nearer = depthOf('L') > depthOf('R') + 0.5 ? 'L' : depthOf('R') > depthOf('L') + 0.5 ? 'R' : working;
+  const holder = shortTool ? nearer : working;
   for (const s of ['L', 'R'] as const) {
     const shoulder3 = moved(pose[`shoulder${s}`], s, armShift);
     const shoulder = P(shoulder3);
@@ -1015,22 +1023,30 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     let elbow = P(moved(pose[`elbow${s}`], s, armShift));
     let hand = P(moved(pose[`hand${s}`], s, armShift));
     // The working hand holds the tool even on the far side, where the body hides part of it.
-    const holding = tool && s === working;
+    const holding = tool && s === holder;
     // Side on, a long tool is carried upright at the side, just behind the head: leaned forward it
     // ran across the face, and in front of the head it hid it.
     const upright = holding && tool.hold === 'pole' && !options.swing && own === 'E';
     if (holding && tool.hold === 'pole' && !options.swing) {
-      // A long tool is carried with the arm held out to the side, so the shaft clears the head.
       const side3 = s === 'R' ? 1 : -1;
-      const elbow3 = add(shoulder3, [side3 * 3.4, -2.9, upright ? 0 : 0.4]);
-      elbow = P(elbow3);
-      hand = P(add(elbow3, [side3 * 3.6, -0.6, upright ? 0.6 : 2.6]));
+      if (shortTool) {
+        // A short one (a torch) is held up before the body, the forearm raised forward and out to
+        // shoulder height, so its top shows past the head from every side.
+        const elbow3 = add(shoulder3, [side3 * 1.6, -3.3, 1.2]);
+        elbow = P(elbow3);
+        hand = P(add(elbow3, [side3 * 3, 2.8, 3.6]));
+      } else {
+        // A long tool is carried with the arm held out to the side, so the shaft clears the head.
+        const elbow3 = add(shoulder3, [side3 * 3.4, -2.9, upright ? 0 : 0.4]);
+        elbow = P(elbow3);
+        hand = P(add(elbow3, [side3 * 3.6, -0.6, upright ? 0.6 : 2.6]));
+      }
     }
     const inner = Math.sign(chest.x - shoulder.x);
     // A near arm raised past the shoulder, waving or swinging, is in front of the head.
     const armDepth = !far && hand.y < shoulder.y - 2 ? chest.depth + 4 : elbow.depth + (far ? -1 : 1);
     layers.push({
-      depth: upright ? chest.depth + 2.5 : armDepth - 0.001,
+      depth: holding && shortTool ? armDepth + 0.001 : upright ? chest.depth + 2.5 : armDepth - 0.001,
       draw: () => {
         as('tool');
         if (holding) {
@@ -1065,6 +1081,14 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
           const cell = limbPaint('arm', t);
           return cap ? hexOf({ ...cell, shade: false, light: true }) : tone(cell, far || contact);
         });
+        sprite.drawingNearArm = false;
+      },
+    });
+    layers.push({
+      depth: armDepth + 0.002,
+      draw: () => {
+        as(s === working ? 'workArm' : 'freeArm');
+        sprite.drawingNearArm = !far;
         // Hands are a visible block of skin, drawn over whatever they hold.
         // As wide as the arm, at least three pixels; the knuckle row is shaded apart from its middle.
         const handW = Math.max(3, build.arm);

@@ -32,6 +32,9 @@ function holdOf(pair: StampPair): 'pole' | 'carry' {
   return rows.lastIndexOf(true) - rows.indexOf(true) >= 26 ? 'pole' : 'carry';
 }
 
+/** How a tool is held: as the item says (a short torch or wand held up in one hand), or by its height. */
+const holdFor = (said: unknown, pair: StampPair): 'pole' | 'carry' => (said === 'pole' || said === 'carry' ? said : holdOf(pair));
+
 /** Finds the shaft: the middle painted column in the rows around the grip. */
 function gripOf(pair: StampPair): { front: number; back: number } {
   const offset = (stamp: Stamp): number => {
@@ -169,7 +172,7 @@ export function compileSprite(input: any): Compiled {
     item.head = cut(HEAD_FRAME, (l) => l.neck, () => true);
   } else if (slot === 'tool') {
     item.tool = cut(TOOL_FRAME, (l) => l.handR, () => true);
-    item.hold = holdOf(item.tool);
+    item.hold = holdFor(input.hold, item.tool);
     item.gripDx = gripOf(item.tool);
   } else if (slot === 'top') {
     item.torso = cut(TORSO_FRAME, (l) => ({ x: l.torso.x, y: l.torso.top }), (x, y, l) => !onLimb(x, y, l.arms, 1) || Math.abs(x - l.torso.x) <= 3);
@@ -284,8 +287,7 @@ export function compileRecipe(input: any): Compiled {
       back: embed(grid(input.back ?? input.front, TOOL_STAMP.w, TOOL_STAMP.h, legend, 'back', repairs), TOOL_STAMP, TOOL_FRAME),
     };
     if (count(item.tool.front) === 0) throw new Error('front stamp is empty');
-    // A short torch or wand may say it is held in one hand; otherwise its height decides.
-    item.hold = input.hold === 'pole' || input.hold === 'carry' ? input.hold : holdOf(item.tool);
+    item.hold = holdFor(input.hold, item.tool);
     item.gripDx = gripOf(item.tool);
   } else if (slot === 'shoes') {
     item.foot = cell(need(input.color, 'color'));

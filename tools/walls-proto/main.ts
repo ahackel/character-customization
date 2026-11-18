@@ -3,11 +3,19 @@
 //
 //  - a wall stores only its edge (kind, i, j); its heights come from the terrain's corner heights
 //    (`cornersOf`), so it follows slopes and the terrain can be edited under it;
-//  - planks are drawn by rule per screen column, so a sloped edge needs no sloped sprite, and each
-//    plank has its own height, lean and poke past the ends (the overhang);
+//  - planks are drawn by rule per screen column, so a sloped edge needs no sloped sprite; every edge
+//    shows the same wall tile (the plank seed picks it), each plank with its own height, lean and
+//    poke past the ends (the overhang);
+//  - roofs are painted on cells: each connected patch gets a hipped palm-thatch roof over its bounding
+//    rectangle, resting on the wall tops and reaching past them by the eaves;
 //  - walls are things in the sort: scalar key `i + j` (what compose() does now) or a box test;
 //  - the walker shows what the collision padding has to be for the overhang to sort correctly.
 import { hashOf, rng } from '../../shared/random.ts';
+import { Viewport } from '../../shared/viewport.ts';
+import { AUTHORED } from '../../engine/core/poses.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, SPRITE_H, SPRITE_W, type Facing, type Look } from '../../engine/core/puppet.ts';
+import { defaultState, loadRoster, lookOf, pickedCharacter, type Saved } from '../../engine/character/character.ts';
+import { facingOf } from '../../engine/world/actor.ts';
 import {
   createHeightMap, cornersOf, generateIsland, heightAt, hiddenByGround, levelAt, renderTerrain, seaFloor, setLevel,
   LEVEL_PX, SEA_LEVEL, SLOPE_LEVELS, standingHeight, TILE_H, TILE_W, type HeightMap, type TerrainImage,
@@ -22,6 +30,8 @@ type Kind = 'H' | 'V'; // H runs along i between vertices (i, j) and (i + 1, j);
 interface Edge { kind: Kind; i: number; j: number }
 const walls = new Map<string, Edge>();
 const edgeKey = (e: Edge) => `${e.kind}${e.i},${e.j}`;
+/** Cells under a roof, as `i,j`. */
+const roofs = new Set<string>();
 
 const P = {
   height: 4,
@@ -33,14 +43,19 @@ const P = {
   grid: true,
   terrain: 'proving' as 'proving' | 'island',
   islandSeed: 3,
-  zoom: 2,
+  paint: 'walls' as 'walls' | 'roof',
+  /** How far the ridge stands above the wall tops, in levels. */
+  rise: 3,
+  /** How far the roof reaches past the walls, in tiles. */
+  eaves: 0.3,
+  character: '',
 };
 
 let shape: HeightMap; // the map the player edits
 let ground: TerrainImage; // its painted picture
 let sea: HeightMap; // the map as drawn: the sea floor shaped
 let frame: Uint8ClampedArray<ArrayBuffer>;
-let dirty = true;
+let shade: Uint8Array; // per frame pixel, 1 where a shadow falls
 
 // ------------------------------------------------------------------ terrain
 
@@ -66,14 +81,19 @@ function provingGround(): HeightMap {
 function presetWalls(): void {
   walls.clear();
   const add = (kind: Kind, i: number, j: number) => walls.set(edgeKey({ kind, i, j }), { kind, i, j });
-  for (let i = 14; i <= 17; i++) { add('H', i, 14); if (i !== 15) add('H', i, 18); } // a pen with a door in the south wall
-  for (let j = 14; j <= 17; j++) { add('V', 14, j); add('V', 18, j); }
+  for (let i = 14; i <= 16; i++) { add('H', i, 14); if (i !== 15) add('H', i, 17); } // a 3 by 3 hut with a door in the south wall
+  for (let j = 14; j <= 16; j++) { add('V', 14, j); add('V', 17, j); }
   for (let i = 6; i <= 9; i++) add('H', i, 7); // up the one level ramp
   for (let i = 10; i <= 13; i++) add('H', i, 6); // along the top of a cliff
   for (let i = 15; i <= 18; i++) add('H', i, 6); // at the foot of a two level step
   for (let j = 13; j <= 19; j++) add('V', 7, j); // down the gentle slope
   for (let j = 8; j <= 12; j++) add('V', 3, j); // along the waterline
   for (let j = 9; j <= 11; j++) add('V', 2, j); // out in the water
+}
+
+function presetRoofs(): void {
+  roofs.clear();
+  for (let j = 14; j <= 16; j++) for (let i = 14; i <= 16; i++) roofs.add(`${i},${j}`); // over the hut
 }
 
 function loadTerrain(): void {
@@ -88,11 +108,14 @@ function loadTerrain(): void {
   walker.x = P.terrain === 'proving' ? 12.5 : shape.w / 2 + 0.5;
   walker.y = P.terrain === 'proving' ? 12.5 : shape.h / 2 + 0.5;
   if (P.terrain === 'island') nudgeToLand();
-  const view = document.getElementById('view') as HTMLCanvasElement;
-  view.width = ground.w;
-  view.height = ground.h;
-  applyZoom();
-  dirty = true;
+  full.width = ground.w;
+  full.height = ground.h;
+  shade = new Uint8Array(ground.w * ground.h);
+  roofPics.clear();
+  if (P.terrain === 'proving') presetRoofs();
+  else roofs.clear();
+  lookAtWalker();
+
 }
 
 function nudgeToLand(): void {
@@ -142,6 +165,20 @@ interface Pic {
   box: Box;
   key: number;
   edge?: Edge;
+  roof?: Roof;
+  /** Frame pixels of the ground in its shadow. */
+  shadow?: number[];
+}
+
+/** Where the shadow of a point one level up lands on the ground, in map units: the sun is on the -i side, so shadows fall toward +i. */
+const SUN = { i: 0.22, j: 0.06 };
+/** Collects the frame pixels of the ground shadow cast by a point `up` levels above ground level `g` at map point (x, y). */
+function shadowAt(out: number[], x: number, y: number, g: number, up: number): void {
+  const o = ground.origin;
+  x += up * SUN.i;
+  y += up * SUN.j;
+  const sx = Math.round(o.x + (x - y) * HALF_W), sy = Math.round(o.y + (x + y) * HALF_H - g * LEVEL_PX);
+  if (sx >= 0 && sy >= 0 && sx < ground.w && sy < ground.h) out.push(sy * ground.w + sx);
 }
 
 const WOOD = ['#b0824f', '#9e7142', '#bd9060', '#8f6439'].map(hex);
@@ -152,10 +189,15 @@ function hex(s: string): [number, number, number] {
 
 const pics = new Map<string, Pic>();
 
-function buildWall(e: Edge): Pic {
+/**
+ * `cut`: sawn off flat at half the wall's height, as the front walls of a hut the walker is in.
+ * `cap`: the eaves level of a roof over the wall: no plank reaches above it and the top lies in its shade.
+ */
+function buildWall(e: Edge, cut = false, cap?: number): Pic {
   const [h0, h1] = endHeights(e);
   const oh = P.overhang;
-  const random = rng(hashOf(`${P.seed}|${edgeKey(e)}`));
+  // One tile for every edge; painting a different one per edge would put its id in this seed.
+  const random = rng(hashOf(`plank|${P.seed}`));
   const o = ground.origin;
   const xmin = o.x + (e.kind === 'H' ? e.i - e.j : e.i - e.j - 1) * HALF_W;
   const sy = o.y + (e.i + e.j) * HALF_H; // the row of the first end at level 0
@@ -203,14 +245,16 @@ function buildWall(e: Edge): Pic {
       const bottom = rowAt(t, level) + sink;
       const topLevel = P.top === 'slope' ? level + P.height : P.top === 'stepped' ? steppedTop : flatTop;
       const slantPx = slant && ce - cs > 1 ? Math.round((slant * (cc - cs)) / (ce - cs - 1)) : 0;
-      const top = Math.min(bottom - 3, rowAt(t, topLevel) - jag + slantPx);
+      let top = cut ? bottom - Math.round((P.height * LEVEL_PX) / 2) : Math.min(bottom - 3, rowAt(t, topLevel) - jag + slantPx);
+      if (cap !== undefined) top = Math.max(top, rowAt(t, cap) + 1);
+      const shadeTo = cap === undefined ? -Infinity : rowAt(t, cap) + Math.round(1.5 * LEVEL_PX); // the eaves' shadow on the wall
       const span = Math.max(1, bottom - top);
       for (let y = top; y <= bottom; y++) {
         const shift = Math.round((lean * (bottom - y)) / span);
-        let k = 1;
-        if (y === top) k = 1.28; // the cut end of the plank
-        else if (cc === cs) k = 1.12; // its lit edge
-        else if (cc === ce - 1 && ce - cs > 1) k = 0.72; // the seam to the next one
+        let k = y < shadeTo ? 0.7 : 1;
+        if (y === top) k *= 1.28; // the cut end of the plank
+        else if (cc === cs) k *= 1.12; // its lit edge
+        else if (cc === ce - 1 && ce - cs > 1) k *= 0.72; // the seam to the next one
         let px = mul(col, k);
         if (knot && cc === knot[0] && y === bottom - knot[1]) px = mul(col, 0.62);
         const nail = [bottom - Math.round(span * 0.28), bottom - Math.round(span * 0.74)];
@@ -220,51 +264,202 @@ function buildWall(e: Edge): Pic {
     }
   }
 
+  // Its shadow on the ground: the wall as a sheet from its foot to its top, sampled finer than a pixel.
+  const shadow: number[] = [];
+  for (let s = 0; s <= 1; s += 1 / 48) {
+    const g = h0 + (h1 - h0) * s;
+    const tall = cut ? P.height / 2 : cap !== undefined ? Math.min(P.height, cap - g) : P.height;
+    const [x, y] = e.kind === 'H' ? [e.i + s, e.j] : [e.i, e.j + s];
+    for (let up = 0; up <= tall; up += 1 / 10) shadowAt(shadow, x, y, g, up);
+  }
   const t = 0.06; // wall thickness on the plan
   const box: Box = e.kind === 'H' ? { x0: e.i, x1: e.i + 1, y0: e.j - t, y1: e.j + t } : { x0: e.i - t, x1: e.i + t, y0: e.j, y1: e.j + 1 };
-  return { x: x0, y: y0, w, h, rgba, base, ci: e.i, cj: e.j, box, key: e.i + e.j + 0.5, edge: e };
+  return { x: x0, y: y0, w, h, rgba, base, ci: e.i, cj: e.j, box, key: e.i + e.j + 0.5, edge: e, shadow };
 }
 
-function wallPic(e: Edge): Pic {
-  const k = edgeKey(e);
+function wallPic(e: Edge, cut = false, cap?: number): Pic {
+  const k = `${edgeKey(e)}|${cut}|${cap}`;
   let pic = pics.get(k);
-  if (!pic) pics.set(k, (pic = buildWall(e)));
+  if (!pic) pics.set(k, (pic = buildWall(e, cut, cap)));
   return pic;
 }
 
 // ------------------------------------------------------------------ the walker
 
-const walker = { x: 12.5, y: 12.5 };
-const FIG_W = 9;
-const FIG_H = 26;
-const FIG = (() => {
-  const rgba = new Uint8ClampedArray(FIG_W * FIG_H * 4);
-  const px = (x: number, y: number, c: string) => {
-    const [r, g, b] = hex(c);
-    const o = (y * FIG_W + x) * 4;
-    rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = 255;
-  };
-  const rect = (x0: number, y0: number, w: number, h: number, c: string) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) px(x, y, c); };
-  rect(2, 0, 5, 6, '#e8b890'); // head
-  rect(2, 0, 5, 2, '#4a2f20'); // hair
-  rect(1, 6, 7, 10, '#3d78c4'); // shirt
-  rect(0, 7, 1, 7, '#e8b890'); rect(8, 7, 1, 7, '#e8b890'); // arms
-  rect(2, 16, 2, 10, '#3b3552'); rect(5, 16, 2, 10, '#3b3552'); // legs
-  return rgba;
-})();
+const walker = { x: 12.5, y: 12.5, facing: 0 as Facing, moving: false, run: false, since: 0 };
 const FIG_BOX_R = 0.04; // small, so that it stays clear of a wall's box whenever the padding is at least a little
 
-function figurePic(): Pic {
+/** The default character and the ones saved in the wardrobe on this device. */
+const people = (): Saved[] => [{ id: '', name: 'Default', state: defaultState() }, ...loadRoster()];
+let look: Look = lookOf(defaultState());
+const frames = new Map<string, Uint8ClampedArray>();
+function setCharacter(id: string): void {
+  const c = people().find((p) => p.id === id) ?? people()[0];
+  P.character = c.id;
+  look = lookOf(c.state);
+  frames.clear();
+
+}
+
+/** The character's frame now, as RGBA, drawn once per pose, facing and face. */
+function figureFrame(ms: number): Uint8ClampedArray {
+  const id = walker.moving ? (walker.run ? 'run' : 'walk') : 'idle';
+  const clip = AUTHORED[id];
+  const n = Math.floor(((ms - walker.since) / 1000) * clip.rate) % clip.frames.length;
+  const face = clip.faces?.[n];
+  const key = `${id}|${n}|${walker.facing}|${face}`;
+  let rgba = frames.get(key);
+  if (rgba) return rgba;
+  const sprite = drawCharacter(look, clip.frames[n], walker.facing, { face, swing: clip.swing });
+  rgba = new Uint8ClampedArray(SPRITE_W * SPRITE_H * 4);
+  for (let p = 0; p < SPRITE_W * SPRITE_H; p++) {
+    const c = sprite.pixels[p];
+    if (!c) continue;
+    const [r, g, b] = hex(c);
+    rgba.set([r, g, b, c.length > 7 ? parseInt(c.slice(7, 9), 16) : 255], p * 4);
+  }
+  frames.set(key, rgba);
+  return rgba;
+}
+
+function figurePic(ms: number): Pic {
   const o = ground.origin;
   const h = standingHeight(sea, walker.x, walker.y);
   const fx = Math.round(o.x + (walker.x - walker.y) * HALF_W);
   const fy = Math.round(o.y + (walker.x + walker.y) * HALF_H - h * LEVEL_PX);
   return {
-    x: fx - 4, y: fy - (FIG_H - 1), w: FIG_W, h: FIG_H, rgba: FIG, base: Math.max(SEA_LEVEL, h),
+    x: fx - FEET.x, y: fy - FEET.y, w: SPRITE_W, h: SPRITE_H, rgba: figureFrame(ms), base: Math.max(SEA_LEVEL, h),
     ci: Math.floor(walker.x), cj: Math.floor(walker.y),
     box: { x0: walker.x - FIG_BOX_R, x1: walker.x + FIG_BOX_R, y0: walker.y - FIG_BOX_R, y1: walker.y + FIG_BOX_R },
     key: walker.x + walker.y,
   };
+}
+
+// ------------------------------------------------------------------ roofs
+
+/** A roof over a patch of cells: its plan rectangle, cells i0..i1 by j0..j1. */
+interface Roof { i0: number; i1: number; j0: number; j1: number; cells: string[] }
+
+/** The connected patches of roof cells; each roofs its bounding rectangle. */
+// shortcut: an L-shaped patch gets one roof over its bounding box; split it into rectangles when roofs need corners.
+function roofPatches(): Roof[] {
+  const seen = new Set<string>();
+  const out: Roof[] = [];
+  for (const start of roofs) {
+    if (seen.has(start)) continue;
+    const cells: string[] = [];
+    const todo = [start];
+    seen.add(start);
+    while (todo.length) {
+      const k = todo.pop()!;
+      cells.push(k);
+      const [i, j] = k.split(',').map(Number);
+      for (const n of [`${i + 1},${j}`, `${i - 1},${j}`, `${i},${j + 1}`, `${i},${j - 1}`]) if (roofs.has(n) && !seen.has(n)) { seen.add(n); todo.push(n); }
+    }
+    const is = cells.map((k) => +k.split(',')[0]), js = cells.map((k) => +k.split(',')[1]);
+    out.push({ i0: Math.min(...is), i1: Math.max(...is), j0: Math.min(...js), j1: Math.max(...js), cells });
+  }
+  return out;
+}
+
+const THATCH = ['#d6a443', '#e3b65a', '#c3913a'].map(hex);
+
+/**
+ * A hipped roof of palm thatch: four slopes rising `rise` levels over the highest wall top, the
+ * ridge along the longer side (a point over a square), each slope going on down past the walls by
+ * `eaves`. Drawn as a height field sampled finer than a pixel, the nearest sample (largest i + j)
+ * winning each pixel.
+ */
+/** The level a roof's eaves rest on: the wall tops over its highest ground. */
+function eavesOf(r: Roof): number {
+  let floor = SEA_LEVEL;
+  for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) floor = Math.max(floor, ...cornersOf(sea, i, j));
+  return floor + P.height;
+}
+
+function buildRoof(r: Roof): Pic {
+  const o = ground.origin;
+  const eave = eavesOf(r);
+  const floor = eave - P.height;
+  const shadow: number[] = [];
+  const alongI = r.i1 - r.i0 >= r.j1 - r.j0; // the ridge runs along i
+  // u across the ridge, v along it, in map units.
+  const [a0, a1] = alongI ? [r.j0, r.j1 + 1] : [r.i0, r.i1 + 1];
+  const [b0, b1] = alongI ? [r.i0, r.i1 + 1] : [r.j0, r.j1 + 1];
+  const midU = (a0 + a1) / 2, midV = (b0 + b1) / 2, half = (a1 - a0) / 2, halfV = (b1 - b0) / 2;
+  const ov = P.eaves;
+  const toXY = (u: number, v: number) => (alongI ? [v, u] : [u, v]);
+  const random = rng(hashOf(`roof|${P.seed}`));
+  const strandHash = Array.from({ length: 4096 }, () => random());
+  const strand = (k: number) => strandHash[((k % 4096) + 4096) % 4096];
+
+  const samples: { x: number; y: number; d: number; rgb: number[]; z: number }[] = [];
+  const add = (u: number, v: number, z: number, rgb: number[]) => {
+    const [x, y] = toXY(u, v);
+    samples.push({ x: Math.round(o.x + (x - y) * HALF_W), y: Math.round(o.y + (x + y) * HALF_H - z * LEVEL_PX), d: x + y, rgb, z });
+  };
+  const mul = (c: number[], k: number) => c.map((v) => Math.max(0, Math.min(255, Math.round(v * k))));
+  const step = 1 / 40;
+  // Light by which way a slope faces on the map, like the walls: +j lit, +i in shade.
+  const TONE = { '+j': 1, '-j': 1.08, '+i': 0.78, '-i': 0.88 };
+  // Golden thatch laid in courses along the eaves, each a row of fine strands in three tones whose
+  // ragged tips hang over the top of the course below, which lies in their shadow.
+  // Strands run down each slope, so across them is v on the long slopes and u on the hip ends.
+  const COURSE = 0.3; // depth of one course, in tiles of slope
+  const hang = (k: number, c: number) => 0.1 + strand(k * 7 + c * 13) * 0.3; // how far a strand's tip hangs below its course
+  for (let v = b0 - ov; v <= b1 + ov; v += step) {
+    for (let u = a0 - ov; u <= a1 + ov; u += step) {
+      const eSide = half + ov - Math.abs(u - midU); // up the long slope from its eaves
+      const eEnd = halfV + ov - Math.abs(v - midV); // up the hip end from its eaves
+      const side = eSide <= eEnd;
+      const e = Math.min(eSide, eEnd);
+      const k = side ? Math.floor((v - b0 + 4) * 14) : 900 + Math.floor((u - a0 + 4) * 14); // a strand, about a pixel wide
+      // The eaves edge is ragged: clumps of a few strands hang lower or end short, each strand a little on its own.
+      const clump = Math.floor(k / 3) + Math.floor(strand(k) * 2);
+      if (e < (strand(clump * 5 + 3) ** 2 * 0.8 + strand(k * 7) * 0.3) * COURSE) continue;
+      const pos = e / COURSE + 0.4;
+      let c = Math.floor(pos);
+      const f = pos - c; // 0 at the bottom of course c, 1 at its top
+      let k2 = 1;
+      if (f > 1 - hang(k, c + 1)) { c++; k2 = 1.08; } // a tip of the course above, hanging over
+      else if (f > 0.62) k2 = 0.8; // in the shadow of those tips
+      if (Math.abs(eSide - eEnd) < 0.05 || (side && Math.abs(u - midU) < 0.06)) k2 = 0.86; // the hips and the ridge, capped
+      const facesA = side ? (u > midU ? '+' : '-') : v > midV ? '+' : '-';
+      const axis = side === alongI ? 'j' : 'i';
+      const tone = TONE[`${facesA}${axis}` as keyof typeof TONE];
+      const col = THATCH[Math.floor(strand(k * 31 + c * 17) * THATCH.length)];
+      const z = eave + (P.rise * (e - ov)) / half;
+      add(u, v, z, mul(col, tone * k2));
+      const [x, y] = toXY(u, v);
+      shadowAt(shadow, x, y, floor, z - floor);
+      shadowAt(shadow, x, y, floor, 0); // and the ground right under it
+    }
+  }
+
+  const xs = samples.map((p) => p.x), ys = samples.map((p) => p.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  const w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  const base = new Float32Array(w * h);
+  const depth = new Float32Array(w * h).fill(-Infinity);
+  for (const p of samples) {
+    const q = (p.y - y0) * w + (p.x - x0);
+    if (p.d <= depth[q]) continue;
+    depth[q] = p.d;
+    rgba.set([p.rgb[0], p.rgb[1], p.rgb[2], 255], q * 4);
+    base[q] = eave;
+  }
+  const [x1, y1] = alongI ? [b1 + ov, a1 + ov] : [a1 + ov, b1 + ov];
+  const [xa, ya] = alongI ? [b0 - ov, a0 - ov] : [a0 - ov, b0 - ov];
+  return { x: x0, y: y0, w, h, rgba, base, ci: r.i1, cj: r.j1, box: { x0: xa, x1, y0: ya, y1 }, key: x1 + y1, roof: r, shadow };
+}
+
+const roofPics = new Map<string, Pic>();
+function roofPic(r: Roof): Pic {
+  const k = `${r.i0},${r.i1},${r.j0},${r.j1}`;
+  let pic = roofPics.get(k);
+  if (!pic) roofPics.set(k, (pic = buildRoof(r)));
+  return { ...pic, roof: r };
 }
 
 // ------------------------------------------------------------------ collision
@@ -353,18 +548,20 @@ function stamp(pic: Pic): void {
     if (gy < 0 || gy >= gh) continue;
     for (let x = 0; x < pic.w; x++) {
       const s = (y * pic.w + x) * 4;
-      if (!pic.rgba[s + 3]) continue;
+      const a = pic.rgba[s + 3] / 255;
+      if (!a) continue;
       const gx = pic.x + x;
       if (gx < 0 || gx >= gw) continue;
       const base = typeof pic.base === 'number' ? pic.base : pic.base[y * pic.w + x];
       if (hiddenByGround(shape, ground, gx, gy, pic.ci, pic.cj, base)) continue;
       const d = (gy * gw + gx) * 4;
-      frame[d] = pic.rgba[s]; frame[d + 1] = pic.rgba[s + 1]; frame[d + 2] = pic.rgba[s + 2]; frame[d + 3] = 255;
+      for (let k = 0; k < 3; k++) frame[d + k] += (pic.rgba[s + k] - frame[d + k]) * a;
+      frame[d + 3] = 255;
     }
   }
 }
 
-function render(): void {
+function render(ms: number): void {
   frame.set(ground.rgba);
   if (P.grid) {
     for (const { x, y } of gridPixels()) {
@@ -373,17 +570,55 @@ function render(): void {
       for (let k = 0; k < 3; k++) frame[d + k] += (255 - frame[d + k]) * 0.22;
     }
   }
-  const items: Item[] = [...walls.values()].map((e) => ({ pic: wallPic(e) }));
-  items.push({ pic: figurePic() });
+  // Inside a hut its roof is gone and its front walls (the far-j and far-i sides, facing the viewer) are cut to half height.
+  const here = `${Math.floor(walker.x)},${Math.floor(walker.y)}`;
+  const patches = roofPatches();
+  const home = patches.find((r) => r.cells.includes(here));
+  const front = (e: Edge) => !!home && (e.kind === 'H'
+    ? e.j === home.j1 + 1 && e.i >= home.i0 && e.i <= home.i1
+    : e.i === home.i1 + 1 && e.j >= home.j0 && e.j <= home.j1);
+  // A wall on or inside a roofed patch stops under its eaves.
+  const capOf = (e: Edge) => {
+    const r = patches.find((r) => e.i >= r.i0 && e.j >= r.j0 && (e.kind === 'H' ? e.i <= r.i1 && e.j <= r.j1 + 1 : e.i <= r.i1 + 1 && e.j <= r.j1));
+    return r && r !== home ? eavesOf(r) : undefined;
+  };
+  const items: Item[] = [...walls.values()].map((e) => ({ pic: wallPic(e, front(e), capOf(e)) }));
+  for (const r of patches) if (r !== home) items.push({ pic: roofPic(r) });
+  // Shadows darken the ground once wherever any of them fall, before anything stands on it.
+  shade.fill(0);
+  for (const it of items) for (const p of it.pic.shadow ?? []) shade[p] = 1;
+  for (const p of home ? roofPic(home).shadow ?? [] : []) shade[p] = 1; // a hidden roof still shades the ground
+  for (let p = 0; p < shade.length; p++) {
+    if (!shade[p]) continue;
+    frame[p * 4] *= 0.64; frame[p * 4 + 1] *= 0.68; frame[p * 4 + 2] *= 0.8;
+  }
+  items.push({ pic: figurePic(ms) });
   order = paintOrder(items);
   for (const it of order) stamp(it.pic);
-  const view = document.getElementById('view') as HTMLCanvasElement;
-  view.getContext('2d')!.putImageData(new ImageData(frame, ground.w, ground.h), 0, 0);
+  full.getContext('2d')!.putImageData(new ImageData(frame, ground.w, ground.h), 0, 0);
 }
 
 // ------------------------------------------------------------------ picking and editing
 
 /** The wall under a screen pixel, else the edge of the ground cell there that the pixel is nearest to. */
+/** The topmost picture with ink at a screen pixel that passes `which`. */
+function picAt(px: number, py: number, which: (p: Pic) => boolean): Pic | null {
+  for (let k = order.length - 1; k >= 0; k--) {
+    const pic = order[k].pic;
+    if (!which(pic)) continue;
+    const x = px - pic.x, y = py - pic.y;
+    if (x >= 0 && y >= 0 && x < pic.w && y < pic.h && pic.rgba[(y * pic.w + x) * 4 + 3]) return pic;
+  }
+  return null;
+}
+
+/** The ground cell drawn at a screen pixel. */
+function cellAt(px: number, py: number): { ci: number; cj: number } | null {
+  if (px < 0 || py < 0 || px >= ground.w || py >= ground.h) return null;
+  const cell = ground.cell[py * ground.w + px];
+  return cell < 0 ? null : { ci: cell % shape.w, cj: Math.floor(cell / shape.w) };
+}
+
 function pickEdge(px: number, py: number): { edge: Edge; wall: boolean } | null {
   for (let k = order.length - 1; k >= 0; k--) {
     const pic = order[k].pic;
@@ -405,43 +640,55 @@ function pickEdge(px: number, py: number): { edge: Edge; wall: boolean } | null 
 
 let painting: boolean | null = null;
 
+function paintRoof(px: number, py: number, start: boolean): void {
+  // A press on a roof takes it away, patch by patch as the drag passes over them; elsewhere it roofs the cells dragged over.
+  const hit = picAt(px, py, (p) => !!p.roof);
+  if (start) painting = !hit;
+  if (!painting && hit) for (const k of hit.roof!.cells) roofs.delete(k);
+  const c = cellAt(px, py);
+  if (painting && c && !hit) roofs.add(`${c.ci},${c.cj}`);
+  roofPics.clear();
+
+}
+
 function paint(e: Edge, on: boolean): void {
   const k = edgeKey(e);
   if (on === walls.has(k)) return;
   if (on) walls.set(k, e);
   else { walls.delete(k); pics.delete(k); }
-  dirty = true;
-}
 
-function atPointer(ev: PointerEvent): { px: number; py: number } {
-  const r = (ev.currentTarget as HTMLCanvasElement).getBoundingClientRect();
-  return { px: Math.floor(((ev.clientX - r.left) / r.width) * ground.w), py: Math.floor(((ev.clientY - r.top) / r.height) * ground.h) };
 }
 
 // ------------------------------------------------------------------ page
 
-const view = document.getElementById('view') as HTMLCanvasElement;
+/** The whole frame, from which the viewport shows its part. */
+const full = document.createElement('canvas');
+const vp = new Viewport({
+  zoom: 3,
+  press: ({ x, y }, start) => {
+    const px = Math.floor(x), py = Math.floor(y);
+    if (P.paint === 'roof') return paintRoof(px, py, start);
+    const hit = pickEdge(px, py);
+    if (start) painting = hit ? !walls.has(edgeKey(hit.edge)) : null;
+    if (hit && painting !== null) paint(hit.edge, painting);
+  },
+});
+vp.canvas.style.cursor = 'crosshair';
+document.querySelector('main')!.append(vp.el);
 
-function applyZoom(): void {
-  view.style.width = `${ground.w * P.zoom}px`;
-  view.style.height = `${ground.h * P.zoom}px`;
+/** Puts the camera on the walker. */
+function lookAtWalker(): void {
+  const o = ground.origin;
+  vp.cam.x = o.x + (walker.x - walker.y) * HALF_W;
+  vp.cam.y = o.y + (walker.x + walker.y) * HALF_H - standingHeight(sea, walker.x, walker.y) * LEVEL_PX - 20;
 }
 
-view.addEventListener('pointerdown', (ev) => {
-  const { px, py } = atPointer(ev);
-  const hit = pickEdge(px, py);
-  if (!hit) return;
-  painting = !walls.has(edgeKey(hit.edge));
-  paint(hit.edge, painting);
-  view.setPointerCapture(ev.pointerId);
-});
-view.addEventListener('pointermove', (ev) => {
-  if (painting === null) return;
-  const { px, py } = atPointer(ev);
-  const hit = pickEdge(px, py);
-  if (hit) paint(hit.edge, painting);
-});
-view.addEventListener('pointerup', () => (painting = null));
+function show(): void {
+  const r = vp.rect();
+  vp.ctx.fillStyle = '#0d3b66';
+  vp.ctx.fillRect(0, 0, r.w, r.h);
+  vp.ctx.drawImage(full, -r.x, -r.y);
+}
 
 const keys = new Set<string>();
 addEventListener('keydown', (ev) => {
@@ -460,7 +707,7 @@ function resetWalker(): void {
   walker.x = P.terrain === 'proving' ? 12.5 : shape.w / 2 + 0.5;
   walker.y = P.terrain === 'proving' ? 12.5 : shape.h / 2 + 0.5;
   if (P.terrain === 'island') nudgeToLand();
-  dirty = true;
+
 }
 
 let last = performance.now();
@@ -469,8 +716,11 @@ function loop(now: number): void {
   last = now;
   const sx = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
   const sy = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - (keys.has('w') || keys.has('arrowup') ? 1 : 0);
+  vp.update(dt);
+  const moving = !!(sx || sy), run = keys.has('shift');
+  if (moving !== walker.moving || run !== walker.run) { walker.moving = moving; walker.run = run; walker.since = now; }
   if (sx || sy) {
-    const speed = keys.has('shift') ? 80 : 44; // screen pixels per second
+    const speed = run ? 80 : 44; // screen pixels per second
     const norm = sx && sy ? Math.SQRT1_2 : 1;
     const vx = ((sx * speed) / HALF_W + (sy * speed) / HALF_H) / 2 * norm;
     const vy = ((sy * speed) / HALF_H - (sx * speed) / HALF_W) / 2 * norm;
@@ -479,12 +729,11 @@ function loop(now: number): void {
       tryMove(walker.x + (vx * dt) / steps, walker.y);
       tryMove(walker.x, walker.y + (vy * dt) / steps);
     }
-    dirty = true;
+    walker.facing = facingOf(vx, vy, walker.facing);
   }
-  if (dirty) {
-    dirty = false;
-    render();
-  }
+  // The character blinks and breathes, so the frame is drawn every time.
+  render(now);
+  show();
   requestAnimationFrame(loop);
 }
 
@@ -524,7 +773,7 @@ function button(label: string, onClick: () => void, into: HTMLElement): void {
   into.append(b);
 }
 
-const rebuild = () => { pics.clear(); dirty = true; };
+const rebuild = () => { pics.clear(); roofPics.clear(); };
 
 select('Terrain', [['proving', 'Proving ground'], ['island', 'Generated island']], P.terrain, (v) => { P.terrain = v; loadTerrain(); });
 slider('Island seed', 1, 30, 1, P.islandSeed, (v) => { P.islandSeed = v; if (P.terrain === 'island') loadTerrain(); });
@@ -532,30 +781,33 @@ slider('Wall height (levels)', 1, 8, 1, P.height, (v) => { P.height = v; rebuild
 select('Top', [['slope', 'follows the slope'], ['stepped', 'steps by whole levels'], ['flat', 'flat']], P.top, (v) => { P.top = v; rebuild(); });
 slider('Overhang (px)', 0, 8, 1, P.overhang, (v) => { P.overhang = v; rebuild(); });
 slider('Plank seed', 1, 40, 1, P.seed, (v) => { P.seed = v; rebuild(); });
-select('Sort', [['box', 'boxes on the plan'], ['scalar', 'scalar i + j']], P.sort, (v) => { P.sort = v; dirty = true; });
+select('Sort', [['box', 'boxes on the plan'], ['scalar', 'scalar i + j']], P.sort, (v) => { P.sort = v; });
 slider('Collision padding (tiles)', 0, 0.5, 0.02, P.pad, (v) => (P.pad = v), (v) => v.toFixed(2));
-slider('Zoom', 1, 4, 1, P.zoom, (v) => { P.zoom = v; applyZoom(); }, (v) => `${v}×`);
+select('Paint', [['walls', 'walls on edges'], ['roof', 'roof on cells']], P.paint, (v) => (P.paint = v));
+slider('Roof rise (levels)', 0, 6, 1, P.rise, (v) => { P.rise = v; roofPics.clear(); });
+slider('Roof eaves (tiles)', 0, 0.6, 0.05, P.eaves, (v) => { P.eaves = v; roofPics.clear(); }, (v) => v.toFixed(2));
+setCharacter(pickedCharacter() ?? '');
+select('Character', people().map((c) => [c.id, c.name] as [string, string]), P.character, setCharacter);
 const check = document.createElement('label');
 check.className = 'check';
 const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: P.grid });
-box.addEventListener('change', () => { P.grid = box.checked; dirty = true; });
+box.addEventListener('change', () => { P.grid = box.checked; });
 check.append(box, 'Show cell edges');
 panel.append(check);
 const buttons = document.createElement('div');
 buttons.className = 'buttons';
-button('Clear walls', () => { walls.clear(); pics.clear(); dirty = true; }, buttons);
-button('Preset walls', () => { if (P.terrain === 'proving') { presetWalls(); pics.clear(); dirty = true; } }, buttons);
-button('Reset walker', resetWalker, buttons);
+button('Clear', () => { walls.clear(); roofs.clear(); rebuild(); }, buttons);
+button('Preset', () => { if (P.terrain === 'proving') { presetWalls(); presetRoofs(); rebuild(); } }, buttons);
+button('Reset walker', () => { resetWalker(); lookAtWalker(); }, buttons);
 panel.append(buttons);
 const help = document.createElement('div');
 help.className = 'help';
 help.innerHTML =
-  'Click or drag on a cell edge to add planks, on a wall to remove it.<br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows walk, <kbd>Shift</kbd> runs, <kbd>R</kbd> resets.<br><br>' +
+  'Walls: click or drag on a cell edge to add planks, on a wall to remove it. Roof: drag over cells to roof them, press a roof to take it off.<br>Pinch or Ctrl+scroll zooms, two fingers or scrolling pans.<br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows walk, <kbd>Shift</kbd> runs, <kbd>R</kbd> resets.<br><br>' +
   'Things to try: walk along the pen and its door in the "scalar" sort and look at the corners; set padding to 0 and push the walker into a wall; raise overhang while padding stays small.';
 panel.append(help);
 
-P.zoom = 2;
 loadTerrain();
 // For poking at it from the console or a test script.
-Object.assign(window, { proto: { walker, P, walls, redraw: () => (dirty = true), rebuild } });
+Object.assign(window, { proto: { walker, P, walls, roofs, vp, rebuild } });
 requestAnimationFrame(loop);

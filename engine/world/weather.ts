@@ -1,7 +1,7 @@
 // Weather as a few amounts, 0 to 1, that any game can blend: cloud, rain, wind, fog and storm.
 // They turn knobs the world already has (the sea's waves and wavelets, how hard plants sway, how
-// dark shadows are) and add overlays: drifting cloud shadows, wet ground, rain, rings on the
-// water, gusts, haze over the far sea and lightning. Which weather comes when is the game's.
+// dark shadows are) and add overlays: drifting cloud shadows, wet ground, rain, gusts, fog and
+// lightning. Which weather comes when is the game's.
 import type { Tint } from './daylight.ts';
 import { ocean, rgb } from './ocean.ts';
 
@@ -46,16 +46,47 @@ export function weatherSea(w: Weather): void {
 /** How hard plants sway: hardly at all on a calm day, up to a storm's; not at all in fog. */
 export const plantWind = (w: Weather) => Math.round((0.3 + 2.2 * airOf(w)) * (1 - w.fog) * 4) / 4;
 
-const GREY = rgb('#9aa3b0');
+const GREY = rgb('#7d8796');
 /** The light under cloud and rain: greyer and dimmer. Lay it with `light` as well as the time of day's tint. */
 export function overcast(w: Weather): Tint {
-  return { r: GREY[0], g: GREY[1], b: GREY[2], amount: Math.min(0.75, 0.3 * w.cloud + 0.15 * w.rain + 0.25 * w.storm) };
+  return { r: GREY[0], g: GREY[1], b: GREY[2], amount: Math.min(0.75, 0.5 * w.cloud + 0.1 * w.rain + 0.15 * w.storm) };
 }
 
-/** How much a shadow shows under the clouds, 1 in sunshine. */
-export const shadowLight = (w: Weather) => 1 - 0.75 * w.cloud;
+/** How much a shadow shows, 1 in sunshine: faint under a cloudy sky, gone in fog. */
+export const shadowLight = (w: Weather) => Math.max(0.3, 1 - 1.8 * w.cloud) * Math.max(0, 1 - 2 * w.fog);
 
-const hash = (a: number, b: number) => ((Math.imul(a, 73856093) ^ Math.imul(b + 0x9e37, 19349663)) >>> 0) / 4294967296;
+/**
+ * Lays a lightning flash, `flash` 0 to 1, over a finished picture, once it is lit for the time of
+ * day: for a moment the world is much starker, the light brighter and the dark nearly black. Only
+ * brightness changes: a colour is darkened by scaling it and brightened toward white, so it never
+ * gets more saturated.
+ */
+export function lightning(image: { data: Uint8ClampedArray }, flash: number): void {
+  if (flash <= 0) return;
+  const d = image.data;
+  const gain = 1 + 3 * flash;
+  const pivot = 0.4;
+  const lift = 0.12 * flash;
+  for (let o = 0; o < d.length; o += 4) {
+    const l = (0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]) / 255;
+    const to = Math.min(1, Math.max(0, (l - pivot) * gain + pivot + lift));
+    if (to < l) {
+      const k = to / l;
+      for (let c = 0; c < 3; c++) d[o + c] *= k;
+    } else if (l < 1) {
+      const k = (to - l) / (1 - l);
+      for (let c = 0; c < 3; c++) d[o + c] += (255 - d[o + c]) * k;
+    }
+  }
+}
+
+/** A random-looking number 0 to 1 for two whole numbers. Mixed well: neighbours must not line up, or rain falls in rows. */
+function hash(a: number, b: number): number {
+  let h = Math.imul(a, 0x27d4eb2d) ^ Math.imul(b + 0x9e37, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 /**
  * How bright a lightning flash is now, 0 to 1. Each second may hold one, more often the stormier:
@@ -100,7 +131,7 @@ const toward = (d: Uint8ClampedArray, o: number, c: number[], k: number) => {
 
 /**
  * Lays the weather over a composed view, `view` its place on the ground image: ground first
- * (cloud shadows, wet ground, rings on the water, haze), then what is in the air (rain, gusts).
+ * (cloud shadows, wet ground, fog), then what is in the air (rain, gusts).
  */
 export function drawWeather(image: { data: Uint8ClampedArray; width: number; height: number }, view: { x: number; y: number }, depthAt: DepthAt, ms: number, w: Weather): void {
   const { width: vw, height: vh, data: d } = image;
@@ -121,29 +152,12 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
           if (k > 0) toward(d, o, CLOUD, patches * k);
         }
         if (wet > 0 && depth === 0) toward(d, o, WET, wet);
-        // Fog lies over land and sea alike, in slow banks, a little thicker far out.
-        if (w.fog > 0) {
-          const bank = noise((gx + t * 2) / 60, gy / 34);
-          toward(d, o, FOG, w.fog * Math.min(0.85, 0.3 + 0.35 * bank + 0.15 * Math.min(1, depth / 4)));
-        }
+        // Fog lies over land and sea alike, in slow banks, the same wherever the map ends.
+        if (w.fog > 0) toward(d, o, FOG, w.fog * (0.55 + 0.25 * noise((gx + t * 2) / 60, gy / 34)));
       }
     }
   }
   if (w.rain > 0) {
-    // Rings where drops hit the water: each grows for a moment and is gone.
-    const rings = Math.floor((w.rain * vw * vh) / 500);
-    const slot = Math.floor(ms / 400);
-    for (let k = 0; k < rings; k++) {
-      const s = slot + (k % 4);
-      const age = (ms / 400 + (k % 4) / 4) % 1;
-      const cx = Math.floor(hash(k, s) * vw), cy = Math.floor(hash(k, s + 7) * vh);
-      if (depthAt(cx + view.x, cy + view.y) < 0.2) continue;
-      const r = age < 0.5 ? 1 : 2;
-      for (const [dx, dy] of [[-r, 0], [r, 0], [0, -1], [0, 1]]) {
-        const x = cx + dx, y = cy + dy;
-        if (x >= 0 && y >= 0 && x < vw && y < vh) toward(d, (y * vw + x) * 4, RING, 0.5 * (1 - age));
-      }
-    }
     // Streaks falling with the wind, to the right like the gusts: short in rain, long in a storm.
     const streaks = Math.floor((w.rain * vw * vh) / 70);
     const len = 3 + Math.round(5 * w.storm);
@@ -162,8 +176,8 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
       }
     }
   }
-  if (airOf(w) > 0.4) {
-    // Gusts: thin pale lines blown across.
+  // Gusts: thin pale lines blown across, only in dry weather, so they are never taken for rain.
+  if (airOf(w) > 0.4 && w.rain === 0) {
     const gusts = Math.floor(((airOf(w) - 0.4) * vw * vh) / 2500);
     for (let k = 0; k < gusts; k++) {
       const speed = 120 + 80 * hash(k, 6);

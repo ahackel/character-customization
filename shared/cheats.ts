@@ -1,14 +1,14 @@
 // Cheats for any game while developing (the game shows them for ?cheats): one orange button with a
 // lightning bolt in the lower left, which slides a drawer of orange cheat buttons in from the left.
 // Tapping a cheat keeps the drawer open; tapping beside it closes it. A cheat can hold a list of
-// more, shown under it when tapped. Brings its own styles.
+// more, which takes the list's place when tapped until one of them is picked. Brings its own styles.
 import { LINE_H, text, textWidth } from './pixel-font.ts';
 import { drawRows, panel, pixelCanvas } from './pixel-ui.ts';
 
 export interface Cheat {
   words: string;
   on?: () => void;
-  /** Cheats listed under this one when it is tapped, such as a choice of weathers. */
+  /** Cheats that take the drawer's place when this one is tapped, such as a choice of weathers. */
   more?: Cheat[];
 }
 
@@ -27,8 +27,6 @@ const CSS = `
   padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background: #000a; transform: translateX(-100%); transition: transform 0.25s ease-out; }
 .cheat-drawer.open .cheat-panel { transform: none; }
-.cheat-more { display: flex; flex-direction: column; gap: 6px; padding-left: 12px; }
-.cheat-more[hidden] { display: none; }
 `;
 
 /** An orange pixel button with white words or the bolt, `scale` times larger. */
@@ -66,20 +64,21 @@ export function cheatDrawer(parent: HTMLElement, cheats: Cheat[], scale: number,
   drawer.className = 'cheat-drawer';
   const list = document.createElement('div');
   list.className = 'cheat-panel';
-  const add = (to: HTMLElement, c: Cheat) => {
-    if (!c.more) return to.append(button('cheat-btn', c.words, c.words, scale, () => c.on?.()));
-    const more = document.createElement('div');
-    more.className = 'cheat-more';
-    more.hidden = true;
-    to.append(button('cheat-btn', c.words, c.words, scale, () => {
-      more.hidden = !more.hidden;
+  // A cheat with more puts them in place of the list; picking one brings the list back.
+  const show = (shown: Cheat[]) => {
+    list.replaceChildren(...shown.map((c) => button('cheat-btn', c.words, c.words, scale, () => {
       c.on?.();
-    }), more);
-    c.more.forEach((m) => add(more, m));
+      if (c.more) show(c.more);
+      else if (shown !== cheats) show(cheats);
+    })));
   };
-  cheats.forEach((c) => add(list, c));
+  show(cheats);
   drawer.append(list);
-  const open = (on: boolean) => drawer.classList.toggle('open', on);
+  const open = (on: boolean) => {
+    // Opening always starts at the top list.
+    if (on) show(cheats);
+    drawer.classList.toggle('open', on);
+  };
   // Tapping beside the panel closes it; taps on the panel stay there.
   drawer.addEventListener('click', () => open(false));
   list.addEventListener('click', (e) => e.stopPropagation());

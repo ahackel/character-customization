@@ -15,7 +15,7 @@ import { turnFacing, type Facing } from '../core/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
 import { fishPixels, type Fish } from './fish.ts';
-import { CLEAR, drawWeather, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
+import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
 import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
@@ -598,6 +598,8 @@ export class World {
     // Shadows reach past a thing's picture, so things just outside the window cast into it too.
     // Each ground pixel is darkened once, and not where the ground already lies in shadow.
     const mask = new Uint8Array(w * h);
+    // A lightning flash throws hard shadows, darker than the sun's.
+    const flash = flashAt(ms, this.weather);
     for (const t of things) {
       const at = footOf(g, t.spot);
       if (at.x + 2 * t.w < view.x || at.x - 2 * t.w > view.x + w || at.y - t.h > view.y + h || at.y + t.h < view.y) continue;
@@ -607,7 +609,7 @@ export class World {
         if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
           mask[y * w + x] = 1;
           const o = (y * w + x) * 4;
-          const a = SHADE_ALPHA * shadowFade(g.depth[p]) * shadowLight(this.weather);
+          const a = SHADE_ALPHA * shadowFade(g.depth[p]) * Math.max(shadowLight(this.weather), 3 * flash);
           for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * a;
         }
       }

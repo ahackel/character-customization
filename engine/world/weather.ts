@@ -25,18 +25,26 @@ export function mixWeather(a: Weather, b: Weather, k: number): Weather {
 /** The sea as tuned, for calm weather; wind scales it from here. */
 const CALM = { ...ocean };
 
-/** Sets the sea's waves and wavelets for a weather: wind brings more wavelets, faster drift and bigger, quicker waves. */
+/** How much the air moves: fog comes with still air. */
+const airOf = (w: Weather) => w.wind * (1 - w.fog);
+
+/**
+ * Sets the sea's waves and wavelets for a weather: wind brings more wavelets, faster drift and
+ * bigger, quicker waves; fog lays the sea almost flat.
+ */
 export function weatherSea(w: Weather): void {
-  ocean.ripples = Math.min(0.8, CALM.ripples + 0.4 * w.wind);
-  ocean.rippleOpacity = Math.min(0.9, CALM.rippleOpacity + 0.25 * w.wind);
-  ocean.drift = CALM.drift * (1 + 2 * w.wind);
-  ocean.wavePeriod = CALM.wavePeriod / (1 + 0.7 * w.wind);
-  ocean.waveReach = CALM.waveReach * (1 + 0.3 * w.wind);
-  ocean.glints = CALM.glints * (1 - w.cloud);
+  const air = airOf(w);
+  const still = 1 - 0.6 * w.fog;
+  ocean.ripples = Math.min(0.8, (CALM.ripples + 0.4 * air) * still);
+  ocean.rippleOpacity = Math.min(0.9, CALM.rippleOpacity + 0.25 * air);
+  ocean.drift = CALM.drift * (1 + 2 * air) * still;
+  ocean.wavePeriod = CALM.wavePeriod / (1 + 0.7 * air) / still;
+  ocean.waveReach = CALM.waveReach * (1 + 0.3 * air) * still;
+  ocean.glints = CALM.glints * (1 - w.cloud) * (1 - w.fog);
 }
 
-/** How hard plants sway: a breeze on a calm day, up to a storm's. */
-export const plantWind = (w: Weather) => Math.round((1 + 1.5 * w.wind) * 4) / 4;
+/** How hard plants sway: hardly at all on a calm day, up to a storm's; not at all in fog. */
+export const plantWind = (w: Weather) => Math.round((0.3 + 2.2 * airOf(w)) * (1 - w.fog) * 4) / 4;
 
 const GREY = rgb('#9aa3b0');
 /** The light under cloud and rain: greyer and dimmer. Lay it with `light` as well as the time of day's tint. */
@@ -99,7 +107,7 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
   const t = ms / 1000;
   // Patchy cloud throws shadows; under a closed sky the light is simply grey.
   const patches = 0.22 * Math.sin(Math.PI * Math.min(1, w.cloud));
-  const drift = { x: t * (6 + 24 * w.wind), y: t * (2 + 6 * w.wind) };
+  const drift = { x: t * (6 + 24 * airOf(w)), y: t * (2 + 6 * airOf(w)) };
   const wet = 0.3 * w.rain;
   if (patches > 0.01 || wet > 0 || w.fog > 0) {
     for (let y = 0; y < vh; y++) {
@@ -113,7 +121,11 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
           if (k > 0) toward(d, o, CLOUD, patches * k);
         }
         if (wet > 0 && depth === 0) toward(d, o, WET, wet);
-        if (w.fog > 0) toward(d, o, FOG, w.fog * (0.12 + 0.6 * Math.min(1, depth / 3.5)));
+        // Fog lies over land and sea alike, in slow banks, a little thicker far out.
+        if (w.fog > 0) {
+          const bank = noise((gx + t * 2) / 60, gy / 34);
+          toward(d, o, FOG, w.fog * Math.min(0.85, 0.3 + 0.35 * bank + 0.15 * Math.min(1, depth / 4)));
+        }
       }
     }
   }
@@ -132,25 +144,27 @@ export function drawWeather(image: { data: Uint8ClampedArray; width: number; hei
         if (x >= 0 && y >= 0 && x < vw && y < vh) toward(d, (y * vw + x) * 4, RING, 0.5 * (1 - age));
       }
     }
-    // Streaks falling, slanted by the wind.
+    // Streaks falling with the wind, to the right like the gusts: short in rain, long in a storm.
     const streaks = Math.floor((w.rain * vw * vh) / 70);
-    const len = 3 + Math.round(2 * w.rain);
-    const slant = 0.25 + 0.8 * w.wind;
+    const len = 3 + Math.round(5 * w.storm);
+    const slant = 0.15 + 1.1 * w.wind;
+    // Steps of at most a pixel either way, so a steep or flat streak stays one unbroken line.
+    const step = 1 / Math.max(1, slant);
     for (let k = 0; k < streaks; k++) {
       const speed = 160 + 80 * hash(k, 3);
       const span = vh + len + 8;
       const y0 = ((t * speed + hash(k, 4) * span) % span) - len;
       // Drops drift with the wind, to the right like the gusts, along the line their streak draws.
       const x0 = hash(k, 5) * (vw + vh * slant) - vh * slant + y0 * slant;
-      for (let n = 0; n < len; n++) {
+      for (let n = 0; n < len; n += step) {
         const x = Math.floor(x0 - n * slant), y = Math.floor(y0 - n);
-        if (x >= 0 && y >= 0 && x < vw && y < vh) toward(d, (y * vw + x) * 4, RAIN, 0.45);
+        if (x >= 0 && y >= 0 && x < vw && y < vh) toward(d, (y * vw + x) * 4, RAIN, 0.5);
       }
     }
   }
-  if (w.wind > 0.4) {
+  if (airOf(w) > 0.4) {
     // Gusts: thin pale lines blown across.
-    const gusts = Math.floor(((w.wind - 0.4) * vw * vh) / 2500);
+    const gusts = Math.floor(((airOf(w) - 0.4) * vw * vh) / 2500);
     for (let k = 0; k < gusts; k++) {
       const speed = 120 + 80 * hash(k, 6);
       const span = vw + 40;

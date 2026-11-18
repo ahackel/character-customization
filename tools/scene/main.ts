@@ -11,7 +11,7 @@ import { Herd } from '../../engine/world/herd.ts';
 import {
   createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, refreshLinks, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
 } from '../../engine/world/scene.ts';
-import { grows, rasterOf, smooth, WADE, World, type Rect, type Thing } from '../../engine/world/world.ts';
+import { grows, rasterOf, smooth, World, type Rect, type Thing } from '../../engine/world/world.ts';
 import { DECOR, decorById, decorPixels } from '../../engine/world/decor.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../../engine/animals/animal.ts';
 import { drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing } from '../../engine/core/puppet.ts';
@@ -274,7 +274,7 @@ function placePlant(at: { i: number; j: number }, placed: Set<PlacedPlant>): voi
 }
 
 /** Decorations lie on land and on the sea floor down to this level, where the water still shows them. */
-const DECOR_DEPTH = WADE - 1;
+const DECOR_DEPTH = SEA_LEVEL - 2;
 
 function placeDecor(at: { i: number; j: number }): void {
   if (levelAt(world.floor, at.i, at.j) < DECOR_DEPTH) return;

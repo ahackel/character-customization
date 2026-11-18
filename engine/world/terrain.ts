@@ -215,8 +215,13 @@ export function setWater(colors: string[]): void {
 }
 /** The blends `waterAt` has worked out, by colour pair and step. */
 let waterSteps: string[] = [];
+/**
+ * How much of something under water still shows, `depth` levels down: all of it at the water
+ * line, less the deeper it is, none where the water is deep blue. The rest is the water colour.
+ */
+export const underwater = (depth: number) => Math.max(0, 1 - depth / WATER[WATER.length - 1][0]);
 /** The water colour at a depth, blended between the colours above in steps of a twentieth. */
-function waterAt(depth: number): string {
+export function waterAt(depth: number): string {
   for (let k = 1; k < WATER.length; k++) {
     const [d1, hi] = WATER[k];
     if (depth >= d1) continue;

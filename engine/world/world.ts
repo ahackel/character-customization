@@ -7,7 +7,7 @@ import { cleanSwap, FLORA_STORE, plantById, type PlantEntry } from '../flora/flo
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from './island.ts';
 import { SHADOW } from '../core/palette.ts';
 import {
-  GROUNDS, heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt,
+  GROUNDS, heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt, underwater,
   TILE_W, type HeightMap, type TerrainImage,
 } from './terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../animals/animal.ts';
@@ -39,8 +39,6 @@ const PRINT_DEPTH = 0.45;
 const WET_RGB = rgb('#a8905c');
 const WET_DEPTH = 0.4;
 /** Fish are dark shapes under the water: this colour, this much. */
-const FISH_RGB = rgb('#0f3a48');
-const FISH_ALPHA = 0.55;
 /** The pixels of a footprint and of a paw print, round the spot stepped on. */
 const FOOT = [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 const PAW = [[0, 0], [1, 0]] as const;
@@ -165,8 +163,11 @@ function waveletAt(x: number, row: number, ms: number): number {
   return at >= start && at < start + len ? Math.sin((phase / MARKS.shown) * Math.PI) * ocean.rippleOpacity : 0;
 }
 
-/** The deepest a walker wades: the shallows, one level under the water line. Deeper water blocks. */
-export const WADE = SEA_LEVEL - 1;
+/**
+ * The deepest a walker wades: floor two levels under the water line, which with the floor sloping
+ * between tiles is up to about half a character's height. Deeper water blocks.
+ */
+export const WADE = SEA_LEVEL - 2;
 
 /** Everything blocks a walker except grass. Radius in metres per unit of plant size. */
 const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, rock: 0.4, driftwood: 0.35, grass: 0 };
@@ -413,7 +414,8 @@ export class World {
       const level = heightAt(this.floor, item.vi, item.vj);
       const at = footOf(g, { i: item.vi, j: item.vj, level });
       if (at.x < view.x - 8 || at.y < view.y - 8 || at.x > view.x + view.w + 8 || at.y > view.y + view.h + 8) continue;
-      const wet = level < SEA_LEVEL ? 0.5 : 1;
+      const wet = underwater(SEA_LEVEL - level);
+      if (wet <= 0) continue;
       for (const px of decorPixels(kind)) {
         const gx = at.x + px.x;
         const gy = at.y + px.y;
@@ -428,24 +430,40 @@ export class World {
     }
   }
 
-  /** Fish as dark shapes seen through the water, only where water shows, so never on the beach. */
+  /** Fish seen through the water, only where water shows, so never on the beach. */
   private drawFish(image: Pixels, view: Rect, ms: number): void {
     const g = this.ground;
     const d = image.data;
     this.fish.forEach((f, n) => {
       const at = footOf(g, { i: f.i, j: f.j, level: SEA_LEVEL });
-      if (at.x < view.x - 4 || at.y < view.y - 4 || at.x > view.x + view.w + 4 || at.y > view.y + view.h + 4) return;
-      // On screen, x grows with i and shrinks with j.
-      const right = Math.cos(f.a) - Math.sin(f.a) > 0;
-      for (const px of fishPixels(Math.floor(ms / 200 + n * 0.37), right)) {
+      // Out in deep water a fish is lost in the blue.
+      if (underwater(SEA_LEVEL - heightAt(this.floor, f.i, f.j)) <= 0) return;
+      if (at.x < view.x - 8 || at.y < view.y - 8 || at.x > view.x + view.w + 8 || at.y > view.y + view.h + 8) return;
+      const dir = Math.round(f.a / (Math.PI / 4));
+      for (const px of fishPixels(Math.floor(ms / 150 + n * 0.37), dir, f.kind)) {
         const gx = at.x + px.x, gy = at.y + px.y;
         const x = gx - view.x, y = gy - view.y;
         if (x < 0 || y < 0 || x >= view.w || y >= view.h || gx < 0 || gy < 0 || gx >= g.w || gy >= g.h) continue;
-        if (g.depth[gy * g.w + gx] < 0.3) continue;
+        const depth = g.depth[gy * g.w + gx];
+        if (depth <= 0) continue;
+        const c = rgb(px.color);
         const o = (y * view.w + x) * 4;
-        for (let k = 0; k < 3; k++) d[o + k] += (FISH_RGB[k] - d[o + k]) * FISH_ALPHA;
+        const shows = underwater(depth);
+        for (let k = 0; k < 3; k++) d[o + k] += (c[k] - d[o + k]) * shows;
       }
     });
+  }
+
+  /** The fish nearest a pixel of the ground image, within `r` pixels of its middle, if any. */
+  fishAt(p: { x: number; y: number }, r: number): Fish | null {
+    let best: Fish | null = null;
+    let bestD = r;
+    for (const f of this.fish) {
+      const at = footOf(this.ground, { i: f.i, j: f.j, level: SEA_LEVEL });
+      const dist = Math.hypot(p.x - at.x, p.y - at.y);
+      if (dist <= bestD) [best, bestD] = [f, dist];
+    }
+    return best;
   }
 
   /** Where a map point is on the ground image. */

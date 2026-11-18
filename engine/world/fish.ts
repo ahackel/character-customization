@@ -1,6 +1,7 @@
-// Fish under the water: small dark shapes that wander where it is deep enough, turning back before
+// Fish under the water: small fish that wander where it is deep enough, turning back before
 // the shallows. They are drawn on the ground image with the water over them, like decor, so they
 // never cover the beach, waves or anything standing.
+import { PALETTE, type PaletteKey } from '../core/palette.ts';
 import { heightAt, inside, SEA_LEVEL, type HeightMap } from './terrain.ts';
 
 export interface Fish {
@@ -13,6 +14,8 @@ export interface Fish {
   turn: number;
   /** Metres a second. */
   speed: number;
+  /** Which kind of fish, by its colours (see `fishPixels`). */
+  kind: number;
 }
 
 /** Fish keep to water at least this many levels deep. */
@@ -30,7 +33,7 @@ export function spawnFish(map: HeightMap, count: number, random: () => number): 
     const i = random() * map.w;
     const j = random() * map.h;
     if (!swimmable(map, i, j)) continue;
-    out.push({ i, j, a: random() * Math.PI * 2, turn: 0, speed: SPEED[0] + random() * (SPEED[1] - SPEED[0]) });
+    out.push({ i, j, a: random() * Math.PI * 2, turn: 0, speed: SPEED[0] + random() * (SPEED[1] - SPEED[0]), kind: Math.floor(random() * KINDS.length) });
   }
   return out;
 }
@@ -53,19 +56,117 @@ export function swim(fish: Fish[], map: HeightMap, dt: number, random: () => num
   }
 }
 
-/** A fish facing right on screen, two tail frames; 'a' body, 'b' tail. Mirrored to face left. */
-const FRAMES = [
-  ['b.aa.', '.aaaa', 'b.aa.'],
-  ['..aa.', 'bbaaa', '..aa.'],
-] as const;
+// ------------------------------------------------------------------ the picture
 
-/** The pixels of a fish relative to its middle, `right` when it heads right on screen. */
-export function fishPixels(frame: number, right: boolean): { x: number; y: number; tail: boolean }[] {
-  const rows = FRAMES[frame % FRAMES.length];
-  const out: { x: number; y: number; tail: boolean }[] = [];
-  rows.forEach((row, y) => [...row].forEach((c, x) => {
-    if (c === '.') return;
-    out.push({ x: (right ? x : row.length - 1 - x) - 2, y: y - 1, tail: c === 'b' });
-  }));
+/**
+ * A fish is drawn like the animals: a small 3D body in the 2:1 view, lit from the upper left in the
+ * palette's three tones, no outline. The body is an egg tapering to the tail, with a back fin and a
+ * forked tail fin that swings as it swims. Sizes are in pixels.
+ */
+const BODY = { front: 4.8, back: 5.2, wide: 1.5, high: 2.4 };
+/** Each kind of fish: its back, its belly and its fins. */
+const KINDS: { back: PaletteKey; belly: PaletteKey; fin: PaletteKey }[] = [
+  { back: 'navy', belly: 'steel', fin: 'blue' }, // a mackerel
+  { back: 'green', belly: 'lime', fin: 'teal' }, // a wrasse
+  { back: 'red', belly: 'orange', fin: 'orange' }, // a snapper
+];
+type V3 = [number, number, number];
+const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const unit = (v: V3): V3 => {
+  const l = Math.hypot(...v);
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
+/** Light from the upper left and a little from the front, as on the animals; in screen axes (right, up, toward the viewer). */
+const LIGHT = unit([-0.55, 0.75, 0.35]);
+/** The view looks down 30 degrees, which is what makes the ground 2:1. */
+const DOWN = Math.PI / 6;
+
+type Pixel = { x: number; y: number; color: string };
+const drawn = new Map<string, Pixel[]>();
+
+/**
+ * The pixels of a fish relative to its middle, heading `dir` eighths of a turn round the map from
+ * +i (screen lower right; 2 is +j, lower left), its tail swung by `frame`, in the colours of `kind`.
+ */
+export function fishPixels(frame: number, dir: number, kind = 0): Pixel[] {
+  dir = ((dir % 8) + 8) % 8;
+  const swing = [0, 1, 0, -1][frame % 4];
+  const key = `${dir}|${swing}|${kind % KINDS.length}`;
+  let out = drawn.get(key);
+  if (!out) drawn.set(key, (out = drawFish(dir, swing, KINDS[kind % KINDS.length])));
   return out;
+}
+
+function drawFish(dir: number, swing: number, colors: (typeof KINDS)[number]): Pixel[] {
+  // The fish's axes on the map (forward, left) in screen terms: map +i is screen (1, 1/2), +j is (-1, 1/2),
+  // so a map direction (di, dj) runs (di - dj) to the right and (di + dj) / 2 toward the viewer, unscaled across.
+  const a = (dir * Math.PI) / 4;
+  const across = (di: number, dj: number) => (di - dj) / Math.SQRT2;
+  const toward = (di: number, dj: number) => (di + dj) / Math.SQRT2;
+  const fwd = [across(Math.cos(a), Math.sin(a)), toward(Math.cos(a), Math.sin(a))];
+  const side = [across(-Math.sin(a), Math.cos(a)), toward(-Math.sin(a), Math.cos(a))];
+  /** A point of the fish (forward, side, up) as screen right, screen down and nearness to the viewer. */
+  const project = (f: number, s: number, u: number) => {
+    const r = f * fwd[0] + s * side[0];
+    const t = f * fwd[1] + s * side[1];
+    return { x: r, y: t * Math.sin(DOWN) - u * Math.cos(DOWN), near: t * Math.cos(DOWN) + u * Math.sin(DOWN) };
+  };
+  /** A direction of the fish in the screen axes the light is given in. */
+  const toScreen = (f: number, s: number, u: number): V3 => {
+    const p = project(f, s, u);
+    return [p.x, -p.y, p.near];
+  };
+  const depth = new Map<string, { near: number; color: string }>();
+  const plot = (f: number, s: number, u: number, normal: V3, role: 'back' | 'belly' | 'fin') => {
+    const p = project(f, s, u);
+    const k = `${Math.floor(p.x)},${Math.floor(p.y)}`;
+    const was = depth.get(k);
+    if (was && was.near >= p.near) return;
+    const n = toScreen(...normal);
+    // A fin is thin: lit from whichever side faces the viewer.
+    const lit = dot(n[2] < 0 && role === 'fin' ? [-n[0], -n[1], -n[2]] : n, LIGHT);
+    const tone = lit > 0.55 ? 'light' : lit > 0 ? 'base' : 'shade';
+    depth.set(k, { near: p.near, color: PALETTE[colors[role]][tone] });
+  };
+  const STEP = 0.25;
+  // The tail bends with the swing, more the further back.
+  const bend = (f: number) => (f < 0 ? swing * 0.35 * (f / BODY.back) ** 2 * BODY.back : 0);
+  for (let f = -BODY.back; f <= BODY.front; f += STEP) {
+    const long = f >= 0 ? f / BODY.front : f / BODY.back;
+    // Slimmer toward the tail than the head.
+    const taper = f >= 0 ? 1 : 1 - 0.55 * long * long;
+    const ring = Math.sqrt(Math.max(0, 1 - long * long)) * taper;
+    for (let s = -BODY.wide; s <= BODY.wide; s += STEP) for (let u = -BODY.high; u <= BODY.high; u += STEP) {
+      const q = (s / (BODY.wide * ring || 1)) ** 2 + (u / (BODY.high * ring || 1)) ** 2;
+      if (ring <= 0 || q > 1) continue;
+      const normal = unit([long / BODY.front, s / BODY.wide ** 2, u / BODY.high ** 2]);
+      plot(f, s + bend(f), u, normal, u < -0.5 * BODY.high * ring ? 'belly' : 'back');
+    }
+  }
+  // The back fin, a low ridge over the middle of the back.
+  for (let f = -1.5; f <= 1.2; f += STEP) for (let u = 0; u <= 1.2 * (1 - Math.abs(f + 0.2) / 1.5); u += STEP) {
+    plot(f, bend(f), BODY.high * 0.95 + u, [0, 1, 0], 'fin');
+  }
+  // The tail fin: two lobes spreading back from the stalk, a notch between them.
+  for (let f = -BODY.back - 2.6; f <= -BODY.back + 0.4; f += STEP) {
+    const spread = 0.4 + (-BODY.back + 0.4 - f) * 0.75;
+    for (let u = -spread; u <= spread; u += STEP) {
+      if (f < -BODY.back - 1.4 && Math.abs(u) < 0.6) continue;
+      plot(f, bend(f) + swing * 0.3, u, [0, 1, 0], 'fin');
+    }
+  }
+  // The eyes, a dark pixel each side of the head where it is seen.
+  for (const side3 of [-1, 1]) {
+    const f = BODY.front * 0.55, u = BODY.high * 0.2;
+    const ring = Math.sqrt(1 - 0.55 * 0.55);
+    const s = side3 * BODY.wide * ring * 0.95;
+    const p = project(f, s, u);
+    const k = `${Math.floor(p.x)},${Math.floor(p.y)}`;
+    const at = depth.get(k);
+    if (at && at.near <= p.near + 0.3) at.color = PALETTE.ink.base;
+  }
+  return [...depth].map(([k, v]) => {
+    const [x, y] = k.split(',').map(Number);
+    return { x, y, color: v.color };
+  });
 }

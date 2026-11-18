@@ -4,7 +4,7 @@ import { AUTHORED, STAND, type Clip } from '../core/poses.ts';
 import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, handsOn, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Sprite } from '../core/puppet.ts';
 import { SHADOW } from '../core/palette.ts';
 import type { Picture } from './island.ts';
-import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight } from './terrain.ts';
+import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight, underwater, waterAt } from './terrain.ts';
 import { ocean, rgb } from './ocean.ts';
 import type { Thing, World } from './world.ts';
 
@@ -77,15 +77,18 @@ function tint(hex: string, to: number[], k: number): string {
 
 /** A character picture standing `rows` pixels deep in water: the rows under the surface are tinted, the waterline lighter, the ground shadow gone. */
 function wading(sprite: Picture, rows: number): Picture {
-  const water = rgb(ocean.shallow);
   const foam = rgb(ocean.wave);
   const line = FEET.y - rows;
+  // Under the surface, the deeper a row the more the water covers it, as with fish.
+  const under = Array.from({ length: rows + 1 }, (_, n) => ({ water: rgb(waterAt(n / LEVEL_PX)), cover: 1 - underwater(n / LEVEL_PX) }));
   return {
     get(x, y) {
       const c = sprite.get(x, y);
       if (!c || c === SHADOW) return null;
       if (y === line) return tint(c, foam, 0.55);
-      return y > line ? tint(c, water, 0.6) : c;
+      if (y < line) return c;
+      const u = under[Math.min(rows, y - line)];
+      return tint(c, u.water, u.cover);
     },
   };
 }
@@ -156,6 +159,11 @@ export class Actor {
   emote(emote: Emote, ms: number): void {
     // Hands full: no waving.
     if (!this.carrying) this.play(emote, ms);
+  }
+
+  /** Turns, standing, toward a direction on the map, as toward something looked at. */
+  lookAt(di: number, dj: number): void {
+    this.heading = Math.atan2(dj, di);
   }
 
   /** Gets a sitting character up, and starts the wait before sitting again over. */

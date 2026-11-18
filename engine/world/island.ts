@@ -166,8 +166,22 @@ export function footOf(ground: TerrainImage, spot: Spot): { x: number; y: number
   return { x: Math.round(ground.origin.x + p.x), y: Math.round(ground.origin.y + p.y) };
 }
 
-/** One thing to paint: its picture, and where the picture's ground pixel goes. */
-export interface Thing { spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number } }
+/** A footprint on the plan, in map units, with the order key to fall back on where two footprints do not decide. */
+export interface PlanBox { x0: number; x1: number; y0: number; y1: number; key: number }
+
+/**
+ * One thing to paint: its picture, and where the picture's ground pixel goes. Things that are not
+ * a point on the map, like a wall along an edge or a roof over cells, also give:
+ *  - `box`, their footprint, so they are put in front of or behind others by the plan rather than by `i + j`;
+ *  - `shadow`, the ground-image pixels they shade, instead of a shadow cast from the picture as if it stood upright at `spot`;
+ *  - `bases`, per picture pixel, the level of the ground it stands on, for hiding it behind nearer higher ground.
+ */
+export interface Thing {
+  spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number };
+  box?: PlanBox;
+  shadow?: ArrayLike<number>;
+  bases?: Float32Array;
+}
 
 /** Paints the island with everything on it: ground, all shadows at once, then things back to front. */
 export function paintIsland(map: HeightMap, ground: TerrainImage, things: Thing[]): Pixels {

@@ -20,9 +20,43 @@ import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type W
 import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
+import { blocked, BuildingView, crosses, type Building, type Part, type PieceKind } from './building/building.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export type { Thing };
+
+/**
+ * Things back to front. By `i + j` of their spots, except that a thing with a footprint on the
+ * plan (`box`) goes behind whatever its picture overlaps that lies wholly in front of the footprint
+ * along i or j, and in front of what lies wholly behind it (the box test of Ultima 8). Without any
+ * footprint in view this is the plain `i + j` sort.
+ */
+export function paintOrder<T extends Thing & { dx: number; dy: number }>(things: T[]): T[] {
+  const keyOf = (t: T) => t.box?.key ?? t.spot.i + t.spot.j;
+  const sorted = [...things].sort((a, b) => keyOf(a) - keyOf(b));
+  if (!sorted.some((t) => t.box)) return sorted;
+  const overlaps = (a: T, b: T) => a.dx < b.dx + b.w && b.dx < a.dx + a.w && a.dy < b.dy + b.h && b.dy < a.dy + a.h;
+  // A point thing's footprint is its spot.
+  const boxOf = (t: T) => t.box ?? { x0: t.spot.i, x1: t.spot.i, y0: t.spot.j, y1: t.spot.j };
+  const before = (a: T, b: T) => {
+    if (!a.box && !b.box) return keyOf(a) < keyOf(b);
+    const p = boxOf(a), q = boxOf(b);
+    const aFirst = p.x1 <= q.x0 || p.y1 <= q.y0;
+    const bFirst = q.x1 <= p.x0 || q.y1 <= p.y0;
+    if (aFirst !== bFirst) return aFirst;
+    return keyOf(a) < keyOf(b);
+  };
+  const out: T[] = [];
+  const seen = new Set<T>();
+  const visit = (t: T) => {
+    if (seen.has(t)) return;
+    seen.add(t);
+    for (const o of sorted) if (o !== t && !seen.has(o) && overlaps(o, t) && before(o, t)) visit(o);
+    out.push(t);
+  };
+  for (const t of sorted) visit(t);
+  return out;
+}
 
 const EDGE = '#e0332e';
 const GRID_SHADE = 0.2; // how much darker grid lines are than the ground
@@ -169,6 +203,24 @@ function waveletAt(x: number, row: number, ms: number): number {
  */
 export const WADE = SEA_LEVEL - 2;
 
+/** How close, in metres, a walker comes to a wall: enough to keep clear of its planks poking out. */
+const WALL_ROOM = 0.15;
+const NOTHING: Picture = { get: () => null };
+/** A building part's picture, kept per part picture so the stamping's packing is kept too. */
+const partPictures = new WeakMap<Uint8ClampedArray, Picture>();
+function partPicture(part: Part): Picture {
+  let pic = partPictures.get(part.rgba);
+  if (!pic) {
+    const hexes = new Array<string | null>(part.w * part.h).fill(null);
+    for (let p = 0; p < hexes.length; p++) {
+      if (!part.rgba[p * 4 + 3]) continue;
+      hexes[p] = '#' + [0, 1, 2].map((k) => part.rgba[p * 4 + k].toString(16).padStart(2, '0')).join('');
+    }
+    partPictures.set(part.rgba, (pic = { get: (x, y) => hexes[y * part.w + x] ?? null }));
+  }
+  return pic;
+}
+
 /** Everything blocks a walker except grass. Radius in metres per unit of plant size. */
 const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, rock: 0.4, driftwood: 0.35, grass: 0 };
 
@@ -277,6 +329,36 @@ export class World {
   }
   /** Fish under the water, in view coordinates on `floor`; the game moves them (see fish.ts). */
   fish: Fish[] = [];
+  /**
+   * Buildings standing here, set by the game, and the kinds their pieces are drawn with. Their walls
+   * block walking.
+   */
+  // shortcut: buildings are in view coordinates and do not turn with `rot`; keep them in scene coordinates when a game turns the view.
+  buildings: Building[] = [];
+  pieceKinds: Record<string, PieceKind> = {};
+  private builtWith: { view: BuildingView; ground: TerrainImage; kinds: Record<string, PieceKind> } | null = null;
+
+  /**
+   * The buildings' pieces as things. `at` is where the player stands: under a roof, that roof is
+   * not drawn (it still shades) and the walls on its front are cut to half height.
+   */
+  buildingThings(at?: { i: number; j: number }): Thing[] {
+    const b = this.builtWith;
+    if (!b || b.ground !== this.ground || b.kinds !== this.pieceKinds) {
+      this.builtWith = { view: new BuildingView(this.pieceKinds, { map: this.floor, ground: this.ground }), ground: this.ground, kinds: this.pieceKinds };
+    }
+    const view = this.builtWith!.view;
+    return this.buildings.flatMap((building) => view.parts(building, at && { x: at.i, y: at.j })).map((part) => {
+      // Any spot will do to place the picture; the middle of its footprint, which also decides what ground lies in front of it.
+      const spot = { i: (part.box.x0 + part.box.x1) / 2, j: (part.box.y0 + part.box.y1) / 2, level: 0 };
+      const at0 = footOf(this.ground, spot);
+      return {
+        spot, w: part.w, h: part.h, foot: { x: at0.x - part.x, y: at0.y - part.y },
+        picture: part.hidden ? NOTHING : partPicture(part),
+        box: { ...part.box, key: part.key }, shadow: part.shadow, bases: part.base,
+      };
+    });
+  }
 
   constructor(scene: Scene, rot = 0) {
     this.scene = scene;
@@ -622,7 +704,9 @@ export class World {
     for (const t of things) {
       const at = footOf(g, t.spot);
       if (at.x + 2 * t.w < view.x || at.x - 2 * t.w > view.x + w || at.y - t.h > view.y + h || at.y + t.h < view.y) continue;
-      for (const p of this.shadowOf(t)) {
+      const shadow = t.shadow ?? this.shadowOf(t);
+      for (let k = 0; k < shadow.length; k++) {
+        const p = shadow[k];
         const x = (p % g.w) - view.x;
         const y = Math.floor(p / g.w) - view.y;
         if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
@@ -633,9 +717,9 @@ export class World {
         }
       }
     }
-    placed.sort((a, b) => a.spot.i + a.spot.j - (b.spot.i + b.spot.j));
-    for (const t of placed) {
-      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.spot.level)));
+    for (const t of paintOrder(placed)) {
+      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) =>
+        hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.bases ? t.bases[(y - t.dy) * t.w + x - t.dx] : t.spot.level)));
     }
     if (this.weather !== CLEAR) {
       drawWeather(image, view, (gx, gy) => (gx < 0 || gy < 0 || gx >= g.w || gy >= g.h ? Infinity : g.depth[gy * g.w + gx]), ms, this.weather);
@@ -770,6 +854,11 @@ export class World {
     for (const it of this.viewItems()) {
       const near = Math.hypot(it.vi - to.i, it.vj - to.j);
       if (near < ITEM_ROOM && near < Math.hypot(it.vi - from.i, it.vj - from.j)) return false;
+    }
+    // Walls block crossing their edge; stepping off one placed on the walker is allowed.
+    for (const b of this.buildings) {
+      if (crosses(b, { x: from.i, y: from.j }, { x: to.i, y: to.j })) return false;
+      if (blocked(b, to.i, to.j, WALL_ROOM) && !blocked(b, from.i, from.j, WALL_ROOM)) return false;
     }
     return true;
   }

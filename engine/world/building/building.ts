@@ -9,7 +9,7 @@
 //  - neighbouring cell pieces of one kind make a patch, drawn as one piece over its bounding rectangle;
 //  - a covering patch (a roof) rests on the wall tops: the walls under it stop below its eaves and
 //    lie in its shade, and standing in it hides it and cuts its front walls to half height.
-import { cornersOf, LEVEL_PX, SEA_LEVEL, TILE_H, TILE_W, type HeightMap, type TerrainImage } from '../terrain.ts';
+import { cornersOf, LEVEL_M, LEVEL_PX, SEA_LEVEL, SHADOW_RUN, TILE_H, TILE_W, type HeightMap, type TerrainImage } from '../terrain.ts';
 
 export const HALF_W = TILE_W / 2; // screen columns along one cell edge
 export const HALF_H = TILE_H / 2; // rows down along one cell edge
@@ -93,10 +93,14 @@ export function floorOf(map: HeightMap, p: Patch): number {
   return floor;
 }
 
-/** How bright a face is by which way it faces on the map: the sun is on the -i side, a little toward -j. */
-export const TONE = { '+j': 1, '-j': 1.08, '+i': 0.78, '-i': 0.88 };
-/** Where the shadow of a point one level up lands on the ground, in map units: away from the sun. */
-export const SUN = { i: 0.22, j: 0.06 };
+/**
+ * How bright a face is by which way it faces on the map. The engine's light comes from the upper
+ * left of the screen, mostly from +j and a little from -i (terrain.ts), so +j faces are lit and -j
+ * faces, seen only on a roof's far slopes, are in shade.
+ */
+export const TONE = { '+j': 1, '-j': 0.74, '+i': 0.78, '-i': 0.9 };
+/** Where the shadow of a point one level up lands on the ground, in map units: the engine's shadow run. */
+export const SUN = { i: SHADOW_RUN[0] * LEVEL_M, j: SHADOW_RUN[1] * LEVEL_M };
 
 /** Adds the ground-image pixel shaded by a point `up` levels above ground level `g` at map point (x, y). */
 export function shadowAt(site: Site, out: number[], x: number, y: number, g: number, up: number): void {
@@ -198,6 +202,19 @@ export function blocked(b: Building, x: number, y: number, pad: number): boolean
       ? x >= e.i - pad && x <= e.i + 1 + pad && y >= e.j - pad && y <= e.j + pad
       : x >= e.i - pad && x <= e.i + pad && y >= e.j - pad && y <= e.j + 1 + pad;
     if (inside) return true;
+  }
+  return false;
+}
+
+/** Whether a straight move from `a` to `b` crosses an edge piece, however long the step. */
+export function crosses(b: Building, a: { x: number; y: number }, c: { x: number; y: number }): boolean {
+  for (const { edge: e } of b.edges.values()) {
+    // H edges lie on y = j from x = i to i + 1; V edges on x = i from y = j to j + 1.
+    const [along0, across0, along1, across1] = e.axis === 'H' ? [a.x, a.y, c.x, c.y] : [a.y, a.x, c.y, c.x];
+    const [at, from] = e.axis === 'H' ? [e.j, e.i] : [e.i, e.j];
+    if ((across0 - at) * (across1 - at) >= 0) continue;
+    const hit = along0 + ((at - across0) / (across1 - across0)) * (along1 - along0);
+    if (hit >= from && hit <= from + 1) return true;
   }
   return false;
 }

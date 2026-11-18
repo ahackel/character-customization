@@ -10,7 +10,7 @@ import type { Thing, World } from './world.ts';
 
 export const EMOTES = ['wave', 'use'] as const;
 export type Emote = (typeof EMOTES)[number];
-type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sitDown' | 'sit' | 'standUp' | Emote;
+type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sitDown' | 'sit' | 'lieDown' | 'lie' | 'sitUp' | 'standUp' | Emote;
 
 /** Metres per second. */
 const SPEED = { walk: 1.7, run: 3.6 };
@@ -142,6 +142,10 @@ export class Actor {
   talkUntil = 0;
   /** Milliseconds of standing still, hands empty and on dry ground, before the character sits down; the game sets it. */
   sitAfter = Infinity;
+  /** Lying down (or going to): sitting down ends on the back instead of sitting. */
+  private lying = false;
+  /** Asleep: the eyes stay shut, and nothing gets the character up until the game wakes it. */
+  asleep = false;
   private nextFidget = 0;
   /** What is held, if anything; the character walks (never runs) while carrying. */
   carrying: Carried | null = null;
@@ -169,15 +173,30 @@ export class Actor {
     this.heading = Math.atan2(dj, di);
   }
 
-  /** Gets a sitting character up, and starts the wait before sitting again over. */
+  /** Gets a sitting or lying character up (not one asleep), and starts the wait before sitting again over. */
   rouse(ms: number): void {
-    if (this.clip === 'sit' || this.clip === 'sitDown') this.play('standUp', ms);
+    if (this.asleep) return;
+    this.lying = false;
+    if (this.clip === 'lie' || this.clip === 'lieDown') this.play('sitUp', ms);
+    else if (this.clip === 'sit' || this.clip === 'sitDown') this.play('standUp', ms);
     else if (this.clip === 'idle') this.started = ms;
+  }
+
+  /** Sits down where it stands, if standing with empty hands. */
+  sit(ms: number): void {
+    if (!this.carrying && (this.clip === 'idle' || (EMOTES as readonly string[]).includes(this.clip))) this.play('sitDown', ms);
+  }
+
+  /** Sits down and lies back; `asleep` shuts the eyes until `asleep` is cleared and it is roused. */
+  lieDown(ms: number, asleep: boolean): void {
+    this.lying = true;
+    this.asleep = asleep;
+    this.play(this.clip === 'sit' ? 'lieDown' : 'sitDown', ms);
   }
 
   /** Whether the character is getting up and will not walk until it stands. */
   get rising(): boolean {
-    return this.clip === 'standUp';
+    return this.clip === 'standUp' || this.clip === 'sitUp';
   }
 
   /** Whether the clip playing has played through once. */
@@ -189,7 +208,7 @@ export class Actor {
   carry(what: Carried | null): void {
     this.carrying = what;
     this.held = new WeakMap();
-    if (this.clip === 'sit' || this.clip === 'sitDown' || this.clip === 'standUp' || (EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
+    if (this.clip === 'sit' || this.clip === 'sitDown' || this.clip === 'lieDown' || this.clip === 'lie' || this.clip === 'sitUp' || this.clip === 'standUp' || (EMOTES as readonly string[]).includes(this.clip)) this.clip = 'idle';
   }
 
   /** A spot on the map about `far` metres in front of the character. */
@@ -242,16 +261,24 @@ export class Actor {
       this.turned = ms;
     }
     // Getting up finishes before anything else; asked to move while sitting, the character gets up first.
+    if (this.clip === 'sitUp') {
+      if (!this.played(ms)) return;
+      this.play('standUp', ms);
+    }
     if (this.clip === 'standUp') {
       if (!this.played(ms)) return;
       this.play('idle', ms);
     }
-    if (length >= 1e-6 && (this.clip === 'sit' || this.clip === 'sitDown')) return this.play('standUp', ms);
+    const down = this.clip === 'sit' || this.clip === 'sitDown' || this.clip === 'lieDown' || this.clip === 'lie';
+    // Asleep, nothing moves it; awake, asked to move, it gets up first.
+    if (length >= 1e-6 && down) return this.asleep ? undefined : this.rouse(ms);
     if (length < 1e-6) {
       const clip = AUTHORED[this.clip];
       const emoting = (EMOTES as readonly string[]).includes(this.clip);
-      if (this.clip === 'sitDown' && this.played(ms)) this.play('sit', ms);
-      if (this.clip === 'sit' || this.clip === 'sitDown') return;
+      // Lying down is two steps: sit, then lower the upper body.
+      if (this.clip === 'sitDown' && this.played(ms)) this.play(this.lying ? 'lieDown' : 'sit', ms);
+      if (this.clip === 'lieDown' && this.played(ms)) this.play('lie', ms);
+      if (down) return;
       if (this.clip === 'idle' && !this.carrying && ms - this.started >= this.sitAfter && this.depth(world) <= 0) return this.play('sitDown', ms);
       if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play(this.carrying ? 'hold' : 'idle', ms);
       return;
@@ -326,13 +353,20 @@ export class Actor {
     }));
   }
 
+  /** The character standing in a three-quarter front view, whatever it is doing: for a portrait. */
+  portrait(): { picture: Picture; w: number; h: number } {
+    let body = this.frames.get('portrait');
+    if (!body) this.frames.set('portrait', (body = drawCharacter(this.look, STAND, 0)));
+    return { picture: body, w: SPRITE_W, h: SPRITE_H };
+  }
+
   thing(world: World, ms: number): Thing {
     const clip: Clip = AUTHORED[this.clip];
     // A clip started from an event's time can begin a moment after this frame's time; never count back.
     const n = Math.floor((Math.max(0, ms - this.started) / 1000) * clip.rate) % clip.frames.length;
     const fidget = this.fidgetAt(ms);
     // Blinking goes on through a fidget.
-    const face = ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
+    const face = this.asleep ? 'blink' : ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
     const look = fidget?.look ?? 0;
     const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
     const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}`;
@@ -353,14 +387,14 @@ export class Actor {
       sprite = both;
     }
     const depth = this.depth(world);
-    if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: SPRITE_W, h: SPRITE_H, foot: FEET };
+    if (depth <= 0) return { spot: { i: this.i, j: this.j, level: standingHeight(world.map, this.i, this.j) }, picture: sprite, w: SPRITE_W, h: SPRITE_H, foot: FEET, flat: pose.lie };
     // In the shallows the feet stand on the sea floor, under the surface.
     const rows = Math.round(depth * LEVEL_PX);
     let wet = this.wet.get(sprite);
     if (!wet) this.wet.set(sprite, (wet = new Map()));
     let picture = wet.get(rows);
     if (!picture) wet.set(rows, (picture = wading(sprite, rows)));
-    return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: SPRITE_W, h: SPRITE_H, foot: FEET };
+    return { spot: { i: this.i, j: this.j, level: SEA_LEVEL - depth }, picture, w: SPRITE_W, h: SPRITE_H, foot: FEET, flat: pose.lie };
   }
 }
 

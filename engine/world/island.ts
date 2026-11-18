@@ -174,13 +174,15 @@ export interface PlanBox { x0: number; x1: number; y0: number; y1: number; key: 
  * a point on the map, like a wall along an edge or a roof over cells, also give:
  *  - `box`, their footprint, so they are put in front of or behind others by the plan rather than by `i + j`;
  *  - `shadow`, the ground-image pixels they shade, instead of a shadow cast from the picture as if it stood upright at `spot`;
- *  - `bases`, per picture pixel, the level of the ground it stands on, for hiding it behind nearer higher ground.
+ *  - `bases`, per picture pixel, the level of the ground it stands on, for hiding it behind nearer higher ground;
+ *  - `flat`, lying on the ground (someone asleep): each column of the picture rests on the ground at its lowest pixel, and casts its shadow from there.
  */
 export interface Thing {
   spot: Spot; picture: Picture; w: number; h: number; foot: { x: number; y: number };
   box?: PlanBox;
   shadow?: ArrayLike<number>;
   bases?: Float32Array;
+  flat?: boolean;
 }
 
 /** Paints the island with everything on it: ground, all shadows at once, then things back to front. */

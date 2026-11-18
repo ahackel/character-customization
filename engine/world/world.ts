@@ -8,7 +8,7 @@ import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type
 import { SHADOW } from '../core/palette.ts';
 import {
   GROUNDS, heightAt, hiddenByGround, inside, LEVEL_M, LEVEL_PX, levelAt, renderTerrain, SEA_LEVEL, seaFloor, setWater, setLevel, SHADE, SHADE_ALPHA, SHADOW_RUN, SLOPE_LEVELS, standingHeight, surfaceAt, underwater,
-  TILE_W, type HeightMap, type TerrainImage,
+  TILE_H, TILE_W, type HeightMap, type TerrainImage,
 } from './terrain.ts';
 import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type AnimalSprite, type ClipId } from '../animals/animal.ts';
 import { turnFacing, type Facing } from '../core/puppet.ts';
@@ -771,14 +771,21 @@ export class World {
     const known = byPicture.get(key);
     if (known) return known;
     const hit = new Set<number>();
+    // Where each column meets the ground: the foot's row, or lying flat, the column's lowest pixel.
+    const rests = Array.from({ length: t.w }, (_, x) => {
+      if (!t.flat) return t.foot.y;
+      for (let y = t.h - 1; y >= 0; y--) { const hex = t.picture.get(x, y); if (hex && hex !== SHADOW) return y; }
+      return t.foot.y;
+    });
     for (let y = 0; y < t.h; y++) {
       for (let x = 0; x < t.w; x++) {
         const hex = t.picture.get(x, y);
         if (!hex || hex === SHADOW || GLOWING.has(hex)) continue;
-        const up = Math.max(0, t.foot.y - y) / LEVEL_PX * LEVEL_M;
+        const up = Math.max(0, rests[x] - y) / LEVEL_PX * LEVEL_M;
         const side = (x - t.foot.x) / TILE_W;
-        const i = t.spot.i + side + up * SHADOW_RUN[0];
-        const j = t.spot.j - side + up * SHADOW_RUN[1];
+        const back = (rests[x] - t.foot.y) / TILE_H; // a lying column rests nearer or further than the foot
+        const i = t.spot.i + side + back + up * SHADOW_RUN[0];
+        const j = t.spot.j - side + back + up * SHADOW_RUN[1];
         // No shadows off the map, nor on water too deep for them to show.
         if (!inside(this.map, Math.floor(i), Math.floor(j)) || SEA_LEVEL - heightAt(this.map, i, j) >= SHADOW_DEPTH) continue;
         const level = standingHeight(this.map, i, j);

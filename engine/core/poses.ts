@@ -181,5 +181,8 @@ export const AUTHORED: Record<string, Clip> = {
   sit: { name: 'Sit', ...resting(SIT) },
   standUp: { name: 'Stand up', rate: 8, frames: [...SIT_DOWN].reverse() },
   lie: { name: 'Lie', ...resting(LIE) },
+  // Lying down from sitting and sitting up again: straight from one to the other, held a moment.
+  lieDown: { name: 'Lie down', rate: 6, frames: [LIE] },
+  sitUp: { name: 'Sit up', rate: 6, frames: [LIE] },
   look: { name: 'Look around', rate: 3, frames: LOOK_STEPS.map(([pose]) => pose), faces: LOOK_STEPS.map(([, face]) => face) },
 };

@@ -61,7 +61,10 @@ export interface Pose {
   shoulderR: Vec3; elbowR: Vec3; handR: Vec3;
   hipL: Vec3; kneeL: Vec3; footL: Vec3;
   hipR: Vec3; kneeR: Vec3; footR: Vec3;
-  /** Lying on the floor: the pose is drawn as if standing, then laid down a quarter turn. */
+  /**
+   * Lying on the back: the pose is drawn standing, in the three-quarter front view, then turned a
+   * quarter onto the floor, its feet left or right on the screen as the character faces (see `lying`).
+   */
   lie?: boolean;
   /** The head turned this many eighths of a turn to the character's left (negative: right), at most one. */
   look?: number;
@@ -270,12 +273,8 @@ export class Sprite {
   }
 }
 
-/**
- * A standing figure laid on the floor: turned a quarter so the head points left and the front
- * faces up, centred on the character's spot, with a long shadow under it.
- */
-function laidDown(standing: Sprite): Sprite {
-  const out = new Sprite();
+/** The rows a figure's body spans, and the middle row it is laid down about (its hips, near enough). */
+function bodyRows(standing: Sprite): { top: number; bottom: number; middle: number } {
   let top = SPRITE_H;
   let bottom = 0;
   for (let y = 0; y < SPRITE_H; y++) {
@@ -287,8 +286,32 @@ function laidDown(standing: Sprite): Sprite {
       }
     }
   }
+  return { top, bottom, middle: Math.round((top + bottom) / 2) };
+}
+
+/** Facings whose feet point left on the screen, lying; the rest point right. */
+const FEET_LEFT = new Set<Facing>([1, 2, 5, 6]);
+
+/**
+ * A figure lying on its back, whatever its facing: drawn in the three-quarter front view, which
+ * reads best lying, and turned a quarter (`laidDown`), a whole quarter turn keeping every pixel;
+ * mirrored so its feet point left or right on the screen, the way it looked.
+ */
+function lying(look: Look, pose: Pose, facing: Facing, options: DrawOptions): Sprite {
+  // The hat comes off: lying, its brim would stand up off the floor like a board.
+  const bare = { ...look, items: look.items.filter((it) => it.slot !== 'hat') };
+  const out = laidDown(drawFigure(bare, { ...pose, lie: false }, 0, options));
+  return FEET_LEFT.has(facing) ? out.mirrored() : out;
+}
+
+/**
+ * A standing figure laid on the floor: turned a quarter so the head points left and the front
+ * faces up, centred on the character's spot, with a long shadow under it.
+ */
+function laidDown(standing: Sprite): Sprite {
+  const out = new Sprite();
+  const { top, bottom, middle } = bodyRows(standing);
   if (top > bottom) return out;
-  const middle = Math.round((top + bottom) / 2);
   const cx = SPRITE_W / 2;
   // The far side of the body (the back, seen from the front) rests on the floor.
   const placed: [number, number, string][] = [];
@@ -747,8 +770,8 @@ function mirroredPose(pose: Pose): Pose {
 function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions, working: 'L' | 'R' = 'R', mirrored = false): Sprite {
   // A mirrored view is drawn with the pose done the other way round, then flipped: the right hand
   // stays the right hand, and a head turned to the left still turns to the left.
+  if (pose.lie) return lying(look, pose, facing, options);
   if (FACING_VIEWS[facing].mirror) return drawFigure(look, mirroredPose(pose), FACING_VIEWS[facing].drawn, options, 'L', true).mirrored();
-  if (pose.lie) return laidDown(drawFigure(look, { ...pose, lie: false }, facing, options, working, mirrored));
   const view: View = facing === 4 ? 'S' : facing === 6 ? 'N' : facing === 7 ? 'E' : (facing as 0 | 3);
   const own: OwnView | null = typeof view === 'string' ? view : null;
   // Side on, the far arm is behind the body and the head. Raised, as in a wave, it would not

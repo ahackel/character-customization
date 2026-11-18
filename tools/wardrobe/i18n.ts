@@ -55,6 +55,8 @@ const en = {
   'clip.sitDown': 'Sit down',
   'clip.standUp': 'Stand up',
   'clip.lie': 'Lie',
+  'clip.lieDown': 'Lie down',
+  'clip.sitUp': 'Sit up',
   'clip.look': 'Look',
 
   'ground': 'Ground',
@@ -225,6 +227,8 @@ const de: Record<Key, string> = {
   'clip.sitDown': 'Hinsetzen',
   'clip.standUp': 'Aufstehen',
   'clip.lie': 'Liegen',
+  'clip.lieDown': 'Hinlegen',
+  'clip.sitUp': 'Aufsetzen',
   'clip.look': 'Schauen',
 
   'ground': 'Boden',

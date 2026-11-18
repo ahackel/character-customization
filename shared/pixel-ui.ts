@@ -1,7 +1,7 @@
 // Pixel-art pieces for a game's interface: flat panels with rounded corners and a soft shadow line under them, words
 // in the pixel font, speech bubbles with a tip, little pictures written as rows. Each piece is a small canvas shown
 // `scale` times larger, so it stays sharp over the game whatever the game's own zoom.
-import { LINE_H, text, textWidth, wrap } from './pixel-font.ts';
+import { ABOVE, LINE_H, LINE_STEP, text, textWidth, wrap } from './pixel-font.ts';
 
 /** `shadow`: the line under a panel; best a dark colour with some alpha, so it works on any ground. */
 export interface Colors { ink: string; paper: string; shadow?: string }
@@ -53,16 +53,20 @@ export function drawRows(ctx: CanvasRenderingContext2D, rows: readonly string[],
 /** Words alone, on nothing: the whole text cell, so umlaut dots and tails fit. */
 export function label(s: string, color: string, scale: number): HTMLCanvasElement {
   const { canvas, ctx } = pixelCanvas(textWidth(s), LINE_H, scale);
-  text(ctx, s, 0, 1, color);
+  text(ctx, s, 0, ABOVE, color);
   return canvas;
 }
 
-/** A speech bubble: words on a flat panel with a tip at the bottom middle pointing down. The tip's point is the canvas's bottom middle. */
-export function speechBubble(s: string, c: Colors, scale: number, maxW = 90): HTMLCanvasElement {
+/**
+ * A speech bubble: words on a flat panel with a tip at the bottom middle pointing down. The tip's point is the canvas's
+ * bottom middle. `room`: pixels kept free right of the words, for a sign the game lays over the bubble.
+ */
+export function speechBubble(s: string, c: Colors, scale: number, maxW = 90, room = 0): HTMLCanvasElement {
   const lines = wrap(s, maxW);
   const tw = Math.max(...lines.map(textWidth));
-  const w = tw + 8;
-  const boxH = lines.length * (LINE_H - 1) + 5;
+  const w = tw + 8 + room;
+  // Letters 4 rows down (dots in the 2 rows over them), 3 rows under the last line's foot.
+  const boxH = (lines.length - 1) * LINE_STEP + 4 + 5 + 3;
   const tip = 3;
   const shade = c.shadow ? 1 : 0;
   const { canvas, ctx } = pixelCanvas(w, boxH + tip + shade, scale);
@@ -75,6 +79,6 @@ export function speechBubble(s: string, c: Colors, scale: number, maxW = 90): HT
   if (c.shadow) drawTip(1, c.shadow);
   panel(ctx, 0, 0, w, boxH, c.paper, c.shadow);
   drawTip(0, c.paper);
-  lines.forEach((line, n) => text(ctx, line, 4 + (tw - textWidth(line)) / 2, 3 + n * (LINE_H - 1), c.ink));
+  lines.forEach((line, n) => text(ctx, line, 4 + (tw - textWidth(line)) / 2, 4 + n * LINE_STEP, c.ink));
   return canvas;
 }

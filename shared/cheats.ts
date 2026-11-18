@@ -2,7 +2,7 @@
 // lightning bolt in the lower left, which slides a drawer of orange cheat buttons in from the left.
 // Tapping a cheat keeps the drawer open; tapping beside it closes it. A cheat can hold a list of
 // more, which takes the list's place when tapped until one of them is picked. Brings its own styles.
-import { LINE_H, text, textWidth } from './pixel-font.ts';
+import { ABOVE, LINE_H, text, textWidth } from './pixel-font.ts';
 import { drawRows, panel, pixelCanvas } from './pixel-ui.ts';
 
 export interface Cheat {
@@ -35,7 +35,7 @@ function button(className: string, label: string, words: string | null, scale: n
   const h = 13;
   const { canvas, ctx } = pixelCanvas(w, h + 1, scale);
   panel(ctx, 0, 0, w, h, ORANGE, SHADOW);
-  if (words) text(ctx, words, 4, Math.floor((h - LINE_H) / 2) + 1, WHITE);
+  if (words) text(ctx, words, 4, Math.floor((h - LINE_H) / 2) + ABOVE, WHITE);
   else drawRows(ctx, BOLT, 2, 2, WHITE);
   const b = document.createElement('button');
   b.className = className;

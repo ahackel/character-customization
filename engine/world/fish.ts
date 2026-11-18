@@ -81,7 +81,7 @@ const LIGHT = unit([-0.55, 0.75, 0.35]);
 /** The view looks down 30 degrees, which is what makes the ground 2:1. */
 const DOWN = Math.PI / 6;
 
-type Pixel = { x: number; y: number; color: string };
+export type Pixel = { x: number; y: number; color: string };
 const drawn = new Map<string, Pixel[]>();
 
 /**

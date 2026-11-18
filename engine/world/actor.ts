@@ -75,10 +75,13 @@ function tint(hex: string, to: number[], k: number): string {
   return '#' + from.map((v, n) => Math.round(v + (to[n] - v) * k).toString(16).padStart(2, '0')).join('') + hex.slice(7);
 }
 
-/** A character picture standing `rows` pixels deep in water: the rows under the surface are tinted, the waterline lighter, the ground shadow gone. */
-function wading(sprite: Picture, rows: number): Picture {
+/**
+ * A picture standing `rows` pixels deep in water, its ground point at row `feet` (a character's by
+ * default): the rows under the surface are tinted, the waterline lighter, the ground shadow gone.
+ */
+export function wading(sprite: Picture, rows: number, feet = FEET.y): Picture {
   const foam = rgb(ocean.wave);
-  const line = FEET.y - rows;
+  const line = feet - rows;
   // Under the surface, the deeper a row the more the water covers it, as with fish.
   const under = Array.from({ length: rows + 1 }, (_, n) => ({ water: rgb(waterAt(n / LEVEL_PX)), cover: 1 - underwater(n / LEVEL_PX) }));
   return {

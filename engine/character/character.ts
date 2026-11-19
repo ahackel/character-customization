@@ -2,7 +2,7 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  baseLook, beardFor, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, NOSES, UNDERSHORTS, UNDERTOP, wear,
+  baseLook, beardFor, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, headItemFor, MOODS, NOSES, UNDERSHORTS, UNDERTOP, wear,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
@@ -144,10 +144,10 @@ export function lookOf(source: State, underwear = true): Look {
   const items: Item[] = [];
   // Everything is drawn neat and aged here, by the one value the character carries.
   const hair = hairItem(source);
-  if (hair) items.push(weathered(hair, source.wear));
+  if (hair) items.push(weathered(headItemFor(hair, source.skin, source.face.shape), source.wear));
   for (const slot of WORN_SLOTS) {
     const item = wornItem(source, slot);
-    if (item) items.push(weathered(beardFor(item, source.skin, source.face.shape), source.wear));
+    if (item) items.push(weathered(headItemFor(beardFor(item, source.skin, source.face.shape), source.skin, source.face.shape), source.wear));
   }
   // The body is never bare.
   if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);

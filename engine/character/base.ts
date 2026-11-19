@@ -107,55 +107,55 @@ const SHAPES: Record<HeadShape, Record<'front' | 'back' | 'straight' | 'side', R
       13: '.........%%%%%%%.....',
     },
   },
-  // A narrow face, one pixel in on both sides from the brow down.
+  // A narrow face, two pixels in on both sides.
   thin: {
     front: {
-      0: '.......#######.......',
-      1: '.....###########.....',
-      2: '....#############....',
-      3: '....#############....',
-      4: '....#############....',
-      5: '....#############....',
-      6: '..%%#############....',
-      7: '..%%#############....',
-      8: '....#############....',
-      9: '....#############....',
-      10: '....#############....',
-      11: '.....############....',
-      12: '......#########%.....',
-      13: '........%%%%%%.......',
+      0: '........#####........',
+      1: '......#########......',
+      2: '.....###########.....',
+      3: '.....###########.....',
+      4: '.....###########.....',
+      5: '.....###########.....',
+      6: '...%%###########.....',
+      7: '...%%###########.....',
+      8: '.....###########.....',
+      9: '.....###########.....',
+      10: '.....###########.....',
+      11: '......##########.....',
+      12: '.......#######%......',
+      13: '.........%%%%........',
     },
     back: {
-      0: '.......#######.......',
-      1: '.....###########.....',
-      2: '....#############....',
-      3: '....#############....',
-      4: '....#############....',
-      5: '....#############....',
-      6: '....#############%%..',
-      7: '....#############%%..',
-      8: '....#############....',
-      9: '....#############....',
-      10: '....#############....',
-      11: '.....###########.....',
-      12: '......#########......',
-      13: '.......%%%%%%%.......',
+      0: '........#####........',
+      1: '......#########......',
+      2: '.....###########.....',
+      3: '.....###########.....',
+      4: '.....###########.....',
+      5: '.....###########.....',
+      6: '.....###########%%...',
+      7: '.....###########%%...',
+      8: '.....###########.....',
+      9: '.....###########.....',
+      10: '.....###########.....',
+      11: '......#########......',
+      12: '.......#######.......',
+      13: '........%%%%%........',
     },
     straight: {
-      0: '.......#######.......',
-      1: '.....###########.....',
-      2: '....#############....',
-      3: '....#############....',
-      4: '....#############....',
-      5: '....#############....',
-      6: '...%#############%...',
-      7: '...%#############%...',
-      8: '....#############....',
-      9: '....############%....',
-      10: '....############%....',
-      11: '.....##########%.....',
-      12: '......########%......',
-      13: '.......%%%%%%%.......',
+      0: '........#####........',
+      1: '......#########......',
+      2: '.....###########.....',
+      3: '.....###########.....',
+      4: '.....###########.....',
+      5: '.....###########.....',
+      6: '....%###########%....',
+      7: '....%###########%....',
+      8: '.....###########.....',
+      9: '.....##########%.....',
+      10: '.....##########%.....',
+      11: '......########%......',
+      12: '.......######%.......',
+      13: '........%%%%%........',
     },
     // Side on: a pixel less at the back of the skull and under the jaw.
     side: {
@@ -647,23 +647,64 @@ export const beardFromBehind = (front: Stamp): Stamp => beardBehind(front, parse
  * squeezed out to that head's outline, its middle kept where the mouth is. Below the jaw it follows
  * the last row where both heads still have a face.
  */
+/** The first and last cell of a head's row `y`, or null where the row is empty. */
+const spanOf = (s: Stamp, y: number) => {
+  const xs = s[y]?.flatMap((c, x) => (c ? [x] : [])) ?? [];
+  return xs.length ? [xs[0], xs[xs.length - 1]] : null;
+};
+/**
+ * A row of a head item moved from a head spanning `fl`..`fr` to one spanning `tl`..`tr`: what lies past the head's
+ * edge moves with the edge, what lies over the head is spread or squeezed to cover it.
+ */
+function refitRow(row: (Cell | null)[], [fl, fr]: number[], [tl, tr]: number[]): (Cell | null)[] {
+  if (fl === tl && fr === tr) return row;
+  const c = (fl + fr) / 2;
+  const src = (x: number) =>
+    x < tl ? fl - (tl - x) : x > tr ? fr + (x - tr) : x < c ? c - ((c - x) * (c - fl)) / Math.max(1, c - tl) : c + ((x - c) * (fr - c)) / Math.max(1, tr - c);
+  return row.map((_, x) => row[Math.round(src(x))] ?? null);
+}
+
 export function fittedBeard(beard: Stamp, from: Stamp, to: Stamp): Stamp {
-  const span = (s: Stamp, y: number) => {
-    const xs = s[y]?.flatMap((c, x) => (c ? [x] : [])) ?? [];
-    return xs.length ? [xs[0], xs[xs.length - 1]] : null;
-  };
   let last: number[][] | null = null;
   return beard.map((row, y) => {
-    const a = span(from, y), b = span(to, y);
+    const a = spanOf(from, y), b = spanOf(to, y);
     if (a && b) last = [a, b];
     if (!last || !row.some(Boolean)) return row;
-    const [[fl, fr], [tl, tr]] = last;
-    if (fl === tl && fr === tr) return row;
-    const c = (fl + fr) / 2;
-    const src = (x: number) =>
-      x < tl ? fl - (tl - x) : x > tr ? fr + (x - tr) : x < c ? c - ((c - x) * (c - fl)) / Math.max(1, c - tl) : c + ((x - c) * (fr - c)) / Math.max(1, tr - c);
-    return row.map((_, x) => row[Math.round(src(x))] ?? null);
+    return refitRow(row, last[0], last[1]);
   });
+}
+
+/** The skull's span at its widest, above the ears: what hair and hats sit on. */
+const skullOf = (head: Stamp) => {
+  const top = head.findIndex((row) => row.some(Boolean));
+  return [2, 3, 4, 5].map((y) => spanOf(head, top + y)).filter((s): s is number[] => !!s).sort((a, b) => b[1] - b[0] - (a[1] - a[0]))[0];
+};
+
+/**
+ * Hair or a hat, drawn for the round head, fitted to a narrower or wider one in every view but side on (where the
+ * shapes are as deep): each row moved in or out by the skull's width, so a brim or a fringe keeps its shape and sits
+ * on the head, not in the air beside it.
+ */
+export function headItemFor(item: Item, skin: PaletteKey, shape: HeadShape = 'round'): Item {
+  if ((item.slot !== 'hair' && item.slot !== 'hat') || shape === 'round') return item;
+  const round = headFor(skin), worn = headFor(skin, shape);
+  const straight = (sh: HeadShape) => parseStamp(shaped(ROUND_SOUTH, SHAPES[sh].straight), {}, skin);
+  const pairs: Record<'front' | 'back' | 'S', [number[], number[]]> = {
+    front: [skullOf(round.front), skullOf(worn.front)],
+    back: [skullOf(round.back), skullOf(worn.back)],
+    S: [skullOf(straight('round')), skullOf(straight(shape))],
+  };
+  const fit = (st: Stamp | undefined, view: 'front' | 'back' | 'S') => st && st.map((row) => refitRow(row, ...pairs[view]));
+  const fitPair = (p: StampPair | undefined) => p && { front: fit(p.front, 'front')!, back: fit(p.back, 'back')! };
+  const fitView = (v: { head: Stamp; behind?: Stamp } | undefined, view: 'front' | 'back' | 'S') =>
+    v && { ...v, head: fit(v.head, view)!, ...(v.behind ? { behind: fit(v.behind, view) } : {}) };
+  const out: Item = { ...item, head: fitPair(item.head), headBehind: fitPair(item.headBehind) };
+  if (item.views) out.views = { ...item.views, S: fitView(item.views.S, 'S'), N: fitView(item.views.N, 'S') };
+  if (item.left) out.left = { ...item.left, 0: fitView(item.left[0], 'front'), 3: fitView(item.left[3], 'back') };
+  // Keys left undefined by the views an item has not got are taken out again.
+  for (const k of ['head', 'headBehind'] as const) if (!out[k]) delete out[k];
+  for (const o of [out.views, out.left] as Record<string, unknown>[]) if (o) for (const k of Object.keys(o)) if (!o[k]) delete o[k];
+  return out;
 }
 
 /** A beard item fitted to a head shape other than the round one it is drawn for, in 3/4 and side on. */

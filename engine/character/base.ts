@@ -681,25 +681,25 @@ const skullOf = (head: Stamp) => {
 };
 
 /**
- * Hair or a hat, drawn for the round head, fitted to a narrower or wider one in every view but side on (where the
- * shapes are as deep): each row moved in or out by the skull's width, so a brim or a fringe keeps its shape and sits
- * on the head, not in the air beside it.
+ * Hair or a hat, drawn for the round head, fitted to a narrower or wider one in every view: each row moved in or
+ * out by the skull's width, so a brim or a fringe keeps its shape and sits on the head, not in the air beside it.
  */
 export function headItemFor(item: Item, skin: PaletteKey, shape: HeadShape = 'round'): Item {
   if ((item.slot !== 'hair' && item.slot !== 'hat') || shape === 'round') return item;
   const round = headFor(skin), worn = headFor(skin, shape);
   const straight = (sh: HeadShape) => parseStamp(shaped(ROUND_SOUTH, SHAPES[sh].straight), {}, skin);
-  const pairs: Record<'front' | 'back' | 'S', [number[], number[]]> = {
+  const pairs: Record<'front' | 'back' | 'S' | 'E', [number[], number[]]> = {
     front: [skullOf(round.front), skullOf(worn.front)],
     back: [skullOf(round.back), skullOf(worn.back)],
     S: [skullOf(straight('round')), skullOf(straight(shape))],
+    E: [skullOf(sideHead(skin)), skullOf(sideHead(skin, shape))],
   };
-  const fit = (st: Stamp | undefined, view: 'front' | 'back' | 'S') => st && st.map((row) => refitRow(row, ...pairs[view]));
+  const fit = (st: Stamp | undefined, view: 'front' | 'back' | 'S' | 'E') => st && st.map((row) => refitRow(row, ...pairs[view]));
   const fitPair = (p: StampPair | undefined) => p && { front: fit(p.front, 'front')!, back: fit(p.back, 'back')! };
-  const fitView = (v: { head: Stamp; behind?: Stamp } | undefined, view: 'front' | 'back' | 'S') =>
+  const fitView = (v: { head: Stamp; behind?: Stamp } | undefined, view: 'front' | 'back' | 'S' | 'E') =>
     v && { ...v, head: fit(v.head, view)!, ...(v.behind ? { behind: fit(v.behind, view) } : {}) };
   const out: Item = { ...item, head: fitPair(item.head), headBehind: fitPair(item.headBehind) };
-  if (item.views) out.views = { ...item.views, S: fitView(item.views.S, 'S'), N: fitView(item.views.N, 'S') };
+  if (item.views) out.views = { ...item.views, S: fitView(item.views.S, 'S'), N: fitView(item.views.N, 'S'), E: fitView(item.views.E, 'E') };
   if (item.left) out.left = { ...item.left, 0: fitView(item.left[0], 'front'), 3: fitView(item.left[3], 'back') };
   // Keys left undefined by the views an item has not got are taken out again.
   for (const k of ['head', 'headBehind'] as const) if (!out[k]) delete out[k];

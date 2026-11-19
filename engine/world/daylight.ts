@@ -1,7 +1,7 @@
 // Time of day as a colour laid over a composed picture: the light's colour multiplies every pixel,
 // and a fade darkens it toward black for screen transitions. Which tint shows when is the game's.
-// Glowing colours, such as a flame's, give their own light and keep their colour through it all.
-// shortcut: a glow does not light what is around it yet; add a lit radius here when wanted.
+// Glowing colours, such as a flame's, give their own light and keep their colour through it all, and a
+// lamp (a fire) lights a round patch around it, warm, as if the tint were lifted there.
 import { FIRE_KEYS, PALETTE } from '../core/palette.ts';
 import { rgb } from './ocean.ts';
 
@@ -44,18 +44,41 @@ export function along(stops: Tint[], k: number): Tint {
   return mixTint(stops[n], stops[n + 1], at - n);
 }
 
-/** Lights a picture in place with a tint, then fades it toward black by `fade` (0 to 1). */
-export function light(image: { data: Uint8ClampedArray }, t: Tint, fade = 0): void {
+/** A light in the picture: its middle in image pixels, how far it reaches, and how warm. */
+export interface Lamp { x: number; y: number; r: number; color?: string }
+/** A lamp's own colour: a fire's orange. */
+const LAMP = rgb('#ffb060');
+
+/**
+ * Lights a picture in place with a tint, then fades it toward black by `fade` (0 to 1). Near a lamp the tint is
+ * lifted, most at its middle and none at its reach, and the light there is warmed toward the lamp's colour.
+ */
+export function light(image: { data: Uint8ClampedArray; width?: number }, t: Tint, fade = 0, lamps: readonly Lamp[] = []): void {
   if (t.amount <= 0 && fade <= 0) return;
   const keep = 1 - fade;
   const fr = (1 - t.amount + (t.amount * t.r) / 255) * keep;
   const fg = (1 - t.amount + (t.amount * t.g) / 255) * keep;
   const fb = (1 - t.amount + (t.amount * t.b) / 255) * keep;
   const d = image.data;
+  const w = image.width ?? 0;
+  const lit = w > 0 && t.amount > 0 ? lamps.map((l) => ({ ...l, c: l.color ? rgb(l.color) : LAMP })) : [];
   for (let k = 0; k < d.length; k += 4) {
     if (d[k + 3] === GLOW_ALPHA) continue;
-    d[k] *= fr;
-    d[k + 1] *= fg;
-    d[k + 2] *= fb;
+    let r = fr, g = fg, b = fb;
+    if (lit.length) {
+      const x = (k >> 2) % w, y = Math.floor((k >> 2) / w);
+      for (const l of lit) {
+        const q = 1 - ((x - l.x) ** 2 + ((y - l.y) * 1.6) ** 2) / (l.r * l.r);
+        if (q <= 0) continue;
+        // The patch's edge falls off softly; at its middle, nearly day, a touch of the lamp's colour.
+        const e = q * q * t.amount * keep;
+        r += (keep * (l.c[0] / 255) - r) * e;
+        g += (keep * (l.c[1] / 255) - g) * e;
+        b += (keep * (l.c[2] / 255) - b) * e;
+      }
+    }
+    d[k] *= r;
+    d[k + 1] *= g;
+    d[k + 2] *= b;
   }
 }

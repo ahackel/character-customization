@@ -231,6 +231,17 @@ export interface DrawOptions {
   swing?: boolean;
   /** Every part in a flat colour of its own (`PART_COLORS`), for checking the drawing by script. */
   parts?: boolean;
+  /** How a lying pose lies; by default on the back, in the three-quarter front view. */
+  lying?: Lying;
+}
+
+/**
+ * How a lying figure is drawn: from the three-quarter front view or (`back`) the three-quarter back
+ * view, and face up or (`down`) face down, its front side turned to the floor.
+ */
+export interface Lying {
+  back?: boolean;
+  down?: boolean;
 }
 
 /** The colours of the parts drawing. The working arm holds the tool; the free arm is the other one. */
@@ -293,22 +304,23 @@ function bodyRows(standing: Sprite): { top: number; bottom: number; middle: numb
 const FEET_LEFT = new Set<Facing>([1, 2, 5, 6]);
 
 /**
- * A figure lying on its back, whatever its facing: drawn in the three-quarter front view, which
- * reads best lying, and turned a quarter (`laidDown`), a whole quarter turn keeping every pixel;
- * mirrored so its feet point left or right on the screen, the way it looked.
+ * A figure lying, whatever its facing: drawn in a three-quarter view (front unless `options.lying`
+ * says back), which reads best lying, and turned a quarter (`laidDown`), a whole quarter turn keeping
+ * every pixel, face up or face down; mirrored so its feet point left or right on the screen, the way it looked.
  */
 function lying(look: Look, pose: Pose, facing: Facing, options: DrawOptions): Sprite {
   // The hat comes off: lying, its brim would stand up off the floor like a board.
   const bare = { ...look, items: look.items.filter((it) => it.slot !== 'hat') };
-  const out = laidDown(drawFigure(bare, { ...pose, lie: false }, 0, options));
+  const out = laidDown(drawFigure(bare, { ...pose, lie: false }, options.lying?.back ? 3 : 0, options), !!options.lying?.down);
   return FEET_LEFT.has(facing) ? out.mirrored() : out;
 }
 
 /**
  * A standing figure laid on the floor: turned a quarter so the head points left and the front
- * faces up, centred on the character's spot, with a long shadow under it.
+ * faces up (or, `down`, the other way round, the front to the floor), centred on the character's
+ * spot, with a long shadow under it.
  */
-function laidDown(standing: Sprite): Sprite {
+function laidDown(standing: Sprite, down: boolean): Sprite {
   const out = new Sprite();
   const { top, bottom, middle } = bodyRows(standing);
   if (top > bottom) return out;
@@ -318,7 +330,7 @@ function laidDown(standing: Sprite): Sprite {
   for (let y = top; y <= bottom; y++) {
     for (let x = 0; x < SPRITE_W; x++) {
       const c = standing.get(x, y);
-      if (c && c !== SHADOW) placed.push([cx + (y - middle), ORIGIN_Y - 3 - (x - cx), c]);
+      if (c && c !== SHADOW) placed.push([cx + (y - middle), ORIGIN_Y - 3 - (down ? cx - x : x - cx), c]);
     }
   }
   const xs = placed.map((p) => p[0]);
@@ -1172,25 +1184,39 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   const faces = ownHead?.faces ?? look.faces;
   const face = headBack ? [] : across(faces[options.face ?? 'neutral'] ?? faces.neutral, 0);
   const bareHead = () => ownHead?.head ?? hside(look.head);
-  // Ears follow the hairstyle the same way in every view: hair that covers them in 3/4 covers
-  // them all round, filling an ear with the hair beside it or, where there is none, leaving out
-  // the ear's bump; hair that leaves them free is never drawn over them.
+  // Ears follow the hairstyle: hair that covers them in 3/4 covers them in every view it reaches
+  // them, filling the ear with the hair beside it; hair that leaves them free is never drawn over them.
   const hairItem = ordered.find((item) => item.slot === 'hair' && item.head);
-  const earsHidden = !!hairItem && coversEars(hairItem.head!.front, look.head.front);
   const ears = earCells(hv ?? (headBack ? 'back' : 'front'), skullTop(bareHead()));
+  // Only where this view's hair reaches the ear: a style that stops short of it side on shows the
+  // ear there as on a bare head, not a patch of hair on the skin. Asked while drawing, once itemHead exists.
+  let hidden: boolean | undefined;
+  const earsHidden = () =>
+    (hidden ??= !!hairItem && coversEars(hairItem.head!.front, look.head.front) && ears.filter(([x, y]) => itemHead(hairItem)[y]?.[x]).length >= 2);
   const earSet = new Set(ears.map(([x, y]) => `${x},${y}`));
   const onEar = (x: number, y: number) => earSet.has(`${x},${y}`);
   const withEars = (hair: Stamp): Stamp => {
     const out = hair.map((row) => [...row]);
-    for (const [x, y] of ears) {
-      if (!earsHidden) out[y][x] = null;
-      else if (!out[y][x]) out[y][x] = N8.map(([dx, dy]) => hair[y + dy]?.[x + dx]).find(Boolean) ?? null;
+    if (!earsHidden()) {
+      for (const [x, y] of ears) out[y][x] = null;
+      return out;
+    }
+    // Hidden, the whole ear is filled, its hollow too, spreading from the hair beside it: filling only
+    // the ring left a hair-coloured ear outline on the skin side on, where the hair stops short of it.
+    const patch = [...earPatch(hv ?? (headBack ? 'back' : 'front'), ears)].map((k) => k.split(',').map(Number));
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const [x, y] of patch) {
+        if (out[y][x]) continue;
+        out[y][x] = N8.map(([dx, dy]) => out[y + dy]?.[x + dx]).find(Boolean) ?? null;
+        grew ||= !!out[y][x];
+      }
     }
     return out;
   };
   const headOf = (): Stamp => {
     const head = bareHead();
-    if (!earsHidden) return head;
+    if (!earsHidden()) return head;
     const hair = withEars(itemHead(hairItem!));
     // An ear the hair does not reach loses its bump on the outline, or side on its shape.
     return head.map((row, y) => row.map((cell, x) => (cell && onEar(x, y) && !hair[y][x] ? (hv === 'E' ? { ...cell, shade: false, light: false } : null) : cell)));
@@ -1323,9 +1349,9 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       // Ears the hair leaves free are warmed a little, like the nose.
       const patch = earPatch(hv ?? (headBack ? 'back' : 'front'), ears);
       const bare = headOf();
-      const head = earsHidden ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
+      const head = earsHidden() ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
       stampInto(sprite, headStamp(head).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
-      if (options.parts && !earsHidden) {
+      if (options.parts && !earsHidden()) {
         // The ears in a colour of their own, so a script can tell whether they show.
         as('ear');
         stampInto(sprite, headStamp(bare.map((row, y) => row.map((cell, x) => (cell && onEar(x, y) ? cell : null)))), HEAD_FRAME, hx, hy);
@@ -1335,7 +1361,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       if (!headBack) stampInto(sprite, options.parts ? face.map((row) => row.map((c) => (c?.key === 'blush' ? null : c))) : face, HEAD_FRAME, fx, hy);
       // From behind the glasses' temples show where they run over the top of each ear the hair leaves
       // free: the ear's top pixel and the one inside it.
-      if (headBack && look.glasses && !earsHidden) {
+      if (headBack && look.glasses && !earsHidden()) {
         const top = Math.min(...ears.map(([, y]) => y));
         const temples = ears.filter(([, y]) => y === top).flatMap(([x, y]) => [[x, y], [x < HEAD_FRAME.ax ? x + 1 : x - 1, y]]);
         const key = look.glasses;
@@ -1358,7 +1384,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         // From straight behind a beard does not show.
         if (!item.head) continue;
         const raw = headView === 3 && item.slot === 'beard' ? beardBehind(item.head.front, look.head.back) : item === hairItem ? withEars(itemHead(item)) : itemHead(item);
-        const stamp = headStamp(item.slot === 'beard' && !earsHidden ? clear(raw) : raw);
+        const stamp = headStamp(item.slot === 'beard' && !earsHidden() ? clear(raw) : raw);
         as(item.slot === 'hair' ? 'hair' : item.slot === 'beard' ? 'beard' : 'hat');
         stampInto(sprite, item.slot === 'hair' ? offFace(lagged(stamp)) : stamp, HEAD_FRAME, hx, hy);
       }

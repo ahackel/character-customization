@@ -1,7 +1,7 @@
 // A character walking around a world: position in metres, facing, which clip plays, and the
 // sprite for the current frame. Movement slides along whatever blocks it.
 import { AUTHORED, STAND, type Clip } from '../core/poses.ts';
-import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, handsOn, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Sprite } from '../core/puppet.ts';
+import { CHARACTER_ORIGIN as FEET, drawCharacter, FACING_RING, handsOn, SPRITE_H, SPRITE_W, turnFacing, type Facing, type Look, type Lying, type Sprite } from '../core/puppet.ts';
 import { SHADOW } from '../core/palette.ts';
 import type { Picture } from './island.ts';
 import { heightAt, LEVEL_PX, SEA_LEVEL, standingHeight, underwater, waterAt } from './terrain.ts';
@@ -146,6 +146,8 @@ export class Actor {
   private lying = false;
   /** Asleep: the eyes stay shut, and nothing gets the character up until the game wakes it. */
   asleep = false;
+  /** How the character lies once down: the view and face up or down. */
+  private lies: Lying = {};
   private nextFidget = 0;
   /** What is held, if anything; the character walks (never runs) while carrying. */
   carrying: Carried | null = null;
@@ -187,10 +189,11 @@ export class Actor {
     if (!this.carrying && (this.clip === 'idle' || (EMOTES as readonly string[]).includes(this.clip))) this.play('sitDown', ms);
   }
 
-  /** Sits down and lies back; `asleep` shuts the eyes until `asleep` is cleared and it is roused. */
-  lieDown(ms: number, asleep: boolean): void {
+  /** Sits down and lies back (or as `how` says); `asleep` shuts the eyes until `asleep` is cleared and it is roused. */
+  lieDown(ms: number, asleep: boolean, how: Lying = {}): void {
     this.lying = true;
     this.asleep = asleep;
+    this.lies = how;
     this.play(this.clip === 'sit' ? 'lieDown' : 'sitDown', ms);
   }
 
@@ -369,13 +372,13 @@ export class Actor {
     const face = this.asleep ? 'blink' : ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
     const look = fidget?.look ?? 0;
     const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
-    const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}`;
+    const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}|${!!this.lies.back}|${!!this.lies.down}`;
     const pose = look ? { ...STAND, look } : clip.frames[n];
     let body = this.frames.get(key);
     // Hands full, the tool is put away.
     if (!body) {
       const worn = this.carrying ? { ...this.look, items: this.look.items.filter((it) => it.slot !== 'tool') } : this.look;
-      this.frames.set(key, (body = drawCharacter(worn, pose, facing, { face, swing: clip.swing })));
+      this.frames.set(key, (body = drawCharacter(worn, pose, facing, { face, swing: clip.swing, lying: this.lies })));
     }
     let sprite: Picture = body;
     if (this.carrying) {

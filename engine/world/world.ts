@@ -631,6 +631,17 @@ export class World {
     const d = image.data;
     const baseKey = `${view.x},${view.y},${w},${h}|${ms}|${grid}`;
     const kept = !highlight && this.base && this.base.ground === g && this.base.key === baseKey ? this.base.data : null;
+    if (!kept) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const gx = x + view.x, gy = y + view.y;
+      if (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w) continue;
+      const p = gy * g.w + gx, o = (y * w + x) * 4;
+      d[o] = g.rgba[p * 4]; d[o + 1] = g.rgba[p * 4 + 1]; d[o + 2] = g.rgba[p * 4 + 2]; d[o + 3] = 255;
+    }
+    // On the sea floor, under the surface the waves and ripples are drawn on next: decorations, then fish over them.
+    if (!kept) {
+      this.drawDecor(image, view);
+      this.drawFish(image, view, ms);
+    }
     if (kept) d.set(kept);
     else for (let y = 0; y < h; y++) {
       const gy = y + view.y;
@@ -646,7 +657,6 @@ export class World {
           continue;
         }
         const p = gy * g.w + gx;
-        d[o] = g.rgba[p * 4]; d[o + 1] = g.rgba[p * 4 + 1]; d[o + 2] = g.rgba[p * 4 + 2]; d[o + 3] = 255;
         // Waves and ripples are on the water surface, so they go by its depth, not the floor's.
         const depth = g.depth[p];
         const foam = 0.85 * waveAt(depth, g.depth[gy > 0 ? p - g.w : p], g.depth[gx > 0 ? p - 1 : p], gx, gy, ms);
@@ -694,8 +704,6 @@ export class World {
       }
     }
     for (const [o, strength] of pressed) for (let k = 0; k < 3; k++) d[o + k] += (PRINT_RGB[k] - d[o + k]) * strength;
-    this.drawFish(image, view, ms);
-    this.drawDecor(image, view);
     // Shadows reach past a thing's picture, so things just outside the window cast into it too.
     // Each ground pixel is darkened once, and not where the ground already lies in shadow.
     const mask = new Uint8Array(w * h);

@@ -19,8 +19,8 @@ export const MAX_LEVEL = 12;
 export interface HeightMap {
   readonly w: number;
   readonly h: number;
-  /** Level per cell, row by row: `levels[j * w + i]`. */
-  readonly levels: Int8Array;
+  /** Level per cell, row by row: `levels[j * w + i]`. Whole levels, but for the smoothed sea floor `seaFloor` gives. */
+  readonly levels: Int8Array | Float32Array;
   /** Optional painted ground per cell: 0 follows the height rule, otherwise `PAINTS[n - 1]`. Under water it is ignored. */
   readonly paint?: Uint8Array;
 }
@@ -207,7 +207,8 @@ const SIDES = {
 const GRASS_LIP = '#6c9f55';
 /** Water by depth in levels: pale turquoise at the beach to deep blue offshore. */
 // Turquoise only where the sand floor shows through; deep water is blue.
-const WATER: [number, string][] = [[0, '#8ff2de'], [0.8, '#3fe0d4'], [1.8, '#1fbad8'], [2.8, '#2394da'], [4, '#2470cc']];
+// The last band to the open sea is the long one, so the shelf darkens slowly into the deep.
+const WATER: [number, string][] = [[0, '#8ff2de'], [0.7, '#3fe0d4'], [1.4, '#1fbad8'], [3.2, '#2394da'], [4, '#2470cc']];
 /** Replaces the five water colours, shore to deep; the next `renderTerrain` uses them. */
 export function setWater(colors: string[]): void {
   colors.forEach((c, k) => (WATER[k][1] = c));
@@ -217,17 +218,20 @@ export function setWater(colors: string[]): void {
 let waterSteps: string[] = [];
 /**
  * How much of something under water still shows, `depth` levels down: all of it at the water
- * line, less the deeper it is, none where the water is deep blue. The rest is the water colour.
+ * line, less the deeper it is, none once the water has its open-sea colour (the last band only
+ * darkens it a little). The rest is the water colour.
  */
-export const underwater = (depth: number) => Math.max(0, 1 - depth / WATER[WATER.length - 1][0]);
-/** The water colour at a depth, blended between the colours above in steps of a twentieth. */
+export const underwater = (depth: number) => Math.max(0, 1 - depth / WATER[WATER.length - 2][0]);
+/** Steps between two water colours: fine enough that a long band shows no stripes, few enough to keep. */
+const WATER_STEPS = 128;
+/** The water colour at a depth, blended between the colours above in steps of `WATER_STEPS`. */
 export function waterAt(depth: number): string {
   for (let k = 1; k < WATER.length; k++) {
     const [d1, hi] = WATER[k];
     if (depth >= d1) continue;
     const [d0, lo] = WATER[k - 1];
-    const step = Math.round(((depth - d0) / (d1 - d0)) * 20);
-    return (waterSteps[k * 21 + step] ??= mixHex(lo, hi, step / 20));
+    const step = Math.round(((depth - d0) / (d1 - d0)) * WATER_STEPS);
+    return (waterSteps[k * (WATER_STEPS + 1) + step] ??= mixHex(lo, hi, step / WATER_STEPS));
   }
   return WATER[WATER.length - 1][1];
 }
@@ -370,13 +374,15 @@ const rgbOf = (hex: string) => {
 };
 
 /**
- * The sea floor as drawn: it drops at most a level per tile away from the shore, so the water
- * deepens smoothly from every coast. Only the picture changes; the map keeps its levels.
+ * The sea floor as drawn: it drops at most a level per tile away from the shore, and is then
+ * smoothed into fractions of a level, so the water deepens on an even slope from every coast
+ * instead of in flat terraces of whole levels. Only the picture and what swims or wades go by
+ * it; the map keeps its levels.
  */
 export function seaFloor(map: HeightMap): HeightMap {
-  const levels = Int8Array.from(map.levels);
+  const levels = Float32Array.from(map.levels);
   for (let pass = SEA_LEVEL; pass > MIN_LEVEL; pass--) {
-    const before = Int8Array.from(levels);
+    const before = Float32Array.from(levels);
     for (let j = 0; j < map.h; j++) for (let i = 0; i < map.w; i++) {
       const k = j * map.w + i;
       if (before[k] >= SEA_LEVEL) continue;
@@ -387,7 +393,22 @@ export function seaFloor(map: HeightMap): HeightMap {
       levels[k] = floor;
     }
   }
-  return { ...map, levels };
+  // Twice the mean of each sea cell's 3 by 3, land counting as the water line and off the map as the cell itself.
+  const smooth = Float32Array.from(levels);
+  for (let pass = 0; pass < 2; pass++) {
+    const before = Float32Array.from(smooth);
+    for (let j = 0; j < map.h; j++) for (let i = 0; i < map.w; i++) {
+      const k = j * map.w + i;
+      if (levels[k] >= SEA_LEVEL) continue;
+      let sum = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        sum += inside(map, i + di, j + dj) ? Math.min(SEA_LEVEL, before[k + dj * map.w + di]) : before[k];
+      }
+      // Still sea, however near the shore.
+      smooth[k] = Math.min(SEA_LEVEL - 0.25, sum / 9);
+    }
+  }
+  return { ...map, levels: smooth };
 }
 
 /** Paints the whole map, back to front, over open sea, then lays the water over what lies below it. */
@@ -600,6 +621,11 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
   const shaded = new Map<string, string>();
   let lastColor = '';
   let lastRgb: number[] = [0, 0, 0];
+  // The floor is flat per tile triangle, so its depth bends at every tile edge and the colour would
+  // show the tiles as bands; the water's colour goes by the depth smoothed over a few tiles instead.
+  const soft = new Float32Array(w * h);
+  for (let p = 0; p < w * h; p++) soft[p] = Math.max(0, SEA_LEVEL - height[p]);
+  smooth(soft, w, h, WATER_BLUR);
   for (let p = 0; p < w * h; p++) {
     const depth = SEA_LEVEL - height[p];
     let color = colors[p];
@@ -608,7 +634,7 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
       const sy = Math.floor(p / w) + 0.5 - origin.y;
       // Open sea off the map is as deep as it gets; elsewhere the floor is looked up under the surface.
       surfaceDepth[p] = cell[p] < 0 ? depth : Math.max(0.01, SEA_LEVEL - floor((sx / (TILE_W / 2) + sy / (TILE_H / 2)) / 2, (sy / (TILE_H / 2) - sx / (TILE_W / 2)) / 2));
-      const water = waterAt(depth);
+      const water = waterAt(soft[p]);
       // The sand floor shows through the first half level; steps of a tenth keep the colour cache small.
       color = depth < 0.5 ? mixHex(color, water, Math.round((0.5 + depth) * 10) / 10) : water;
       const pebble = underwater[p] && UNDERWATER[underwater[p]];
@@ -631,6 +657,27 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
     rgba[p * 4] = lastRgb[0]; rgba[p * 4 + 1] = lastRgb[1]; rgba[p * 4 + 2] = lastRgb[2]; rgba[p * 4 + 3] = 255;
   }
   return { w, h, rgba, cell, height, origin, shade, depth: surfaceDepth, tops };
+}
+
+/** Pixels the water's depth is smoothed over, each way, for its colour. */
+const WATER_BLUR = 10;
+/** Blurs `a`, `w` by `h`, in place: two box passes each way of radius `r`, near enough a gaussian. */
+function smooth(a: Float32Array, w: number, h: number, r: number): void {
+  const line = new Float32Array(Math.max(w, h));
+  const pass = (n: number, stride: number, start: number) => {
+    for (let k = 0; k < n; k++) line[k] = a[start + k * stride];
+    let sum = 0;
+    // The ends are held, so the open sea at the image's edge stays as deep as it is.
+    for (let k = -r; k <= r; k++) sum += line[Math.max(0, Math.min(n - 1, k))];
+    for (let k = 0; k < n; k++) {
+      a[start + k * stride] = sum / (2 * r + 1);
+      sum += line[Math.min(n - 1, k + r + 1)] - line[Math.max(0, k - r)];
+    }
+  };
+  for (let twice = 0; twice < 2; twice++) {
+    for (let y = 0; y < h; y++) pass(w, 1, y * w);
+    for (let x = 0; x < w; x++) pass(h, w, x);
+  }
 }
 
 const mixCache = new Map<string, string>();

@@ -70,7 +70,7 @@ export type Carried = (facing: Facing, ms: number) => { picture: Picture; w: num
 interface Drop { i: number; j: number; z: number; vi: number; vj: number; vz: number; pale: boolean }
 
 /** A colour moved part of the way to another; a sprite colour keeps its alpha. */
-function tint(hex: string, to: number[], k: number): string {
+export function tint(hex: string, to: number[], k: number): string {
   const from = rgb(hex);
   return '#' + from.map((v, n) => Math.round(v + (to[n] - v) * k).toString(16).padStart(2, '0')).join('') + hex.slice(7);
 }

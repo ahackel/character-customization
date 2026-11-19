@@ -2,7 +2,7 @@
 // choices a player makes, how they are checked when read back, how they turn into a look the
 // puppet draws, and the list of characters saved on this device.
 import {
-  baseLook, beardFor, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, UNDERSHORTS, UNDERTOP, wear,
+  baseLook, beardFor, BROWS, DEFAULT_FACE, EYE_COLORS, EYE_SHAPES, facesFor, GLASSES_COLORS, viewsFor, HAIR_STYLES, HEAD_SHAPES, headFor, MOODS, NOSES, UNDERSHORTS, UNDERTOP, wear,
   type FaceOptions, type Mood,
 } from './base.ts';
 import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
@@ -94,6 +94,7 @@ export function cleanState(input: unknown): State {
       if ((EYE_SHAPES as readonly string[]).includes(face.eyes)) state.face.eyes = face.eyes;
       if (EYE_COLORS.includes(face.eyeColor)) state.face.eyeColor = face.eyeColor;
       if ((BROWS as readonly string[]).includes(face.brows)) state.face.brows = face.brows;
+      if ((NOSES as readonly string[]).includes(face.nose ?? '')) state.face.nose = face.nose;
       for (const key of ['blush', 'freckles', 'glasses', 'lashes'] as const) state.face[key] = !!face[key];
       if (face.glassesColor && GLASSES_COLORS.includes(face.glassesColor)) state.face.glassesColor = face.glassesColor;
     }

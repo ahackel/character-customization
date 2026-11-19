@@ -116,16 +116,17 @@ const runHalf: PoseSpec[] = [
   { bob: 1, lean: 7, legR: { swing: -38, bend: 18 }, legL: { swing: 52, bend: 72 }, armL: { swing: -36, bend: 75 }, armR: { swing: 34, bend: 80 } },
 ];
 
-// Use: one generic action for whatever is in the hand, or for bare hands. The body stays put with
-// one foot forward; the right arm works out to the side, where it reads from the front and from
-// behind: it lifts, comes down and recovers.
-const useStance = { legR: { swing: 9 }, legL: { swing: -9 }, armL: { swing: -8, bend: 12 } };
+// Use: one generic action for whatever is in the hand, or for bare hands. One bow forward from the
+// hips, both arms reaching down to 45 degrees in front (swing is from hanging, so in the world, not
+// along the leaning back) and a little out so they read from the front; held a beat, then back up.
+const useArms = (swing: number, bend = 6) => ({ armL: { swing, bend, out: 8 }, armR: { swing, bend, out: 8 } });
 const useFrames: PoseSpec[] = [
-  { ...useStance, armR: { swing: 50, bend: 75, out: 38 } },
-  { ...useStance, lean: -2, armR: { swing: 95, bend: 55, out: 38 } },
-  { ...useStance, lean: 4, armR: { swing: 60, bend: 20, out: 32 } },
-  { ...useStance, lean: 6, armR: { swing: 34, bend: 14, out: 28 } },
-  { ...useStance, lean: 3, armR: { swing: 44, bend: 45, out: 32 } },
+  { lean: 14, ...useArms(18) },
+  { lean: 30, bob: -1, ...useArms(36) },
+  { lean: 40, bob: -1, ...useArms(45) },
+  { lean: 40, bob: -1, ...useArms(45, 10) },
+  { lean: 22, ...useArms(26) },
+  { lean: 8, ...useArms(8, 8) },
 ];
 
 // Wave: the elbow is lifted out to the side at shoulder height and the forearm stands up from

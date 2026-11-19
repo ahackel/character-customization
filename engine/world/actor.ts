@@ -14,8 +14,8 @@ type ClipId = 'idle' | 'walk' | 'run' | 'carry' | 'hold' | 'sitDown' | 'sit' | '
 
 /** Metres per second. */
 const SPEED = { walk: 1.7, run: 3.6 };
-/** How many times an emote plays before the character goes back to standing. */
-const EMOTE_LOOPS = 2;
+/** How many times an emote plays before the character goes back to standing: a wave goes on a little, a use is one go. */
+const EMOTE_LOOPS: Record<Emote, number> = { wave: 2, use: 1 };
 /** Wading is slower than walking on land. */
 const WADING = 0.6;
 /**
@@ -283,7 +283,7 @@ export class Actor {
       if (this.clip === 'lieDown' && this.played(ms)) this.play('lie', ms);
       if (down) return;
       if (this.clip === 'idle' && !this.carrying && ms - this.started >= this.sitAfter && this.depth(world) <= 0) return this.play('sitDown', ms);
-      if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS) this.play(this.carrying ? 'hold' : 'idle', ms);
+      if (!emoting || ms - this.started > (clip.frames.length / clip.rate) * 1000 * EMOTE_LOOPS[this.clip as Emote]) this.play(this.carrying ? 'hold' : 'idle', ms);
       return;
     }
     if (this.carrying) run = false;

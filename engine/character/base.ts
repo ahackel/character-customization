@@ -237,6 +237,7 @@ export const EYE_SHAPES = ['round', 'small', 'sleepy'] as const;
 export const MOODS = ['neutral', 'smile', 'happy', 'laughing', 'sad', 'angry', 'surprised'] as const;
 export type Mood = (typeof MOODS)[number];
 export const BROWS = ['none', 'thin', 'thick'] as const;
+export const NOSES = ['small', 'long', 'thick'] as const;
 /** null keeps the eyes plain dark. */
 export const EYE_COLORS: (PaletteKey | null)[] = [null, 'blue', 'green', 'teal', 'grey', 'wood', 'purple'];
 
@@ -252,6 +253,8 @@ export interface FaceOptions {
   /** Frame colour. Defaults to black. */
   glassesColor?: PaletteKey;
   lashes: boolean;
+  /** Missing in older saves, which means small. */
+  nose?: (typeof NOSES)[number];
 }
 
 export const GLASSES_COLORS: PaletteKey[] = ['black', 'brown', 'steel', 'straw', 'red', 'blue', 'green', 'pink', 'white'];
@@ -403,24 +406,46 @@ export function faceRows(o: FaceOptions, mood: Mood, blink: boolean, aside: bool
     frontRules(o, put, view === 'front');
   }
   place(FACE_SHAPES.brows[view][o.brows][browState(mood)], FACE_REGIONS.brows[view]);
-  place(talk ? TALK_MOUTHS[view][talk] : FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
   if (o.glasses) view === 'side' ? sideGlasses(put) : frontGlasses(put, view === 'front');
+  // The nose goes over the glasses' bridge, as it stands in front of them; the mouth over the nose's tip.
+  if (view !== 'side') frontNose(o, put, view === 'front');
+  place(talk ? TALK_MOUTHS[view][talk] : FACE_SHAPES.mouths[view][mood], FACE_REGIONS.mouths[view]);
   return grid.map((row) => row.join(''));
 }
 
 type Put = (x: number, y: number, ch: string) => void;
 
-/** Nose, blush and freckles in the diagonal and face-on views. */
+/** Blush and freckles in the diagonal and face-on views. */
 function frontRules(o: FaceOptions, put: Put, south: boolean): void {
-  // The nose: its shaded underside and, up and towards the light, the rest of it, all warmed.
-  const nose = south ? 12 : 13;
-  for (const [x, y] of [[nose - 1, 14], [nose, 14], [nose - 1, 15]]) put(x, y, 'N');
-  put(nose, 15, 'n');
   if (o.blush) {
     put(south ? 8 : 7, 15, 'B');
     put(16, 15, 'B');
   }
   if (o.freckles) for (const [x, y] of [[6, 15], [8, 16], [8, 14], [17, 15], [16, 16]]) put(x, y, '%');
+}
+
+/** The nose in the diagonal and face-on views. */
+function frontNose(o: FaceOptions, put: Put, south: boolean): void {
+  // The nose: its shaded underside and, up and towards the light, the rest of it, all warmed. A long one
+  // starts a row higher, between the eyes, and reaches a pixel further at the tip (the way the head
+  // turns, face on straight down); a thick one is a pixel wider on the lit side and at the tip.
+  const nose = south ? 12 : 13;
+  const kind = o.nose ?? 'small';
+  const lit: [number, number][] = [[nose - 1, 14], [nose, 14], [nose - 1, 15]];
+  const shade: [number, number][] = [[nose, 15]];
+  // Turned (3/4), both reach a pixel further still the way the head faces.
+  if (kind === 'long') {
+    lit.push([nose - 1, 13]);
+    if (south) shade.push([nose - 1, 16]);
+    else lit.push([nose + 1, 14]), shade.push([nose + 1, 15], [nose + 2, 15]);
+  }
+  if (kind === 'thick') {
+    lit.push([nose - 2, 14], [nose - 2, 15]);
+    shade.push([nose + 1, 15]);
+    if (!south) lit.push([nose + 1, 14]), shade.push([nose + 2, 15]);
+  }
+  for (const [x, y] of lit) put(x, y, 'N');
+  for (const [x, y] of shade) put(x, y, 'n');
 }
 
 function frontGlasses(put: Put, south: boolean): void {
@@ -435,7 +460,9 @@ function frontGlasses(put: Put, south: boolean): void {
     }
   }
   put(12, 12, 'G');
+  // The temples, back to the ears: turned only the near one shows, face on both, out to the head's sides.
   if (!south) for (let i = 3; i <= 7; i++) put(i, 12, 'G');
+  else for (const i of [5, 6, 7, 17, 18, 19]) put(i, 12, 'G');
 }
 
 /** Blush and freckles side on. */
@@ -457,15 +484,18 @@ function sideGlasses(put: Put): void {
 }
 
 
-/** The bare head side on, its nose warmed. */
-function sideHead(skin: PaletteKey, shape: HeadShape = 'round'): Stamp {
+/** The bare head side on, its nose warmed: one stands out two pixels further when long, and a pixel further and a pixel taller at the tip when thick (up, the mouth is under it). */
+function sideHead(skin: PaletteKey, shape: HeadShape = 'round', nose: FaceOptions['nose'] = 'small'): Stamp {
   const side = parseStamp(pad(sideRows(shape), 6), {}, skin);
   // The tip of the nose side on is the one pixel that stands out furthest in front.
   const reach = side.map((row) => row.reduce((last, cell, x) => (cell ? x : last), -1));
   const tip = reach.indexOf(Math.max(...reach));
   if (reach.filter((r) => r === reach[tip]).length === 1) {
     // The tip, the pixel behind it and the bridge above that: the whole nose side on.
-    for (const [x, y] of [[reach[tip], tip], [reach[tip] - 1, tip], [reach[tip] - 1, tip - 1]]) if (side[y][x]) side[y][x] = { ...side[y][x]!, flush: true };
+    const x0 = reach[tip];
+    const more: [number, number, boolean][] = nose === 'long' ? [[x0 + 1, tip, false], [x0 + 2, tip, false], [x0, tip - 1, false], [x0 + 1, tip - 1, false]] : nose === 'thick' ? [[x0, tip - 1, false], [x0 + 1, tip, false], [x0 + 1, tip - 1, false]] : [];
+    for (const [x, y, shade] of more) if (side[y] && x < side[y].length) side[y][x] = { key: skin, shade, light: false };
+    for (const [x, y] of [[x0, tip], [x0 - 1, tip], [x0 - 1, tip - 1], ...more]) if (side[y]?.[x]) side[y][x] = { ...side[y][x]!, flush: true };
   }
   return side;
 }
@@ -474,7 +504,7 @@ function sideHead(skin: PaletteKey, shape: HeadShape = 'round'): Stamp {
 export function viewsFor(skin: PaletteKey, options: FaceOptions = DEFAULT_FACE, hair: PaletteKey = 'hairBrown', mood: Mood = 'happy'): NonNullable<Look['views']> {
   const shape = SHAPES[options.shape ?? 'round'];
   const straight = parseStamp(shaped(ROUND_SOUTH, shape.straight), {}, skin);
-  const side = sideHead(skin, options.shape);
+  const side = sideHead(skin, options.shape, options.nose);
   return {
     S: { head: straight, faces: faceSet(straight, 'front', skin, options, hair, mood) },
     N: { head: straight, faces: {} },

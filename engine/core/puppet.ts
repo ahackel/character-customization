@@ -996,7 +996,14 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
           }
           return out;
         });
-        stampInto(sprite, upper, { ax: fit.ax, ay: TORSO_FRAME.ay }, mid, top);
+        // The body above is a block sheared and squashed from chest to hips when it leans: each row of
+        // the top goes where its body row went, so clothes bend with the body. Standing it is one to one.
+        const rows = bottom - top;
+        upper.forEach((row, r) => {
+          const b = r - TORSO_FRAME.ay;
+          const y = top + (b <= 0 ? b : b >= 11 ? rows + b - 11 : Math.round((b * rows) / 11));
+          stampInto(sprite, [row], { ax: fit.ax, ay: 0 }, Math.floor(chest.x + (hips.x - chest.x) * Math.max(0, Math.min(1, b / 11))), y);
+        });
         // Anything below the hips is a skirt. Each of its rows is stretched towards whichever
         // knee has swung out, more so further down, so the hem follows the stride.
         for (let r = hipRow + 1; r < stamp.length; r++) {
@@ -1009,7 +1016,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
           const to = last + Math.round(stride.right * t);
           for (let x = from; x <= to; x++) {
             const cell = cells[first + Math.round(((x - from) * (last - first)) / Math.max(1, to - from))];
-            if (cell) sprite.set(mid + x - fit.ax, top + r - TORSO_FRAME.ay, hexOf(cell));
+            if (cell) sprite.set(Math.floor(hips.x) + x - fit.ax, bottom + r - hipRow, hexOf(cell));
           }
         }
       }

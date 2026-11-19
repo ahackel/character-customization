@@ -1,5 +1,5 @@
-// Crabs on the beach and in the shallows. They scuttle sideways, rest, freeze when someone comes
-// near and run off sideways when they come too near. Seen from 8 headings like the animals, and
+// Crabs on the beach and in the shallows. Each walks up out of the deep water first; then they
+// scuttle sideways, rest, freeze when someone comes near and run off sideways when they come too near. Seen from 8 headings like the animals, and
 // covered by the water as deep as they walk, like a wading character.
 import { darker, PALETTE } from '../core/palette.ts';
 import { wading } from './actor.ts';
@@ -20,6 +20,8 @@ export interface Crab {
   until: number;
   /** Running away: as fast as it can, until `until`. */
   fleeing: boolean;
+  /** Where it is walking up out of the deep to, minding nothing else on the way; gone once it is there. */
+  ashore?: { i: number; j: number };
 }
 
 /** Metres: it freezes when someone is this near, and runs when nearer still. */
@@ -37,11 +39,27 @@ export function crabby(world: World, i: number, j: number): boolean {
   return (s === 'beach' || s === 'sand' || s === 'shallow') && SEA_LEVEL - heightAt(world.floor, i, j) <= DEPTH;
 }
 
-/** A crab at a random spot it may be, or null if none was found. */
+/** How deep, in levels, the water is where a crab starts its walk up the beach: deep enough to hide it all but faintly. */
+const FROM_DEEP = 2.8;
+/** How far out, in metres, a crab may start from the spot it walks to. */
+const FROM_FAR = 8;
+
+/**
+ * A crab coming up out of the deep water to a random spot it may be, or null if none was found.
+ * It starts out where the water is deep and walks straight in, so the way there is open sea floor.
+ */
 export function spawnCrab(world: World, random: () => number): Crab | null {
   for (let tries = 0; tries < 400; tries++) {
     const i = random() * world.map.w, j = random() * world.map.h;
-    if (crabby(world, i, j)) return { i, j, a: random() * Math.PI * 2, walk: 0, until: random() * 3, fleeing: false };
+    if (!crabby(world, i, j)) continue;
+    const out = random() * Math.PI * 2;
+    for (let r = 0.5; r <= FROM_FAR; r += 0.25) {
+      const si = i + Math.cos(out) * r, sj = j + Math.sin(out) * r;
+      if (!inside(world.floor, Math.floor(si), Math.floor(sj)) || heightAt(world.floor, si, sj) >= SEA_LEVEL) break;
+      if (SEA_LEVEL - heightAt(world.floor, si, sj) < FROM_DEEP) continue;
+      // Walking to its left toward the shore: its eyes look 90 degrees right of the way in.
+      return { i: si, j: sj, a: out + Math.PI / 2, walk: 1, until: 0, fleeing: false, ashore: { i, j } };
+    }
   }
   return null;
 }
@@ -59,6 +77,15 @@ export function scare(c: Crab, from: { i: number; j: number }): void {
 /** Moves every crab on by `dt` seconds, minding `near` (the character), if there is one. */
 export function scuttle(crabs: Crab[], world: World, dt: number, random: () => number, near: { i: number; j: number } | null): void {
   for (const c of crabs) {
+    if (c.ashore) {
+      const left = Math.hypot(c.ashore.i - c.i, c.ashore.j - c.j);
+      const step = Math.min(left, SPEED.walk * dt);
+      const h = Math.atan2(c.ashore.j - c.j, c.ashore.i - c.i);
+      c.i += Math.cos(h) * step;
+      c.j += Math.sin(h) * step;
+      if (left - step < 0.05) [c.ashore, c.walk, c.until] = [undefined, 0, 1];
+      continue;
+    }
     const d = near ? Math.hypot(c.i - near.i, c.j - near.j) : Infinity;
     c.until -= dt;
     if (near && d < CRAB_FLEE && !c.fleeing) scare(c, near);

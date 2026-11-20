@@ -1,16 +1,22 @@
 // Writes the two format descriptions given to the language model, with reference grids taken
 // from the real renderer so the text can never drift from the code.
 import fs from 'node:fs';
-import { PAINT_KEYS, PALETTE } from '../engine/core/palette.ts';
+import { hexOf, PAINT_KEYS, PALETTE } from '../engine/core/palette.ts';
 import { drawCharacter, layoutOf, HEAD_STAMP as HEAD_FRAME, TOOL_STAMP as TOOL_FRAME, PAINT_W as SPRITE_W, PAINT_H as SPRITE_H, BODY_WINDOW } from '../engine/core/puppet.ts';
 import { STAND } from '../engine/core/poses.ts';
 import { baseLook } from '../engine/character/base.ts';
 import { compileRecipe } from '../engine/character/items.ts';
 
 const look = baseLook('skinB', 'hairBrown');
+// Every tone the body is drawn in, the warmed ears and nose included, so the reference reads as a
+// solid figure. A colour left out here would show as a hole and the model would paint into it.
+const tones = (key, flush) => [{ key }, { key, shade: true }, { key, light: true }].map((c) => hexOf({ ...c, flush }));
+const skin = (hex, i) => [hex, i === 1 ? '%' : '#'];
 const symbol = new Map([
-  [PALETTE.skinB[0], '#'], [PALETTE.skinB[1], '%'], [PALETTE.hairBrown[0], '*'], [PALETTE.hairBrown[1], '*'],
-  [PALETTE.white[0], '='], [PALETTE.white[1], '='], [PALETTE.ink[0], 'o'], [PALETTE.mouth[0], '~'],
+  ...tones('skinB', false).map(skin), ...tones('skinB', true).map(skin),
+  ...tones('hairBrown', false).map((hex) => [hex, '*']),
+  [PALETTE.white.base, '='], [PALETTE.white.shade, '='], [PALETTE.white.light, '='],
+  [PALETTE.ink.base, 'o'], [PALETTE.mouth.base, '~'], [PALETTE.tooth.base, 'w'], [PALETTE.blush.base, '#'],
 ]);
 const asText = (sprite) => Array.from({ length: SPRITE_H }, (_, y) =>
   Array.from({ length: SPRITE_W }, (_, x) => symbol.get(sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) ?? '.').join(''));
@@ -52,7 +58,7 @@ const refs = `
 ## The character you are dressing
 
 Standing pose, 32 wide by 48 tall. Row and column numbers are shown for reference only.
-Symbols: # skin, % shaded skin, * hair, = undershorts, o eye, ~ mouth, . empty.
+Symbols: # skin, % shaded skin, * hair, = undershorts, o eye, ~ mouth, w the white of an eye or a tooth, . empty.
 
 Front (facing right, towards the viewer):
 
@@ -86,7 +92,7 @@ const exampleSprite = (facing) => {
   return Array.from({ length: SPRITE_H }, (_, y) => Array.from({ length: SPRITE_W }, (_, x) => {
     const c = sprite.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y);
     if (!c || c === bare.get(x + BODY_WINDOW.x, y + BODY_WINDOW.y)) return '.';
-    return c === PALETTE.blue[0] ? 'B' : c === PALETTE.blue[1] ? 'b' : '.';
+    return c === PALETTE.blue.shade ? 'b' : c === PALETTE.blue.base || c === PALETTE.blue.light ? 'B' : '.';
   }).join(''));
 };
 
@@ -193,7 +199,7 @@ A stamp 21 wide by 30 tall, for the front view and for the back view.
   "back": ["21 characters", "... 30 rows in total"] }
 \`\`\`
 
-The head inside that frame, for reference (# skin, % shaded skin, * the default short hair, o eye, ~ mouth, = body below).
+The head inside that frame, for reference (# skin, % shaded skin, * the default short hair, o eye, ~ mouth, w the white of an eye or a tooth, = body below).
 Your stamp is drawn on top of this. Paint only your item and leave the rest as dots.
 
 Front:

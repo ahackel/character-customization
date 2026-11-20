@@ -1011,9 +1011,16 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         // The body above is a block sheared and squashed from chest to hips when it leans: each row of
         // the top goes where its body row went, so clothes bend with the body. Standing it is one to one.
         const rows = bottom - top;
+        // Squashed, two rows can land on one line. On a see-through stamp (ribs) only the first is
+        // drawn there, or a bar would fill the gap under it and the cage turn solid.
+        const taken = new Set<number>();
         upper.forEach((row, r) => {
           const b = r - TORSO_FRAME.ay;
           const y = top + (b <= 0 ? b : b >= 11 ? rows + b - 11 : Math.round((b * rows) / 11));
+          if (item.open && row.some(Boolean)) {
+            if (taken.has(y)) return;
+            taken.add(y);
+          }
           stampInto(sprite, [row], { ax: fit.ax, ay: 0 }, Math.floor(chest.x + (hips.x - chest.x) * Math.max(0, Math.min(1, b / 11))), y);
         });
         // Anything below the hips is a skirt. Each of its rows is stretched towards whichever

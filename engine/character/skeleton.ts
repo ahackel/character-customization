@@ -9,8 +9,8 @@ const INK: Cell = { key: 'ink', shade: false };
 const SHADE: Cell = { key: BONE, shade: true };
 
 /**
- * The skull's one face, whatever the mood: big hollow eyes, a nose hole, and a grin, black pixels only Placed by where the neutral face has its eyes,
- * nose and mouth, so it fits each view. Every name gets the same face; the view from behind has none.
+ * The skull's one face, whatever the mood: big hollow eyes, a nose hole, and a grin, in black pixels only.
+ * Placed by where the neutral face has its eyes, nose and mouth, so it fits each view; side on it faces right. Every name gets the same face; the view from behind has none.
  */
 export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<string, Stamp> {
   const from = faces.neutral;
@@ -18,7 +18,8 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
   const cells = (match: (c: Cell) => boolean) => from.flatMap((row, y) => row.flatMap((c, x) => (c && match(c) ? [[x, y] as const] : [])));
   const face: Stamp = from.map((row) => row.map(() => null));
   const put = (x: number, y: number, cell: Cell) => { (face[y] ??= [])[x] = cell; };
-  // Eyes: the ink of the top rows, two face on, one side on. Face on they are a pixel wider, outwards.
+  // Eyes: the ink of the top rows, two face on, one side on. They are a pixel wider: outwards face on,
+  // towards the back of the skull side on.
   const ink = cells((c) => c.key === 'ink' || c.key === 'tooth');
   const top = Math.min(...ink.map(([, y]) => y));
   const sockets = ink.filter(([, y]) => y <= top + 2);
@@ -27,11 +28,13 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
   const mid = (Math.max(...xs) + Math.min(...xs)) / 2;
   for (const [x, y] of sockets) {
     put(x, y, INK);
-    if (two) put(x < mid ? x - 1 : x + 1, y, INK);
+    put(two && x > mid ? x + 1 : x - 1, y, INK);
   }
   // A little shade under the outer end of each socket, for the cheekbones.
   const bottom = top + 3;
-  for (const x of two ? [Math.min(...xs) - 1, Math.max(...xs) + 1] : []) put(x, bottom, SHADE);
+  for (const x of two ? [Math.min(...xs) - 1, Math.max(...xs) + 1] : [Math.min(...xs) - 1]) put(x, bottom, SHADE);
+  // Side on the nose is a hole just in front of the socket, where the face dips in.
+  if (!two) put(Math.max(...xs) + 1, bottom, INK);
   // The nose hole: the lowest row of the nose, between the eyes face on.
   const nose = cells((c) => !!c.flush).filter(([x]) => !two || (x >= Math.min(...xs) && x <= Math.max(...xs)));
   if (nose.length) {
@@ -49,10 +52,13 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
     const x0 = Math.max(...mx) - (w % 2 ? w : w + 1) + 1 - 1;
     // Two pixels wider than the face's own mouth, one on each side.
     const n = (w % 2 ? w : w + 1) + 2;
-    for (let p = 0; p < n; p++) {
-      if (p === 0 || p === n - 1 || p % 2 === 0) put(x0 + p, y, INK);
-      if (p > 0 && p < n - 1) put(x0 + p, y + 1, INK);
+    // Side on the teeth run further back along the jaw, to a shadow where the jaw hinges.
+    const back = two ? 0 : 2;
+    for (let p = -back; p < n; p++) {
+      if (p === -back || p === n - 1 || (p - -back) % 2 === 0) put(x0 + p, y, INK);
+      if (p > -back && p < n - 1) put(x0 + p, y + 1, INK);
     }
+    if (!two) for (const dy of [-1, 0, 1]) put(x0 - back - 1, y + dy, SHADE);
   }
   // Nothing outside the skull.
   const clipped = face.map((row, y) => row.map((c, x) => (head[y]?.[x] ? c : null)));

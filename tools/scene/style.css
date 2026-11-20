@@ -309,3 +309,18 @@ body {
 .fps[hidden] {
   display: none;
 }
+
+/* A selected object's options: the turn buttons side by side, a chest's contents as chips. */
+.opts__row {
+  display: flex;
+  gap: 6px;
+}
+.opts__row .btn {
+  flex: 1;
+  gap: 6px;
+}
+.opts__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

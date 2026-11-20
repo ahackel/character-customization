@@ -11,7 +11,8 @@ import { cleanAnimal, savedAnimals, type Animal } from '../animals/animal.ts';
 import { PRESETS } from '../animals/animal-presets.ts';
 import { cleanState, defaultState, loadRoster, type State } from '../character/character.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
-import { itemById, type PlacedItem } from './props.ts';
+import { OWN, propOf, type PlacedItem } from './props.ts';
+import { cleanProp, type Prop } from '../objects/object.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from './terrain.ts';
 
 export interface PlacedPlant {
@@ -71,8 +72,10 @@ export interface Scene {
   decor: PlacedDecor[];
   animals: PlacedAnimal[];
   people: PlacedPerson[];
-  /** Crates and the like, standing on the ground, that can be carried in Play. */
+  /** Objects standing on the ground: crates (carried in Play), chests, and any other object. */
   items: PlacedItem[];
+  /** The scene's own objects, made in the object editor, by `OWN` id: kept here so the scene stands on its own. */
+  props?: Record<string, Prop>;
   spawn: { i: number; j: number };
   /** Set for a cave: all rock but what is carved open, seen into from the front (see cave.ts). */
   cave?: CaveSettings;
@@ -212,13 +215,20 @@ export function cleanScene(input: unknown): Scene {
         ...(cleanPose(p.pose) && { pose: cleanPose(p.pose) }),
       };
     });
+  const props: Record<string, Prop> = {};
+  if (s.props && typeof s.props === 'object') for (const [id, prop] of Object.entries(s.props)) if (id.startsWith(OWN)) props[id] = cleanProp(prop);
   const items = (Array.isArray(s.items) ? s.items : [])
-    .filter((it): it is PlacedItem => !!it && typeof it === 'object' && !!itemById(it.item))
-    .map((it) => ({ item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2) }));
+    .filter((it): it is PlacedItem => !!it && typeof it === 'object' && typeof it.item === 'string' && !!propOf(it.item, props))
+    .map((it) => ({
+      item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2),
+      ...(it.turn && { turn: Math.round(num(it.turn, 0, 3, 0)) }),
+      ...(Array.isArray(it.loot) && it.loot.length && { loot: it.loot.filter((l: unknown) => typeof l === 'string').slice(0, 20) }),
+    }));
   const scene: Scene = {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
     name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : s.cave ? 'Cave' : 'Island',
     w, h, levels, paint, plants, decor, animals, people, items,
+    ...(Object.keys(props).length && { props }),
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
   const c = s.cave;

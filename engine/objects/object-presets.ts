@@ -23,6 +23,33 @@ const wheels = (r = 8) => [0, 21].flatMap((x) => [
 
 const make = (kind: Kind, w: number, d: number, parts: Part[], points: Point[] = []): Prop => cleanProp({ kind, w, d, parts, points });
 
+// The treasure chest: a box of dark planks with iron bands at its corners and rim, a domed lid of planks with
+// iron bands, and an iron hasp at the front (+z, the lower left at turn 0). The box is hollow and dark inside, so
+// the lid opening (OPENING) shows it.
+const chestBox = [
+  box(2, 0, 4, 12, 6, 8, 'brown'),
+  box(2, 6, 4, 12, 1, 1, 'brown'), box(2, 6, 11, 12, 1, 1, 'brown'), box(2, 6, 5, 1, 1, 6, 'brown'), box(13, 6, 5, 1, 1, 6, 'brown'),
+  box(3, 5, 5, 10, 1, 6, 'ink'),
+  // Grooves between the planks, front and sides.
+  box(5, 1, 12, 1, 5, 1, 'ink'), box(10, 1, 12, 1, 5, 1, 'ink'), box(1, 1, 7, 1, 5, 1, 'ink'), box(14, 1, 7, 1, 5, 1, 'ink'),
+  // Iron at the corners and round the rim.
+  box(1, 0, 3, 2, 7, 2, 'grey'), box(13, 0, 3, 2, 7, 2, 'grey'), box(1, 0, 11, 2, 7, 2, 'grey'), box(13, 0, 11, 2, 7, 2, 'grey'),
+  box(3, 6, 12, 10, 1, 1, 'grey'),
+];
+/** A lid at (y, z), `h` high and `d` deep: a dome of planks with a groove, and an iron band a little in from each end. */
+const lid = (y: number, z: number, h: number, d: number) => [
+  cyl(2, y, z, 12, h, d, 'brown', { axis: 'x' }),
+  cyl(7, y, z, 1, h, d, 'ink', { axis: 'x' }),
+  cyl(3, y, z, 1, h + 1, d, 'grey', { axis: 'x' }), cyl(12, y, z, 1, h + 1, d, 'grey', { axis: 'x' }),
+];
+/** The lid shut, the hasp hanging down the front over the box. */
+const chestLid = [...lid(4, 4, 7, 8), box(7, 4, 12, 2, 4, 1, 'grey')];
+const chest = (parts: Part[]) => make('furniture', 1, 1, [...chestBox, ...parts]);
+/** Frames of an object opening, after its shut picture: the chest's lid lifting and swinging back till it stands up behind the box. */
+export const OPENING: Record<string, Prop[]> = {
+  chest: [chest(lid(7, 3, 7, 7)), chest([...lid(6, 1, 9, 5), box(7, 12, 0, 2, 3, 1, 'grey')])],
+};
+
 export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
   { id: 'reception', name: 'Reception', prop: make('furniture', 2, 1, [
     box(1, 0, 4, 30, 17, 9, 'wood'),
@@ -120,14 +147,7 @@ export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
     box(3, 0, 3, 10, 2, 10, 'bark'), box(3, 6, 3, 10, 2, 10, 'bark'),
     box(3, 0, 3, 2, 8, 2, 'bark'), box(11, 0, 3, 2, 8, 2, 'bark'), box(3, 0, 11, 2, 8, 2, 'bark'), box(11, 0, 11, 2, 8, 2, 'bark'),
   ]) },
-  // A treasure chest: a banded wooden box, its lid rounded, a gold lock at the front.
-  { id: 'chest', name: 'Treasure chest', prop: make('furniture', 1, 1, [
-    box(2, 0, 4, 12, 7, 8, 'wood'),
-    cyl(2, 7, 4, 12, 3, 8, 'wood', { axis: 'x' }),
-    box(2, 0, 3, 2, 10, 10, 'bark'), box(12, 0, 3, 2, 10, 10, 'bark'),
-    box(2, 6, 3, 12, 1, 10, 'bark'),
-    box(7, 4, 12, 2, 3, 1, 'yellow'),
-  ]) },
+  { id: 'chest', name: 'Treasure chest', prop: chest(chestLid) },
   { id: 'hay', name: 'Hay', prop: make('furniture', 1, 1, [
     box(2, 0, 3, 12, 9, 10, 'straw'),
     box(5, 0, 2, 1, 10, 12, 'tan'), box(10, 0, 2, 1, 10, 12, 'tan'),

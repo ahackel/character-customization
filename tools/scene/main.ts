@@ -6,7 +6,10 @@ import { FLORA, plantById } from '../../engine/flora/flora-catalog.ts';
 import { castShadow, footOf, layShadow, ROOM, stamp, type Picture } from '../../engine/world/island.ts';
 import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, standingHeight, surfaceAt, TILE_H, TILE_W } from '../../engine/world/terrain.ts';
 import { Actor, EMOTES, type Carried, type Emote } from '../../engine/world/actor.ts';
-import { itemById, ITEMS, itemPicture, type PlacedItem } from '../../engine/world/props.ts';
+import { CARRIED, itemPicture, openFrames, OWN, type PlacedItem } from '../../engine/world/props.ts';
+import { OBJECT_PRESETS } from '../../engine/objects/object-presets.ts';
+import { savedProps, type Prop } from '../../engine/objects/object.ts';
+import { LOOT } from '../../engine/world/loot.ts';
 import { Herd } from '../../engine/world/herd.ts';
 import { findPath } from '../../engine/world/path.ts';
 import {
@@ -55,8 +58,10 @@ interface Prefs {
   plant: string;
   /** A `DECOR` id: what the Decor tool lays down. */
   decor: string;
-  /** An `ITEMS` id: what the Object tool sets down. */
+  /** What the Object tool sets down: an object preset id, or `OWN` and an object editor id. */
   item: string;
+  /** Which way it faces, in quarter turns: the way the last object was turned. */
+  itemTurn: number;
   /** What the Animal tool sets down: a saved animal's id, or `preset:` and a preset id. */
   animal: string;
   /** A saved character id, or '' for the default one. */
@@ -77,7 +82,7 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, item: ITEMS[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', pose: '', poseFrame: 0, rot: 0, grid: false, fps: false, bright: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, item: 'crate', itemTurn: 0, animal: `preset:${PRESETS[0].id}`, character: '', person: '', pose: '', poseFrame: 0, rot: 0, grid: false, fps: false, bright: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -86,7 +91,8 @@ function loadPrefs(): Prefs {
     if (Number.isInteger(saved?.brush) && saved.brush >= 1 && saved.brush <= BRUSH_MAX) prefs.brush = saved.brush;
     if (plantById(saved?.plant)) prefs.plant = saved.plant;
     if (decorById(saved?.decor)) prefs.decor = saved.decor;
-    if (itemById(saved?.item)) prefs.item = saved.item;
+    if (typeof saved?.item === 'string') prefs.item = saved.item;
+    if ([0, 1, 2, 3].includes(saved?.itemTurn)) prefs.itemTurn = saved.itemTurn;
     if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if (typeof saved?.person === 'string') prefs.person = saved.person;
@@ -430,12 +436,20 @@ function roam(dt: number, ms: number): void {
   }
 }
 
-/** An object (a crate, a chest) in the middle of a tile, on land; one per tile. */
+/** The objects to pick from: every preset, then the ones made in the object editor (read each time, as it may be open in another tab). */
+function objectChoices(): { id: string; name: string; prop: Prop }[] {
+  return [...OBJECT_PRESETS.map((p) => ({ id: p.id, name: p.name, prop: p.prop })), ...savedProps().map((s) => ({ id: OWN + s.id, name: s.name, prop: s.prop }))];
+}
+
+/** An object in the middle of a tile, on land, facing the way the last one was turned; one per tile. */
 function placeItem(at: { i: number; j: number }): void {
   if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
   const seen = world.viewItems();
   world.scene.items = world.scene.items.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.items.push({ item: prefs.item, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }) });
+  const choice = objectChoices().find((c) => c.id === prefs.item) ?? objectChoices()[0];
+  // One of the object editor's goes into the scene with its parts, so the scene stands on its own.
+  if (choice.id.startsWith(OWN)) world.scene.props = { ...world.scene.props, [choice.id]: choice.prop };
+  world.scene.items.push({ item: choice.id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), ...(prefs.itemTurn && { turn: prefs.itemTurn }) });
 }
 
 /**
@@ -656,7 +670,7 @@ function covers(thing: Thing, x: number, y: number): boolean {
 function pickableAt(x: number, y: number, ms: number): Pickable | null {
   // Animals too big to carry still count, so one standing in front hides what is behind it.
   const found: [Pickable | null, Thing][] = [
-    ...world.itemThings().map((thing, n): [Pickable | null, Thing] => [itemById(world.loose![n].item)?.stays ? null : { item: world.loose![n] }, thing]),
+    ...world.itemThings().map((thing, n): [Pickable | null, Thing] => [CARRIED.includes(world.loose![n].item) ? { item: world.loose![n] } : null, thing]),
     ...world.scene.animals.flatMap((a, k): [Pickable | null, Thing][] => (herd?.poses[k].carried ? [] : [[a.animal.pickable ? { animal: k } : null, world.animalSprite(a, k, ms, herd ?? undefined)]])),
   ];
   let best: Pickable | null = null;
@@ -753,9 +767,12 @@ window.addEventListener('keydown', (e) => {
     world.scene.items = world.scene.items.filter((it) => it !== gone);
     selected = null;
     sceneChanged();
+    showOptions();
   }
-  if (e.code === 'KeyQ') rotate(-1);
-  if (e.code === 'KeyR') rotate(1);
+  // With an object selected, Q and R turn it; otherwise the view.
+  const turning = prefs.mode === 'edit' && selected?.kind === 'item' ? (step: number) => turnItem(selected!.obj as PlacedItem, step) : rotate;
+  if (e.code === 'KeyQ') turning(-1);
+  if (e.code === 'KeyR') turning(1);
   if (/^(Arrow|Key[WASD]$|Shift|Space)/.test(e.code)) {
     keys.add(e.code);
     if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -842,6 +859,7 @@ canvas.addEventListener('pointerdown', (e) => {
       const p = groundPixel(e);
       selected = objectAt(p.x, p.y);
       version++;
+      showOptions();
       if (selected) {
         const v = world.toView(selected.obj);
         const foot = world.screenOf(v.i, v.j);
@@ -1112,8 +1130,8 @@ function decorThumb(id: string): HTMLCanvasElement {
 }
 
 /** An object's picture, cut to what it covers, on the sand colour. */
-function itemThumb(id: string): HTMLCanvasElement {
-  const { picture, w, h: ph } = itemPicture(id, 0);
+function itemThumb(id: string, prop: Prop): HTMLCanvasElement {
+  const { picture, w, h: ph } = itemPicture(id, 0, { [id]: prop });
   let x0 = w, y0 = ph, x1 = 0, y1 = 0;
   for (let y = 0; y < ph; y++) for (let x = 0; x < w; x++) if (picture.get(x, y)) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const cw = Math.max(1, x1 - x0 + 3), ch = Math.max(1, y1 - y0 + 3);
@@ -1173,6 +1191,42 @@ function brushPicture(size: number): HTMLElement {
 }
 
 /** The floating options of the chosen tool, over the scene. */
+/** The options panel again, as the selection changed. */
+function showOptions(): void {
+  if (prefs.mode === 'edit') options.replaceChildren(...editOptions());
+}
+
+/** Turns a placed object a quarter; new ones then face the same way. */
+function turnItem(it: PlacedItem, step: number): void {
+  remember();
+  it.turn = (((it.turn ?? 0) + step) % 4 + 4) % 4;
+  if (!it.turn) delete it.turn;
+  prefs.itemTurn = it.turn ?? 0;
+  savePrefs();
+  sceneChanged();
+}
+
+/** For a selected object: turning it, and for a chest what lies in it. */
+function itemOptions(it: PlacedItem): Node[] {
+  const out: Node[] = [h('div', { class: 'opts__row' },
+    tap({ class: 'btn', title: `${t('turn.left')} (Q)` }, () => turnItem(it, -1), icon('turnLeft'), t('turn.left')),
+    tap({ class: 'btn', title: `${t('turn.right')} (R)` }, () => turnItem(it, 1), icon('turnRight'), t('turn.right')),
+  )];
+  if (!openFrames(it.item)) return out;
+  const lang = currentLang() === 'de' ? 'de' : 'en';
+  out.push(h('span', { class: 'opts__label' }, t('chest.loot')), h('div', { class: 'opts__chips' }, ...LOOT.map((l) => {
+    const has = it.loot?.includes(l.id) ?? false;
+    return tap({ class: 'chip', 'aria-pressed': String(has) }, () => {
+      remember();
+      it.loot = has ? it.loot!.filter((x) => x !== l.id) : [...(it.loot ?? []), l.id];
+      if (!it.loot.length) delete it.loot;
+      sceneChanged();
+      showOptions();
+    }, l[lang]);
+  })));
+  return out;
+}
+
 function editOptions(): Node[] {
   const tool = prefs.tool;
   const out: Node[] = [
@@ -1197,7 +1251,11 @@ function editOptions(): Node[] {
   }
   if (tool === 'plant') out.push(picks(t('plants'), FLORA.map((e) => ({ id: e.id, name: plantName(e.id, e.label), picture: thumb(e.id) })), prefs.plant, (plant) => set({ plant })));
   if (tool === 'decor') out.push(picks(t('decor'), DECOR.map((d) => ({ id: d.id, name: t(`decor.${d.id}` as Key), picture: decorThumb(d.id) })), prefs.decor, (decor) => set({ decor })));
-  if (tool === 'item') out.push(picks(t('items'), ITEMS.map((it) => ({ id: it.id, name: t(`item.${it.id}` as Key), picture: itemThumb(it.id) })), prefs.item, (item) => set({ item })));
+  if (tool === 'item') {
+    out.push(picks(t('items'), objectChoices().map((c) => ({ id: c.id, name: c.name, picture: itemThumb(c.id, c.prop) })), prefs.item, (item) => set({ item })));
+    out.push(h('a', { class: 'opts__link', href: '../objects/' }, t('object.edit')));
+  }
+  if (tool === 'move' && selected?.kind === 'item') out.push(...itemOptions(selected.obj as PlacedItem));
   if (tool === 'animal') {
     const choices = animalChoices();
     const current = choices.some((c) => c.id === prefs.animal) ? prefs.animal : choices[0].id;

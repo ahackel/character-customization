@@ -18,7 +18,7 @@ import { flameFrame } from './flame.ts';
 import { GLOWING } from './daylight.ts';
 import { fishPixels, type Fish } from './fish.ts';
 import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
-import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
+import { itemCovers, itemPicture, type PlacedItem } from './props.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
 import { blocked, BuildingView, crosses, type Building, type Part, type PieceKind } from './building/building.ts';
@@ -677,7 +677,7 @@ export class World {
   }
 
   itemThings(): Thing[] {
-    return this.viewItems().map((it) => ({ spot: { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) }, ...itemPicture(it.item, this.rot) }));
+    return this.viewItems().map((it) => ({ spot: { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) }, ...itemPicture(it.item, (it.turn ?? 0) + this.rot, this.scene.props, it.open) }));
   }
 
   private animalFrames = new WeakMap<Animal, Map<string, AnimalSprite>>();
@@ -1008,9 +1008,9 @@ export class World {
       // Moving away is always allowed, so nobody gets stuck inside a plant placed on them.
       if (near < r && near < Math.hypot(p.vi - from.i, p.vj - from.j)) return false;
     }
+    // Objects block their footprint; stepping out of one is allowed.
     for (const it of this.viewItems()) {
-      const near = Math.hypot(it.vi - to.i, it.vj - to.j);
-      if (near < ITEM_ROOM && near < Math.hypot(it.vi - from.i, it.vj - from.j)) return false;
+      if (itemCovers(it, this.rot, this.scene.props, to.i, to.j) && !itemCovers(it, this.rot, this.scene.props, from.i, from.j)) return false;
     }
     // Walls block crossing their edge; stepping off one placed on the walker is allowed.
     for (const b of this.buildings) {

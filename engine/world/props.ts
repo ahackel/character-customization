@@ -4,7 +4,8 @@ import { drawObject, OBJECT_H, OBJECT_ORIGIN, OBJECT_W } from '../objects/object
 import { objectPresetById } from '../objects/object-presets.ts';
 import type { Thing } from './world.ts';
 
-export const ITEMS = [{ id: 'crate', preset: 'crate' }, { id: 'chest', preset: 'chest' }] as const;
+/** `stays`: too heavy to pick up and carry off. */
+export const ITEMS: readonly { id: string; preset: string; stays?: boolean }[] = [{ id: 'crate', preset: 'crate' }, { id: 'chest', preset: 'chest', stays: true }];
 export const itemById = (id: unknown) => ITEMS.find((it) => it.id === id);
 
 export interface PlacedItem {

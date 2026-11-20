@@ -73,5 +73,12 @@
       { "type": "rock", "color": "cave", "size": [12, 8], "facets": 5, "texture": "smooth" },
       { "type": "rock", "color": "cave", "size": [7, 5], "facets": 5, "texture": "smooth", "turn": 200, "out": 9 },
       { "type": "rock", "color": "cave", "size": [5, 4], "facets": 4, "texture": "smooth", "turn": 70, "out": 8 }
+    ] },
+  { "name": "Cave rubble, flat", "category": "rock",
+    "parts": [
+      { "type": "rock", "color": "cave", "size": [15, 6], "facets": 6, "texture": "cracks" },
+      { "type": "rock", "color": "cave", "size": [6, 7], "facets": 4, "texture": "smooth", "turn": 120, "out": 10 },
+      { "type": "rock", "color": "cave", "size": [9, 4], "facets": 5, "texture": "smooth", "turn": 300, "out": 9 },
+      { "type": "rock", "color": "cave", "size": [3, 3], "facets": 4, "texture": "smooth", "turn": 30, "out": 13 }
     ] }
 ]

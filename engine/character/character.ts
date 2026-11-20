@@ -9,7 +9,7 @@ import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
 import { HAIR_KEYS, PALETTE, SKIN_KEYS, type PaletteKey } from '../core/palette.ts';
 import { BUILDS, type Item, type Look, type Slot } from '../core/puppet.ts';
 import { newId } from '../../shared/files.ts';
-import { BONE, PELVIS, RIBS, skullFaces } from './skeleton.ts';
+import { BONE, boneHead, PELVIS, RIBS, skullFaces } from './skeleton.ts';
 import { WEAR_MAX, weathered, type Wear } from './wear.ts';
 
 export { download, newId, pickFile } from '../../shared/files.ts';
@@ -176,7 +176,7 @@ export function lookOf(source: State, underwear = true): Look {
     head: headFor(source.skin, source.face.shape),
     faces: bones ? skullFaces(facesFor(source.skin, source.face, source.hairColor, source.mood)) : facesFor(source.skin, source.face, source.hairColor, source.mood),
     ...(source.face.glasses ? { glasses: source.face.glassesColor ?? 'black' } : {}),
-    views: bones ? Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { ...v, faces: skullFaces(v.faces) }])) : views,
+    views: bones ? Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { head: boneHead(v.head), faces: skullFaces(v.faces) }])) : views,
     items,
   };
 }

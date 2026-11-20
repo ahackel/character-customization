@@ -158,6 +158,8 @@ export interface Item {
   left?: Partial<Record<0 | 3 | 'E', { head: Stamp; behind?: Stamp }>>;
   /** Shirt body, waistband, skirt: rigid on the chest. */
   torso?: StampPair;
+  /** The torso stamp is the whole body there: no solid block is drawn under it, so its gaps are see-through (a skeleton's ribs). */
+  open?: boolean;
   /** Sleeve colours from shoulder (first) to hand (last). null leaves the arm bare. */
   arm?: (Cell | null)[];
   /** Trouser colours from hip to ankle. */
@@ -219,7 +221,7 @@ export interface Look {
   /** The bare head and its faces seen from the front, back and side. */
   views?: Partial<Record<OwnView, { head: Stamp; faces: Record<string, Stamp> }>>;
   items: Item[];
-  /** A skeleton: the limbs break at the elbows and knees, leaving a gap at each joint. */
+  /** A skeleton: thin limbs with a knob at each elbow and knee. */
   skeleton?: boolean;
 }
 
@@ -417,7 +419,7 @@ export function mixed(under: string, over: string, k: number): string {
  * gets the position along the limb from 0 to 1, the index across it, and whether that part runs
  * up and down (across is then left to right) or sideways (across is then top to bottom).
  */
-function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number, tall: boolean) => string, gap = false): void {
+function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number, tall: boolean) => string, knob = false): void {
   const steps = joints.slice(1).map((b, i) => Math.max(Math.abs(Math.round(b.x) - Math.round(joints[i].x)), Math.abs(Math.round(b.y) - Math.round(joints[i].y))));
   const total = steps.reduce((a, b) => a + b, 0);
   // The bends first, so the runs drawn after keep their shading across. The first joint gets a
@@ -426,14 +428,14 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
   let done = 0;
   for (let i = 0; i < joints.length - 1; i++) {
     if (i > 0) done += steps[i - 1];
-    // A skeleton's middle joint is left open.
-    if (gap && i === 1) continue;
     const t = total ? done / total : 0;
-    const x0 = Math.round(joints[i].x - width / 2);
-    const y0 = Math.round(joints[i].y - width / 2);
-    for (let dy = 0; dy < width; dy++) {
-      for (let dx = 0; dx < width; dx++) {
-        const corner = width >= 3 && (dx === 0 || dx === width - 1) && (dy === 0 || dy === width - 1);
+    // A skeleton's elbows and knees are knobs, a pixel wider than the bone.
+    const size = knob && i === 1 ? width + 1 : width;
+    const x0 = Math.round(joints[i].x - size / 2);
+    const y0 = Math.round(joints[i].y - size / 2);
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        const corner = size >= 3 && (dx === 0 || dx === size - 1) && (dy === 0 || dy === size - 1);
         if (!corner) sprite.set(x0 + dx, y0 + dy, colorAt(t, dx, true));
       }
     }
@@ -447,7 +449,6 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
     const major = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     const run = major ? Math.round((width * Math.hypot(b.x - a.x, b.y - a.y)) / major) : width;
     for (let k = i === 1 ? 0 : 1; k <= n; k++) {
-      if (gap && i === 1 && k === n && joints.length > 2) { step++; continue; }
       const x = a.x + (n ? ((b.x - a.x) * k) / n : 0);
       const y = a.y + (n ? ((b.y - a.y) * k) / n : 0);
       const t = total ? step / total : 0;
@@ -823,18 +824,21 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
   // in front of the arm with the hand over it; a long one shows past the head anyway.
   const toolRows = tool?.tool?.front.map((row) => row.some(Boolean)) ?? [];
   const shortTool = tool?.hold === 'pole' && toolRows.lastIndexOf(true) - toolRows.indexOf(true) < 26;
-  const build = look.build ?? BUILDS.find((b) => b.id === 'slim')!;
+  const body = look.build ?? BUILDS.find((b) => b.id === 'slim')!;
+  // A skeleton's limbs are thin lines, but hang where a body's would.
+  const build = look.skeleton ? { ...body, arm: 1, leg: 2 } : body;
   // Poses are authored for the slim build. Wider builds move the limbs outwards so that arms
   // still sit just outside the torso and legs keep a one-pixel gap.
   // Face on and from behind the torso is two pixels wider and the arms move out with it; side on
   // it is two narrower, its depth.
   const torsoWidth = build.torso + (own === 'S' || own === 'N' ? 2 : own === 'E' ? -2 : 0);
-  const armShift = ((torsoWidth - 9) / 2 + (build.arm - 3) / 2) / 0.7071;
+  // A thin arm keeps the outer edge a full one would have.
+  const armShift = ((torsoWidth - 9) / 2 + (body.arm - 3) / 2 + (body.arm - build.arm) / 2) / 0.7071;
   const hat = ordered.find((i) => i.slot === 'hat' && i.head);
   // Under a hat that covers the crown, hair is drawn in its tucked form.
   const hairStamp = (item: Item, stamp: Stamp): Stamp =>
     item.slot === 'hair' && hat && coversCrown(rawHead(hat)) ? tucked(stamp, rawHead(hat)) : stamp;
-  const legShift = ((build.leg - 4) / 2) / 0.7071;
+  const legShift = ((body.leg - 4) / 2) / 0.7071;
   const moved = (v: Vec3, s: 'L' | 'R', shift: number): Vec3 => [v[0] + (s === 'R' ? shift : -shift), v[1], v[2]];
 
   const limbPaint = (kind: 'arm' | 'leg', t: number): Cell => {
@@ -936,7 +940,8 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       };
       /** First and last body column drawn in a torso row. Column 0 is the left edge of the block. */
       const span = (row: number): [number, number] => [inset(row), width - 1 - inset(row)];
-      for (let y = top; y <= bottom; y++) {
+      const open = ordered.some((item) => item.open);
+      for (let y = top; y <= bottom && !open; y++) {
         const k = bottom === top ? 0 : (y - top) / (bottom - top);
         const left = Math.round(chest.x + (hips.x - chest.x) * k - width / 2);
         const [lo, hi] = span(y - top);
@@ -948,7 +953,9 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         }
       }
       const mid = Math.floor(chest.x);
-      if (back) {
+      if (open) {
+        // The stamps below are all there is of the body.
+      } else if (back) {
         // A hint of the spine, so the back is not an empty block.
         for (let dy = 2; dy <= 5; dy++) sprite.set(mid, top + dy, tone(skin, true));
       } else {
@@ -1361,7 +1368,8 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       // Ears the hair leaves free are warmed a little, like the nose.
       const patch = earPatch(hv ?? (headBack ? 'back' : 'front'), ears);
       const bare = headOf();
-      const head = earsHidden() ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
+      // Bone does not blush.
+      const head = earsHidden() || look.skeleton ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
       stampInto(sprite, headStamp(head).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);
       if (options.parts && !earsHidden()) {
         // The ears in a colour of their own, so a script can tell whether they show.

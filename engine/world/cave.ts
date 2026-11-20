@@ -20,7 +20,8 @@ export const CAVE_DAY = '#c8d4e8';
 const DAY_REACH = 2.6;
 const CAVE_GROUND = PAINTS.indexOf('cave') + 1;
 /** The rubble: the flora catalogue's cave rubble, in a cluster of up to three, big against the rock and smaller out. */
-const RUBBLE_ROCK = 'plant-rocks-9';
+/** The rubble's two sets of rocks, one picked per wall edge, for variety. */
+const RUBBLE_ROCKS = ['plant-rocks-9', 'plant-rocks-10'];
 const CLUSTER = [[0.22, 0.85], [0.5, 0.55], [0.8, 0.35]] as const;
 
 const isOpen = (map: HeightMap, i: number, j: number) => inside(map, i, j) && map.levels[j * map.w + i] >= SEA_LEVEL;
@@ -196,7 +197,7 @@ export function caveRubble(walls: Building, amount: number): { plant: string; i:
       if (n && r(2 + n) < 0.3) return;
       const off = along + (r(5 + n) - 0.5) * 0.3;
       out.push({
-        plant: RUBBLE_ROCK, i: edge.axis === 'H' ? edge.i + off : edge.i + d, j: edge.axis === 'H' ? edge.j + d : edge.j + off,
+        plant: RUBBLE_ROCKS[Math.floor(r(14) * RUBBLE_ROCKS.length)], i: edge.axis === 'H' ? edge.i + off : edge.i + d, j: edge.axis === 'H' ? edge.j + d : edge.j + off,
         seed: Math.floor(r(8 + n) * 4), size, turn: Math.floor(r(11 + n) * 8),
       });
     });

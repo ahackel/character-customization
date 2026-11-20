@@ -6,7 +6,7 @@ import { FLORA, plantById } from '../../engine/flora/flora-catalog.ts';
 import { castShadow, footOf, layShadow, ROOM, stamp, type Picture } from '../../engine/world/island.ts';
 import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, standingHeight, surfaceAt, TILE_H, TILE_W } from '../../engine/world/terrain.ts';
 import { Actor, EMOTES, type Carried, type Emote } from '../../engine/world/actor.ts';
-import { ITEMS, itemPicture, type PlacedItem } from '../../engine/world/props.ts';
+import { itemById, ITEMS, itemPicture, type PlacedItem } from '../../engine/world/props.ts';
 import { Herd } from '../../engine/world/herd.ts';
 import { findPath } from '../../engine/world/path.ts';
 import {
@@ -55,6 +55,8 @@ interface Prefs {
   plant: string;
   /** A `DECOR` id: what the Decor tool lays down. */
   decor: string;
+  /** An `ITEMS` id: what the Object tool sets down. */
+  item: string;
   /** What the Animal tool sets down: a saved animal's id, or `preset:` and a preset id. */
   animal: string;
   /** A saved character id, or '' for the default one. */
@@ -75,7 +77,7 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', pose: '', poseFrame: 0, rot: 0, grid: false, fps: false, bright: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, item: ITEMS[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', pose: '', poseFrame: 0, rot: 0, grid: false, fps: false, bright: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -84,6 +86,7 @@ function loadPrefs(): Prefs {
     if (Number.isInteger(saved?.brush) && saved.brush >= 1 && saved.brush <= BRUSH_MAX) prefs.brush = saved.brush;
     if (plantById(saved?.plant)) prefs.plant = saved.plant;
     if (decorById(saved?.decor)) prefs.decor = saved.decor;
+    if (itemById(saved?.item)) prefs.item = saved.item;
     if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if (typeof saved?.person === 'string') prefs.person = saved.person;
@@ -427,12 +430,12 @@ function roam(dt: number, ms: number): void {
   }
 }
 
-/** A crate in the middle of a tile, on land; one per tile. */
+/** An object (a crate, a chest) in the middle of a tile, on land; one per tile. */
 function placeItem(at: { i: number; j: number }): void {
   if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
   const seen = world.viewItems();
   world.scene.items = world.scene.items.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
-  world.scene.items.push({ item: ITEMS[0].id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }) });
+  world.scene.items.push({ item: prefs.item, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }) });
 }
 
 /**
@@ -653,7 +656,7 @@ function covers(thing: Thing, x: number, y: number): boolean {
 function pickableAt(x: number, y: number, ms: number): Pickable | null {
   // Animals too big to carry still count, so one standing in front hides what is behind it.
   const found: [Pickable | null, Thing][] = [
-    ...world.itemThings().map((thing, n): [Pickable, Thing] => [{ item: world.loose![n] }, thing]),
+    ...world.itemThings().map((thing, n): [Pickable | null, Thing] => [itemById(world.loose![n].item)?.stays ? null : { item: world.loose![n] }, thing]),
     ...world.scene.animals.flatMap((a, k): [Pickable | null, Thing][] => (herd?.poses[k].carried ? [] : [[a.animal.pickable ? { animal: k } : null, world.animalSprite(a, k, ms, herd ?? undefined)]])),
   ];
   let best: Pickable | null = null;
@@ -973,7 +976,7 @@ function frame(ms: number): void {
   if (prefs.mode === 'play' || key !== shown) {
     const cave = world.scene.cave;
     const things: Thing[] = [
-      ...world.plantThings(wind), ...world.decorThings(), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms)),
+      ...world.plantThings(wind), ...world.decorThings(ms), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms)),
       // In Play the rock is cut in front of the room the character is in; while editing, in front of every room.
       ...(cave ? caveThings(world, prefs.mode === 'play' && actor ? actor : undefined) : []),
     ];
@@ -1092,16 +1095,41 @@ function cropped(sprite: { w: number; h: number; get(x: number, y: number): stri
 /** A decoration drawn four times its size on sand, for the picker. */
 function decorThumb(id: string): HTMLCanvasElement {
   const pixels = decorPixels(decorById(id)!);
-  const c = h('canvas', { class: 'plant__picture', width: '11', height: '9' });
+  // At least 11 by 9, taller for a tall one (the torch), at a scale that keeps it in the button.
+  const w = Math.max(11, ...pixels.map((p) => 2 * Math.abs(p.x) + 1)), hh = Math.max(9, ...pixels.map((p) => 2 * Math.abs(p.y) + 2));
+  const c = h('canvas', { class: 'plant__picture', width: String(w), height: String(hh) });
   const g = c.getContext('2d')!;
   g.fillStyle = '#f6e4b4';
-  g.fillRect(0, 0, 11, 9);
+  g.fillRect(0, 0, w, hh);
   for (const p of pixels) {
     g.fillStyle = p.color;
-    g.fillRect(p.x + 5, p.y + 4, 1, 1);
+    g.fillRect(p.x + Math.floor(w / 2), p.y + Math.floor(hh / 2), 1, 1);
   }
-  c.style.width = '44px';
-  c.style.height = '36px';
+  const scale = Math.min(4, 36 / hh);
+  c.style.width = `${w * scale}px`;
+  c.style.height = `${hh * scale}px`;
+  return c;
+}
+
+/** An object's picture, cut to what it covers, on the sand colour. */
+function itemThumb(id: string): HTMLCanvasElement {
+  const { picture, w, h: ph } = itemPicture(id, 0);
+  let x0 = w, y0 = ph, x1 = 0, y1 = 0;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < w; x++) if (picture.get(x, y)) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const cw = Math.max(1, x1 - x0 + 3), ch = Math.max(1, y1 - y0 + 3);
+  const c = h('canvas', { class: 'plant__picture', width: String(cw), height: String(ch) });
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f6e4b4';
+  g.fillRect(0, 0, cw, ch);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const color = picture.get(x, y);
+    if (!color) continue;
+    g.fillStyle = color;
+    g.fillRect(x - x0 + 1, y - y0 + 1, 1, 1);
+  }
+  const scale = Math.min(3, 36 / ch);
+  c.style.width = `${cw * scale}px`;
+  c.style.height = `${ch * scale}px`;
   return c;
 }
 
@@ -1169,6 +1197,7 @@ function editOptions(): Node[] {
   }
   if (tool === 'plant') out.push(picks(t('plants'), FLORA.map((e) => ({ id: e.id, name: plantName(e.id, e.label), picture: thumb(e.id) })), prefs.plant, (plant) => set({ plant })));
   if (tool === 'decor') out.push(picks(t('decor'), DECOR.map((d) => ({ id: d.id, name: t(`decor.${d.id}` as Key), picture: decorThumb(d.id) })), prefs.decor, (decor) => set({ decor })));
+  if (tool === 'item') out.push(picks(t('items'), ITEMS.map((it) => ({ id: it.id, name: t(`item.${it.id}` as Key), picture: itemThumb(it.id) })), prefs.item, (item) => set({ item })));
   if (tool === 'animal') {
     const choices = animalChoices();
     const current = choices.some((c) => c.id === prefs.animal) ? prefs.animal : choices[0].id;

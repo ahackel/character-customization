@@ -126,7 +126,7 @@ export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
     cyl(2, 7, 4, 12, 3, 8, 'wood', { axis: 'x' }),
     box(2, 0, 3, 2, 10, 10, 'bark'), box(12, 0, 3, 2, 10, 10, 'bark'),
     box(2, 6, 3, 12, 1, 10, 'bark'),
-    box(7, 4, 12, 2, 3, 1, 'gold'),
+    box(7, 4, 12, 2, 3, 1, 'yellow'),
   ]) },
   { id: 'hay', name: 'Hay', prop: make('furniture', 1, 1, [
     box(2, 0, 3, 12, 9, 10, 'straw'),

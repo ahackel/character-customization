@@ -669,7 +669,8 @@ export class World {
       const rows = kind.frames ? flameFrame(kind.frames, ms, d.vi * 7 + d.vj * 3) : kind.rows;
       // One hung up on a wall casts no shadow on the floor.
       return [{
-        spot: { i: d.vi, j: d.vj, level: standingHeight(this.map, d.vi, d.vj) }, w, h, foot: { x: Math.floor(w / 2), y: h - 1 + lift },
+        // One on a wall stands at its own cell's floor, not the slope blended toward the rock behind (under the floor in a cave).
+        spot: { i: d.vi, j: d.vj, level: lift ? levelAt(this.map, Math.floor(d.vi), Math.floor(d.vj)) : standingHeight(this.map, d.vi, d.vj) }, w, h, foot: { x: Math.floor(w / 2), y: h - 1 + lift },
         picture: { get: (x: number, y: number) => kind.colors[rows[y]?.[x]] ?? null }, ...(lift && { shadow: [] }),
       }];
     });

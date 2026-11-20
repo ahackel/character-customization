@@ -46,8 +46,9 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
     // A row lower than a face puts it, so the nose hole has skin between it and the teeth.
     const y = mouth[0][1] + 1;
     const w = Math.max(...mx) - Math.min(...mx) + 1;
-    const x0 = Math.max(...mx) - (w % 2 ? w : w + 1) + 1;
-    const n = w % 2 ? w : w + 1;
+    const x0 = Math.max(...mx) - (w % 2 ? w : w + 1) + 1 - 1;
+    // Two pixels wider than the face's own mouth, one on each side.
+    const n = (w % 2 ? w : w + 1) + 2;
     for (let p = 0; p < n; p++) {
       if (p === 0 || p === n - 1 || p % 2 === 0) put(x0 + p, y, INK);
       if (p > 0 && p < n - 1) put(x0 + p, y + 1, INK);

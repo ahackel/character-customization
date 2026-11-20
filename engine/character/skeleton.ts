@@ -32,10 +32,6 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
   // A little shade under the outer end of each socket, for the cheekbones.
   const bottom = top + 3;
   for (const x of two ? [Math.min(...xs) - 1, Math.max(...xs) + 1] : []) put(x, bottom, SHADE);
-  // A crack running down from the crown on one side, in the bone's shade: subtle, a jagged line of
-  // shade pixels ending above the eye. Side on it runs down the back of the skull.
-  const cx = two ? Math.round(mid) + 3 : Math.min(...xs) - 3;
-  for (const [dx, dy] of [[0, -5], [0, -4], [-1, -3], [-1, -2], [0, -1]] as const) put(cx + dx, top + dy, SHADE);
   // The nose hole: the lowest row of the nose, between the eyes face on.
   const nose = cells((c) => !!c.flush).filter(([x]) => !two || (x >= Math.min(...xs) && x <= Math.max(...xs)));
   if (nose.length) {
@@ -63,10 +59,19 @@ export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<st
   return Object.fromEntries(Object.keys(faces).map((name) => [name, clipped]));
 }
 
-/** A head stamp with no blush on the ears and nose, and no nose standing out past the face. */
+/**
+ * A head stamp as a skull: no blush on the ears and nose, no nose standing out past the face, and a
+ * subtle crack down from the crown. The crack is on the skull, not the face, so it shows from every
+ * side, behind too; near the middle of the crown it stays put when a view is mirrored.
+ */
 export const boneHead = (stamp: Stamp): Stamp => {
   const reach = stamp.map((row) => row.reduce((last, c, x) => (c && !c.flush ? x : last), -1));
-  return stamp.map((row, y) => row.map((c, x) => (c?.flush ? (x > reach[y] ? null : { ...c, flush: false }) : c)));
+  const out = stamp.map((row, y) => row.map((c, x) => (c?.flush ? (x > reach[y] ? null : { ...c, flush: false }) : c)));
+  const top = out.findIndex((row) => row.some(Boolean));
+  const xs = out[top].flatMap((c, x) => (c ? [x] : []));
+  const cx = Math.round((Math.min(...xs) + Math.max(...xs)) / 2);
+  for (const [dx, dy] of [[1, 0], [1, 1], [0, 2], [0, 3], [1, 4]] as const) if (out[top + dy]?.[cx + dx]) out[top + dy][cx + dx] = SHADE;
+  return out;
 };
 
 // Body rows are written 9 wide and placed in the torso frame as underwear is: chest from row 2, pelvis from row 10.

@@ -1145,10 +1145,11 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         sprite.drawingNearArm = !far;
         // Hands are a visible block of skin, drawn over whatever they hold.
         // As wide as the arm, at least three pixels; the knuckle row is shaded apart from its middle.
-        const handW = Math.max(3, build.arm);
+        // A skeleton's hand is a small knob of bone, two by two.
+        const handW = look.skeleton ? 2 : Math.max(3, build.arm);
         const left = Math.round(hand.x - handW / 2);
         const top = Math.round(hand.y) - 1;
-        for (let dy = 0; dy < 3; dy++) {
+        for (let dy = 0; dy < (look.skeleton ? 2 : 3); dy++) {
           for (let dx = 0; dx < handW; dx++) sprite.set(left + dx, top + dy, tone(skin, far || (dy === 2 && dx !== 1 && dx !== handW - 2)));
         }
         sprite.drawingNearArm = false;

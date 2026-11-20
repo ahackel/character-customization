@@ -5,6 +5,7 @@
 import { newId } from '../../shared/files.ts';
 import { TURNS } from '../flora/flora.ts';
 import type { Facing } from '../core/puppet.ts';
+import { AUTHORED } from '../core/poses.ts';
 import { plantById } from '../flora/flora-catalog.ts';
 import { cleanAnimal, savedAnimals, type Animal } from '../animals/animal.ts';
 import { PRESETS } from '../animals/animal-presets.ts';
@@ -52,6 +53,8 @@ export interface PlacedPerson {
   j: number;
   /** Which way it faces on the map, in quarter turns, 0 to 3. */
   turn: number;
+  /** Held in one frame of a clip, as a prop: it does not move, and does not roam in Play. */
+  pose?: { clip: string; frame: number };
 }
 
 export interface Scene {
@@ -93,6 +96,15 @@ export { TURNS };
 export const SIZE_RANGE = [0.6, 1.6] as const;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** A held pose that names a real clip and frame, or nothing. */
+function cleanPose(pose: unknown): PlacedPerson['pose'] {
+  const p = pose as { clip?: unknown; frame?: unknown } | null;
+  const clip = typeof p?.clip === 'string' ? AUTHORED[p.clip] : undefined;
+  if (!p || !clip) return undefined;
+  const frame = typeof p.frame === 'number' && Number.isFinite(p.frame) ? clamp(Math.round(p.frame), 0, clip.frames.length - 1) : 0;
+  return { clip: p.clip as string, frame };
+}
 
 /** A new scene: a generated island, or open sea to build on. */
 export function createScene(name: string, w: number, h: number, island: boolean, seed = Math.floor(Math.random() * 1000)): Scene {
@@ -197,6 +209,7 @@ export function cleanScene(input: unknown): Scene {
         i: num(p.i, 0, w, w / 2),
         j: num(p.j, 0, h, h / 2),
         turn: Math.round(num(p.turn, 0, 3, 0)),
+        ...(cleanPose(p.pose) && { pose: cleanPose(p.pose) }),
       };
     });
   const items = (Array.isArray(s.items) ? s.items : [])

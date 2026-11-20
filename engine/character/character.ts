@@ -9,6 +9,7 @@ import { CATALOG, entryById, recolor, type Entry } from './catalog.ts';
 import { HAIR_KEYS, PALETTE, SKIN_KEYS, type PaletteKey } from '../core/palette.ts';
 import { BUILDS, type Item, type Look, type Slot } from '../core/puppet.ts';
 import { newId } from '../../shared/files.ts';
+import { BONE, PELVIS, RIBS, skullFaces } from './skeleton.ts';
 import { WEAR_MAX, weathered, type Wear } from './wear.ts';
 
 export { download, newId, pickFile } from '../../shared/files.ts';
@@ -35,6 +36,8 @@ export interface State {
   /** Per slot: which of the item's own colours is replaced by which palette colour. */
   colors: Partial<Record<WornSlot, Partial<Record<PaletteKey, PaletteKey>>>>;
   ground: string;
+  /** A skeleton: bone for skin, a skull for a face (see skeleton.ts). The rest of the character is worn as ever. */
+  skeleton?: boolean;
 }
 
 export const HAIR_COLORS: PaletteKey[] = [...HAIR_KEYS, 'white', 'pink', 'teal', 'purple'];
@@ -72,6 +75,9 @@ export function defaultState(): State {
   };
 }
 
+/** A skeleton to start from: bald, bare, with nothing in its hands. */
+export const skeletonState = (): State => ({ ...defaultState(), skeleton: true, wear: 0, hair: null, worn: { top: null, bottom: null, shoes: null, hat: null, beard: null, tool: null } });
+
 const hairExists = (id: unknown) => HAIR_STYLES.some((s) => s.id === id) || entryById(id as string)?.slot === 'hair';
 
 /** A character from storage or a file, checked field by field; anything unknown keeps the default. */
@@ -106,6 +112,7 @@ export function cleanState(input: unknown): State {
       if (clean.length) state.colors[slot] = Object.fromEntries(clean);
     }
     if (GROUNDS.some((g) => g.id === saved.ground)) state.ground = saved.ground!;
+    if (saved.skeleton === true) state.skeleton = true;
   } catch {
     // A malformed field leaves the rest at the default.
   }
@@ -141,6 +148,8 @@ export function outfitLook(skin: PaletteKey, hair: PaletteKey, mood: Mood, condi
 
 /** `underwear` is off for the mannequin that item pictures are cut from. */
 export function lookOf(source: State, underwear = true): Look {
+  const bones = !!source.skeleton;
+  if (bones) source = { ...source, skin: BONE };
   const items: Item[] = [];
   // Everything is drawn neat and aged here, by the one value the character carries.
   const hair = hairItem(source);
@@ -150,16 +159,24 @@ export function lookOf(source: State, underwear = true): Look {
     if (item) items.push(weathered(headItemFor(beardFor(item, source.skin, source.face.shape), source.skin, source.face.shape), source.wear));
   }
   // The body is never bare.
-  if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);
-  if (underwear && !source.worn.top && source.frame === 'f') items.push(UNDERTOP);
+  if (bones) {
+    // Bare bones: ribs and a pelvis where nothing is worn.
+    if (!source.worn.top) items.push(RIBS);
+    if (!source.worn.bottom) items.push(PELVIS);
+  } else {
+    if (underwear && !source.worn.bottom) items.push(UNDERSHORTS);
+    if (underwear && !source.worn.top && source.frame === 'f') items.push(UNDERTOP);
+  }
+  const views = viewsFor(source.skin, source.face, source.hairColor, source.mood);
   return {
+    skeleton: bones,
     skin: source.skin,
     build: BUILDS.find((b) => b.id === source.build),
     frame: source.frame,
     head: headFor(source.skin, source.face.shape),
-    faces: facesFor(source.skin, source.face, source.hairColor, source.mood),
+    faces: bones ? skullFaces(facesFor(source.skin, source.face, source.hairColor, source.mood)) : facesFor(source.skin, source.face, source.hairColor, source.mood),
     ...(source.face.glasses ? { glasses: source.face.glassesColor ?? 'black' } : {}),
-    views: viewsFor(source.skin, source.face, source.hairColor, source.mood),
+    views: bones ? Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { ...v, faces: skullFaces(v.faces) }])) : views,
     items,
   };
 }

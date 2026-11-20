@@ -125,6 +125,8 @@ export class Actor {
   private turned = 0;
   private clip: ClipId = 'idle';
   private started = 0;
+  /** Held in one frame of a clip, as a prop: no fidgets, no blinks, no moving on. */
+  frozen: { clip: string; frame: number } | null = null;
   private look: Look;
   private frames = new Map<string, Sprite>();
   /** Drawn frames kept per look, so going back to a look (a flickering torch) draws nothing again. */
@@ -364,15 +366,15 @@ export class Actor {
   }
 
   thing(world: World, ms: number): Thing {
-    const clip: Clip = AUTHORED[this.clip];
+    const clip: Clip = AUTHORED[this.frozen?.clip ?? this.clip];
     // A clip started from an event's time can begin a moment after this frame's time; never count back.
-    const n = Math.floor((Math.max(0, ms - this.started) / 1000) * clip.rate) % clip.frames.length;
-    const fidget = this.fidgetAt(ms);
+    const n = this.frozen ? this.frozen.frame : Math.floor((Math.max(0, ms - this.started) / 1000) * clip.rate) % clip.frames.length;
+    const fidget = this.frozen ? null : this.fidgetAt(ms);
     // Blinking goes on through a fidget.
-    const face = this.asleep ? 'blink' : ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
+    const face = this.frozen ? clip.faces?.[n] === 'blink' ? undefined : clip.faces?.[n] : this.asleep ? 'blink' : ms < this.talkUntil ? talkFace(ms) : clip.faces?.[n] === 'blink' ? 'blink' : (fidget?.face ?? clip.faces?.[n]);
     const look = fidget?.look ?? 0;
     const facing = fidget?.glance ? turnFacing(this.facing, fidget.glance) : this.facing;
-    const key = `${this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}|${!!this.lies.back}|${!!this.lies.down}`;
+    const key = `${this.frozen?.clip ?? this.clip}|${n}|${facing}|${face}|${look}|${!!this.carrying}|${!!this.lies.back}|${!!this.lies.down}`;
     const pose = look ? { ...STAND, look } : clip.frames[n];
     let body = this.frames.get(key);
     // Hands full, the tool is put away.

@@ -2,8 +2,10 @@
 // reads as masonry) but a few large masses split by open cracks, each mass broken into flat facets
 // shaded by which way they face: lit on top, mid on the faces turned to the light, dark on the rest.
 // Tilted strata run through it, the top is a jagged skyline, and a dark line marks where it meets
-// the floor. Masses and facets are seeded by position along the wall line, not per edge, so a run
-// of edges reads as one rock face without seams. Drawn by rule per screen column like the plank wall.
+// the floor. Masses and facets come from one field over the outline of the floor (how far round it a
+// wall is, i + j, and the height up it, sheared by where it is on screen), not per edge, so a run of
+// edges reads as one rock face, and the rock goes on round corners without a seam. Drawn by rule per
+// screen column like the plank wall.
 import { LEVEL_PX } from '../../terrain.ts';
 import { endHeights, HALF_H, HALF_W, hex, mul, shadowAt, TONE, type Box, type EdgeKind } from '../building.ts';
 
@@ -33,6 +35,8 @@ const CRACK = 0.6;
 /** The masses' and the facets' sizes, in pixels along the wall and up it. */
 const MASS = [20, 15];
 const FACET = [7, 6];
+/** How much the field up the wall shifts per screen column. */
+const SHEAR = 0.3;
 /** How much darker the top of the wall is than its foot, as if it went up into the dark. */
 const FADE = 0.3;
 
@@ -96,9 +100,14 @@ export function rockWall(opt: Partial<RockWallOptions> = {}): EdgeKind {
         const t = tOf(u);
         return Math.round(sy + HALF_H * t - levelAt(t) * LEVEL_PX);
       };
-      // Where along its line the wall is, in pixels: the same for every edge of one line, so the rock runs on.
-      const line = e.axis === 'H' ? seed * 7919 + e.j * 2 : seed * 7919 + e.i * 2 + 1;
-      const along = (u: number) => (e.axis === 'H' ? e.i * 16 + u : (e.j + 1) * 16 - u);
+      // Where round the floor's outline the wall is, in pixels: i + j at its ends, which two walls meeting at a
+      // corner share, so the rock runs on round it. Up the wall the field is sheared by the screen column, so walls
+      // as far round but elsewhere on screen differ.
+      const line = seed * 7919;
+      const along = (u: number) => (e.axis === 'H' ? (e.i + e.j) * 16 + u : (e.i + e.j + 1) * 16 - u - 1);
+      const shear = (u: number) => SHEAR * (xmin + u - o.x);
+      // Which way along the wall is left on screen, for the light.
+      const leftward = e.axis === 'H' ? 1 : -1;
       const turn = e.axis === 'H' ? TONE['+j'] : TONE['+i'];
       const crackAt = (a: number, v: number) => {
         const m = voronoi(line, a, v, MASS[0], MASS[1]);
@@ -122,6 +131,7 @@ export function rockWall(opt: Partial<RockWallOptions> = {}): EdgeKind {
       }
       for (let u = -pad; u < 16 + pad; u++) {
         const a = along(u);
+        const sh = shear(u);
         // The jagged skyline: peaks and notches along the line, a few pixels either way.
         const sky = Math.round(tall - 3 + 6 * (h01(line, Math.floor(a / 5), 9) - 0.5) + 3 * (h01(line, Math.floor(a / 2), 8) - 0.5));
         const foot = footRow(u);
@@ -135,21 +145,22 @@ export function rockWall(opt: Partial<RockWallOptions> = {}): EdgeKind {
         for (let v = -1; v <= sky; v++) {
           let step: Step;
           if (v <= 0) step = 0; // the dark line where the rock meets the floor
-          else if (crackAt(a, v)) step = 0;
+          else if (crackAt(a, v + sh)) step = 0;
           else {
-            const mass = voronoi(line, a, v, MASS[0], MASS[1]);
-            const facet = voronoi(line + 31, a, v, FACET[0], FACET[1]);
+            const vs = v + sh;
+            const mass = voronoi(line, a, vs, MASS[0], MASS[1]);
+            const facet = voronoi(line + 31, a, vs, FACET[0], FACET[1]);
             // A facet's tone by where it sits on its mass: high up it faces the sky; to the left it faces the light.
             const up = (facet.y - mass.y) / MASS[1];
-            const left = (mass.x - facet.x) / MASS[0];
+            const left = ((mass.x - facet.x) / MASS[0]) * leftward;
             const lit = up * 1.6 + left * 0.8 + (h01(line + 31, facet.gx, facet.gy, 3) - 0.5) * 0.9;
             step = lit > 0.55 ? 3 : lit > -0.15 ? 2 : 1;
             // Strata: tilted lines through the rock, broken here and there.
-            const stratum = v + a * 0.18;
+            const stratum = vs + a * 0.18;
             const k = Math.round(stratum / 7);
             if (Math.abs(stratum - k * 7) < 0.5 && h01(line, k, Math.floor(a / 6), 7) < 0.55) step = 1;
             // Just under a crack its lip catches the light.
-            if (v > 2 && crackAt(a, v + 1)) step = 3;
+            if (v > 2 && crackAt(a, vs + 1)) step = 3;
           }
           // The skyline's own pixel is a lit edge.
           if (v === sky && step > 0) step = 3;

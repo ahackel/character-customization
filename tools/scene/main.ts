@@ -8,6 +8,7 @@ import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, set
 import { Actor, EMOTES, type Carried, type Emote } from '../../engine/world/actor.ts';
 import { ITEMS, itemPicture, type PlacedItem } from '../../engine/world/props.ts';
 import { Herd } from '../../engine/world/herd.ts';
+import { findPath } from '../../engine/world/path.ts';
 import {
   CAVE_DEFAULTS, createCave, createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, refreshLinks, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
 } from '../../engine/world/scene.ts';
@@ -17,7 +18,7 @@ import { carve, caveLamps, caveThings, caveTint, CAVE_DAY, flicker } from '../..
 import { lightByTile } from '../../engine/world/daylight.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../../engine/animals/animal.ts';
 import { drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing } from '../../engine/core/puppet.ts';
-import { STAND } from '../../engine/core/poses.ts';
+import { AUTHORED, STAND } from '../../engine/core/poses.ts';
 import { PRESETS } from '../../engine/animals/animal-presets.ts';
 import { ocean } from '../../engine/world/ocean.ts';
 import { plantName } from '../flora/i18n.ts';
@@ -60,6 +61,9 @@ interface Prefs {
   character: string;
   /** Who the Person tool sets down: a saved character id, or '' for the default one. */
   person: string;
+  /** Held pose for the Person tool's next characters: a clip name, or '' for alive and roaming; and the frame of it. */
+  pose: string;
+  poseFrame: number;
   /** Which side the scene is seen from: quarter turns, 0 to 3. */
   rot: number;
   /** Tile lines on the ground while editing. */
@@ -71,7 +75,7 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false, bright: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', pose: '', poseFrame: 0, rot: 0, grid: false, fps: false, bright: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -83,6 +87,8 @@ function loadPrefs(): Prefs {
     if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if (typeof saved?.person === 'string') prefs.person = saved.person;
+    if (typeof saved?.pose === 'string' && (saved.pose === '' || AUTHORED[saved.pose])) prefs.pose = saved.pose;
+    if (Number.isInteger(saved?.poseFrame) && saved.poseFrame >= 0) prefs.poseFrame = saved.poseFrame;
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
     prefs.grid = saved?.grid === true;
     prefs.fps = saved?.fps === true;
@@ -361,7 +367,7 @@ function placePerson(at: { i: number; j: number }): void {
   const choice = personChoices().find((c) => c.id === prefs.person) ?? personChoices()[0];
   const seen = world.scene.people.map((p) => world.toView(p));
   world.scene.people = world.scene.people.filter((_, k) => Math.floor(seen[k].i) !== at.i || Math.floor(seen[k].j) !== at.j);
-  world.scene.people.push({ name: choice.name, state: structuredClone(choice.state), ref: choice.id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), turn: Math.floor(Math.random() * 4) });
+  world.scene.people.push({ name: choice.name, state: structuredClone(choice.state), ref: choice.id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }), turn: Math.floor(Math.random() * 4), ...(prefs.pose && { pose: { clip: prefs.pose, frame: Math.min(prefs.poseFrame, AUTHORED[prefs.pose].frames.length - 1) } }) });
 }
 
 /** Each placed character is drawn by an actor of its own; in Edit it stands where it was placed. */
@@ -376,6 +382,7 @@ function personActor(p: PlacedPerson): Actor {
 /** Puts a character's actor back where and as it was placed. */
 function standAtHome(p: PlacedPerson): Actor {
   const a = personActor(p);
+  a.frozen = p.pose ?? null;
   Object.assign(a, world.toView(p));
   a.facing = turnFacing(0, 2 * (p.turn + prefs.rot));
   a.heading = (p.turn + prefs.rot) * (Math.PI / 2);
@@ -394,6 +401,9 @@ const roaming = new Map<PlacedPerson, { target: { i: number; j: number } | null;
 function roam(dt: number, ms: number): void {
   for (const p of world.scene.people) {
     const a = personActor(p);
+    a.frozen = p.pose ?? null;
+    // A prop stays where it is.
+    if (p.pose) continue;
     let r = roaming.get(p);
     if (!r) roaming.set(p, (r = { target: null, until: ms + ROAM.rest[0] * 1000 * Math.random() }));
     if (!r.target && ms >= r.until) {
@@ -573,6 +583,8 @@ let herd: Herd | null = null;
 /** Something that can be picked up in Play: a loose item by its place in `world.loose`, or an animal by its place in the scene. */
 type Pickable = { item: PlacedItem } | { animal: number };
 let target: { i: number; j: number; run: boolean; pick?: Pickable } | null = null;
+/** The way on after `target`, round what is in the way (path.ts). */
+let route: { i: number; j: number }[] = [];
 /** What the character holds, if anything. */
 let held: Pickable | null = null;
 /** How near the character must come to pick something up, in metres. */
@@ -694,14 +706,20 @@ function walkTo(e: PointerEvent, start = false): void {
     const pick = pickableAt(p.x, p.y, performance.now());
     if (pick) {
       target = { ...whereIs(pick), run: false, pick };
+      route = [];
       return;
     }
   }
   if (target?.pick) return;
   const tile = tileUnder(e);
   if (!tile || !actor) return;
-  const d = Math.hypot(tile.i + 0.5 - actor.i, tile.j + 0.5 - actor.j);
-  target = { i: tile.i + 0.5, j: tile.j + 0.5, run: target?.run ?? d > 4 };
+  // Somewhere nobody can stand (the sea, a cave's rock) is no place to go; elsewhere the way goes round what blocks.
+  const to = { i: tile.i + 0.5, j: tile.j + 0.5 };
+  const way = findPath(world, actor, to);
+  if (!way.length) return;
+  const d = Math.hypot(to.i - actor.i, to.j - actor.j);
+  target = { ...way[0], run: target?.run ?? d > 4 };
+  route = way.slice(1);
 }
 function emote(e: Emote): void {
   target = null;
@@ -774,10 +792,28 @@ function strokeAt(e: { clientX: number; clientY: number }): void {
   const key = `${tile.i},${tile.j}`;
   if (key === gesture.last) return;
   gesture.last = key;
+  // Every tile on the way from the last one, side by side, so a fast or slanted drag leaves no gap and no way that
+  // only meets at a corner, which nobody can walk through.
+  const from = gesture.tile ?? tile;
   gesture.tile = tile;
   gesture.at = performance.now();
   pointerPixel = groundPixel(e);
-  apply(tile, gesture);
+  for (const step of sideBySide(from, tile)) apply(step, gesture);
+}
+
+/** The tiles from a to b (without a, unless it is b), each next to the one before along i or j. */
+function sideBySide(a: { i: number; j: number }, b: { i: number; j: number }): { i: number; j: number }[] {
+  const out: { i: number; j: number }[] = [];
+  let { i, j } = a;
+  const n = Math.abs(b.i - a.i) + Math.abs(b.j - a.j);
+  for (let k = 1; k <= n; k++) {
+    // Step along whichever way lags behind the straight line more.
+    const t = k / n;
+    if (Math.abs(a.i + (b.i - a.i) * t - i) >= Math.abs(a.j + (b.j - a.j) * t - j)) i += Math.sign(b.i - i);
+    else j += Math.sign(b.j - j);
+    out.push({ i, j });
+  }
+  return out.length ? out : [b];
 }
 
 /**
@@ -910,7 +946,9 @@ function frame(ms: number): void {
         target = null;
         di = dj = 0;
       } else if (Math.hypot(di, dj) < 0.08) {
-        target = null;
+        // At a turn of the way, on to the next; at its end, stop.
+        const next = route.shift();
+        target = next ? { ...next, run: target.run } : null;
         di = dj = 0;
       }
     }
@@ -936,7 +974,8 @@ function frame(ms: number): void {
     const cave = world.scene.cave;
     const things: Thing[] = [
       ...world.plantThings(wind), ...world.decorThings(), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms)),
-      ...(cave ? caveThings(world) : []),
+      // In Play the rock is cut in front of the room the character is in; while editing, in front of every room.
+      ...(cave ? caveThings(world, prefs.mode === 'play' && actor ? actor : undefined) : []),
     ];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
@@ -1140,9 +1179,25 @@ function editOptions(): Node[] {
     const choices = personChoices();
     const current = choices.some((c) => c.id === prefs.person) ? prefs.person : '';
     out.push(picks(t('character'), choices.map((c) => ({ id: c.id, name: c.name, picture: personThumb(c.state) })), current, (person) => set({ person })));
+    out.push(poseOptions());
     out.push(h('a', { class: 'opts__link', href: '../wardrobe/' }, t('character.edit')));
   }
   return out;
+}
+
+/** Alive and roaming, or held in one frame of a clip, as a prop. */
+function poseOptions(): HTMLElement {
+  const select = h('select', { class: 'select', 'aria-label': t('pose') },
+    h('option', { value: '' }, t('pose.alive')),
+    ...Object.entries(AUTHORED).map(([id, clip]) => h('option', { value: id }, clip.name)),
+  );
+  select.value = prefs.pose;
+  select.addEventListener('change', () => set({ pose: select.value, poseFrame: 0 }));
+  const frames = AUTHORED[prefs.pose]?.frames.length ?? 0;
+  const slider = h('input', { type: 'range', class: 'slider', min: '0', max: String(Math.max(0, frames - 1)), step: '1', value: String(prefs.poseFrame), 'aria-label': t('pose.frame') });
+  slider.hidden = frames < 2;
+  slider.addEventListener('change', () => set({ poseFrame: Number(slider.value) }));
+  return h('div', { class: 'opts__brush' }, h('span', { class: 'opts__label' }, t('pose')), select, slider);
 }
 
 function castOptions(): Node[] {

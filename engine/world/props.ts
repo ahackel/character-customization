@@ -1,10 +1,10 @@
-// Things lying about that a character can pick up and carry: for now a crate. Each is an object
+// Things standing about: a crate a character can pick up and carry, and a treasure chest. Each is an object
 // preset (engine/objects/object-presets.ts), drawn by the object renderer in the four camera turns.
 import { drawObject, OBJECT_H, OBJECT_ORIGIN, OBJECT_W } from '../objects/object.ts';
 import { objectPresetById } from '../objects/object-presets.ts';
 import type { Thing } from './world.ts';
 
-export const ITEMS = [{ id: 'crate', preset: 'crate' }] as const;
+export const ITEMS = [{ id: 'crate', preset: 'crate' }, { id: 'chest', preset: 'chest' }] as const;
 export const itemById = (id: unknown) => ITEMS.find((it) => it.id === id);
 
 export interface PlacedItem {

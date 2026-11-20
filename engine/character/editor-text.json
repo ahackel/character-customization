@@ -43,6 +43,10 @@
   "en": "Freckles",
   "de": "Sommersprossen"
  },
+ "char.skeleton": {
+  "en": "Skeleton",
+  "de": "Skelett"
+ },
  "char.glasses": {
   "en": "Glasses",
   "de": "Brille"

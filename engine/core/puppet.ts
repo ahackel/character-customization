@@ -219,6 +219,8 @@ export interface Look {
   /** The bare head and its faces seen from the front, back and side. */
   views?: Partial<Record<OwnView, { head: Stamp; faces: Record<string, Stamp> }>>;
   items: Item[];
+  /** A skeleton: the limbs break at the elbows and knees, leaving a gap at each joint. */
+  skeleton?: boolean;
 }
 
 export interface DrawOptions {
@@ -415,7 +417,7 @@ export function mixed(under: string, over: string, k: number): string {
  * gets the position along the limb from 0 to 1, the index across it, and whether that part runs
  * up and down (across is then left to right) or sideways (across is then top to bottom).
  */
-function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number, tall: boolean) => string): void {
+function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: number, across: number, tall: boolean) => string, gap = false): void {
   const steps = joints.slice(1).map((b, i) => Math.max(Math.abs(Math.round(b.x) - Math.round(joints[i].x)), Math.abs(Math.round(b.y) - Math.round(joints[i].y))));
   const total = steps.reduce((a, b) => a + b, 0);
   // The bends first, so the runs drawn after keep their shading across. The first joint gets a
@@ -424,6 +426,8 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
   let done = 0;
   for (let i = 0; i < joints.length - 1; i++) {
     if (i > 0) done += steps[i - 1];
+    // A skeleton's middle joint is left open.
+    if (gap && i === 1) continue;
     const t = total ? done / total : 0;
     const x0 = Math.round(joints[i].x - width / 2);
     const y0 = Math.round(joints[i].y - width / 2);
@@ -443,6 +447,7 @@ function drawLimb(sprite: Sprite, joints: Point[], width: number, colorAt: (t: n
     const major = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     const run = major ? Math.round((width * Math.hypot(b.x - a.x, b.y - a.y)) / major) : width;
     for (let k = i === 1 ? 0 : 1; k <= n; k++) {
+      if (gap && i === 1 && k === n && joints.length > 2) { step++; continue; }
       const x = a.x + (n ? ((b.x - a.x) * k) / n : 0);
       const y = a.y + (n ? ((b.y - a.y) * k) / n : 0);
       const t = total ? step / total : 0;
@@ -878,7 +883,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
         as('legs');
         // One edge stays in shade along the whole leg, the far side or the underside, so it reads as round.
         drawLimb(sprite, [hip, knee, foot], build.leg, (t, across, tall) =>
-          tone(limbPaint('leg', t), far || (build.leg >= 3 && across === (tall && farSide < 0 ? 0 : build.leg - 1))));
+          tone(limbPaint('leg', t), far || (build.leg >= 3 && across === (tall && farSide < 0 ? 0 : build.leg - 1))), look.skeleton);
         const shoes = [...ordered].reverse().find((item) => item.foot);
         const upper = shoes?.foot ?? skin;
         const sole = shoes?.sole ?? upper;
@@ -1122,7 +1127,7 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
           const cap = !far && t === 0 && (inner > 0 ? across === 0 : across === build.arm - 1);
           const cell = limbPaint('arm', t);
           return cap ? hexOf({ ...cell, shade: false, light: true }) : tone(cell, far || contact);
-        });
+        }, look.skeleton);
         sprite.drawingNearArm = false;
       },
     });

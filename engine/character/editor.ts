@@ -71,7 +71,8 @@ const flag = (key: string, get: (s: State) => boolean, set: (s: State, on: boole
 
 const TABS: Tab[] = [
   { key: 'char.body', icon: 'body', rows: [
-    { key: 'char.skin', values: SKIN_KEYS, get: (s) => s.skin, set: (s, v) => (s.skin = v as never), swatches: true },
+    flag('char.skeleton', (s) => !!s.skeleton, (s, on) => (s.skeleton = on || undefined), 0),
+    { key: 'char.skin', values: SKIN_KEYS, get: (s) => s.skin, set: (s, v) => (s.skin = v as never), swatches: true, shown: (s) => !s.skeleton },
     { key: 'char.figure', values: ['m', 'f'], get: (s) => s.frame, set: (s, v) => (s.frame = v as 'm' | 'f'), icon: (v) => (v === 'f' ? 'female' : 'male') },
     { key: 'char.build', values: BUILDS.map((b) => b.id), get: (s) => s.build, set: (s, v) => (s.build = v as string) },
     { key: 'char.head', values: HEAD_SHAPES, get: (s) => s.face.shape ?? 'round', set: (s, v) => (s.face.shape = v as never) },
@@ -96,8 +97,8 @@ const TABS: Tab[] = [
     { key: 'char.beardColor', values: HAIR_COLORS, get: (s) => s.beardColor ?? s.hairColor, set: (s, v) => (s.beardColor = v === s.hairColor ? null : (v as PaletteKey)), swatches: true, full: true, shown: (s) => !!s.worn.beard },
   ] },
   { key: 'char.clothes', icon: 'clothes', rows: [
-    wornRow('char.top', 'top', false), colorRow('top'), colorRow('top', 1),
-    wornRow('char.bottom', 'bottom', false), colorRow('bottom'), colorRow('bottom', 1),
+    wornRow('char.top', 'top', true), colorRow('top'), colorRow('top', 1),
+    wornRow('char.bottom', 'bottom', true), colorRow('bottom'), colorRow('bottom', 1),
     { ...wornRow('char.shoes', 'shoes', true, 0.3), full: true }, { ...colorRow('shoes'), full: true },
     wornRow('char.hat', 'hat', true, 0.3), { ...colorRow('hat'), full: true },
   ] },

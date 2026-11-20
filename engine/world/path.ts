@@ -1,5 +1,6 @@
 // A way round what blocks a walker, for walking where the player taps: A* over tile centres, eight
-// neighbours, each step checked with the world's own `canWalk` (water, cliffs, plants, items).
+// neighbours, each step checked with the world's own `canWalk` (water, cliffs, plants, items), then
+// straightened where a direct walk is free.
 import type { World } from './world.ts';
 
 type P = { i: number; j: number };
@@ -41,7 +42,29 @@ export function findPath(world: World, from: P, to: P): P[] {
   if (!came.has(goal)) return [];
   const way: P[] = [to];
   for (let k = came.get(goal)!; k !== start; k = came.get(k)!) way.unshift(centre(k));
-  return way;
+  return straightened(world, from, way);
+}
+
+/** How far ahead along a way a straight walk is tried, so long ways stay cheap to straighten. */
+const LOOK = 12;
+
+/**
+ * The way with the tile-by-tile turns taken out: from each point, straight on to the furthest later one that can be
+ * walked to directly, rather than zigzagging from tile middle to tile middle.
+ */
+function straightened(world: World, from: P, way: P[]): P[] {
+  const out: P[] = [];
+  let at = from;
+  for (let k = 0; k < way.length;) {
+    let far = k;
+    for (let m = Math.min(way.length - 1, k + LOOK); m > k; m--) {
+      if (clear(world, at, way[m])) { far = m; break; }
+    }
+    out.push(way[far]);
+    at = way[far];
+    k = far + 1;
+  }
+  return out;
 }
 
 /** Whether a straight walk is free, checked every fifth of a metre. */

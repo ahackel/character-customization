@@ -120,6 +120,14 @@ export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
     box(3, 0, 3, 10, 2, 10, 'bark'), box(3, 6, 3, 10, 2, 10, 'bark'),
     box(3, 0, 3, 2, 8, 2, 'bark'), box(11, 0, 3, 2, 8, 2, 'bark'), box(3, 0, 11, 2, 8, 2, 'bark'), box(11, 0, 11, 2, 8, 2, 'bark'),
   ]) },
+  // A treasure chest: a banded wooden box, its lid rounded, a gold lock at the front.
+  { id: 'chest', name: 'Treasure chest', prop: make('furniture', 1, 1, [
+    box(2, 0, 4, 12, 7, 8, 'wood'),
+    cyl(2, 7, 4, 12, 3, 8, 'wood', { axis: 'x' }),
+    box(2, 0, 3, 2, 10, 10, 'bark'), box(12, 0, 3, 2, 10, 10, 'bark'),
+    box(2, 6, 3, 12, 1, 10, 'bark'),
+    box(7, 4, 12, 2, 3, 1, 'gold'),
+  ]) },
   { id: 'hay', name: 'Hay', prop: make('furniture', 1, 1, [
     box(2, 0, 3, 12, 9, 10, 'straw'),
     box(5, 0, 2, 1, 10, 12, 'tan'), box(10, 0, 2, 1, 10, 12, 'tan'),

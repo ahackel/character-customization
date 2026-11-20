@@ -14,6 +14,7 @@ import { ANIMAL_H, ANIMAL_ORIGIN, ANIMAL_W, CLIPS, drawAnimal, type Animal, type
 import { turnFacing, type Facing } from '../core/puppet.ts';
 import type { Herd } from './herd.ts';
 import { decorById, decorPixels } from './decor.ts';
+import { flameFrame } from './flame.ts';
 import { GLOWING } from './daylight.ts';
 import { fishPixels, type Fish } from './fish.ts';
 import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
@@ -290,6 +291,18 @@ export const grows = (map: HeightMap, plant: string, i: number, j: number) => {
   return !!entry && inside(map, Math.floor(i), Math.floor(j)) && HOMES[entry.category].includes(surfaceAt(map, Math.floor(i), Math.floor(j)));
 };
 
+/** A copy of a map where each cell under the water line with land on all four sides stands as high as the lowest of them. */
+function withLoneRockFloored<M extends HeightMap>(map: M): M {
+  const levels = Int8Array.from(map.levels);
+  const at = (i: number, j: number) => map.levels[j * map.w + i];
+  for (let j = 1; j < map.h - 1; j++) for (let i = 1; i < map.w - 1; i++) {
+    if (at(i, j) >= SEA_LEVEL) continue;
+    const round = Math.min(at(i + 1, j), at(i - 1, j), at(i, j + 1), at(i, j - 1));
+    if (round >= SEA_LEVEL) levels[j * map.w + i] = round;
+  }
+  return { ...map, levels };
+}
+
 /** Smooths tiles (`j * w + i`): each takes the rounded mean of itself and its eight neighbours, all read before any change. */
 export function smooth(map: HeightMap, cells: number[]): void {
   const before = Int8Array.from(map.levels);
@@ -351,7 +364,7 @@ export class World {
   lightField(lamps: readonly TileLamp[]): TileLight {
     const { w, h } = this.map;
     const open = new Uint8Array(w * h);
-    for (let c = 0; c < w * h; c++) open[c] = this.void && this.map.levels[c] < SEA_LEVEL ? 0 : 1;
+    for (let c = 0; c < w * h; c++) open[c] = this.void && this.shown.levels[c] < SEA_LEVEL ? 0 : 1;
     const walled = (a: { x: number; y: number }, b: { x: number; y: number }) => this.buildings.some((bd) => crosses(bd, a, b));
     const out: LitLamp[] = [];
     for (const lamp of lamps) {
@@ -395,6 +408,8 @@ export class World {
 
   /** Beyond the map, open sea; or, for an inside such as a cave, nothing: black, and the cells under the water line too, so a cave's floor can have any outline. */
   void = false;
+  /** The map the ground is drawn from: `map`, but in a `void` world a lone cell of nothing is drawn as floor, for what stands there (a cave's stalagmite) to stand on. */
+  private shown!: HeightMap & { paint: Uint8Array };
   /** How much darker than outside shadows fall: more in a cave, where little else lights the ground. */
   shadowDepth = 1;
   /** Fish under the water, in view coordinates on `floor`; the game moves them (see fish.ts). */
@@ -503,7 +518,8 @@ export class World {
   private draw(): TerrainImage {
     this.floor = seaFloor(this.map);
     setWater(WATER_COLORS.map((k) => ocean[k]));
-    return renderTerrain(this.map);
+    this.shown = this.void ? withLoneRockFloored(this.map) : this.map;
+    return renderTerrain(this.shown);
   }
 
   /** Copies edits of the ground back to the scene, so what is saved is up to date. */
@@ -644,16 +660,17 @@ export class World {
   }
 
   /** The decorations that stand up (crystals, a torch) as things; the rest lie on the ground. */
-  decorThings(): Thing[] {
+  decorThings(ms = 0): Thing[] {
     return this.viewDecor().flatMap((d) => {
       const kind = decorById(d.decor);
       if (!kind?.stands) return [];
       const w = Math.max(...kind.rows.map((r) => r.length)), h = kind.rows.length;
       const lift = kind.lift ?? 0;
+      const rows = kind.frames ? flameFrame(kind.frames, ms, d.vi * 7 + d.vj * 3) : kind.rows;
       // One hung up on a wall casts no shadow on the floor.
       return [{
         spot: { i: d.vi, j: d.vj, level: standingHeight(this.map, d.vi, d.vj) }, w, h, foot: { x: Math.floor(w / 2), y: h - 1 + lift },
-        picture: { get: (x: number, y: number) => kind.colors[kind.rows[y]?.[x]] ?? null }, ...(lift && { shadow: [] }),
+        picture: { get: (x: number, y: number) => kind.colors[rows[y]?.[x]] ?? null }, ...(lift && { shadow: [] }),
       }];
     });
   }
@@ -735,7 +752,7 @@ export class World {
         const gx = x + view.x;
         const o = (y * w + x) * 4;
         // In a void world, nothing but the open cells: not their slopes down to the cells below the water line either.
-        if (this.void && (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w || g.cell[gy * g.w + gx] < 0 || g.depth[gy * g.w + gx] > 0 || this.map.levels[g.cell[gy * g.w + gx]] < SEA_LEVEL)) {
+        if (this.void && (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w || g.cell[gy * g.w + gx] < 0 || g.depth[gy * g.w + gx] > 0 || this.shown.levels[g.cell[gy * g.w + gx]] < SEA_LEVEL)) {
           d[o] = d[o + 1] = d[o + 2] = 0; d[o + 3] = 255;
           continue;
         }
@@ -979,6 +996,8 @@ export class World {
     const a: [number, number] = [Math.floor(from.i), Math.floor(from.j)];
     const b: [number, number] = [Math.floor(to.i), Math.floor(to.j)];
     if (!inside(this.floor, ...b) || levelAt(this.floor, ...b) < WADE) return false;
+    // In a cave all but the carved floor is rock, whatever the smoothed sea floor beside it says.
+    if (this.void && levelAt(this.map, ...b) < SEA_LEVEL) return false;
     // A step of more than a slope is a cliff, on land or under the water.
     if ((a[0] !== b[0] || a[1] !== b[1]) && Math.abs(levelAt(this.floor, ...a) - levelAt(this.floor, ...b)) > SLOPE_LEVELS) return false;
     for (const p of this.viewPlants()) {

@@ -5,11 +5,14 @@
 // the cells round them.
 import { PALETTE } from '../core/palette.ts';
 import { GLOWING } from './daylight.ts';
+import { FLAMES, torchRows } from './flame.ts';
 
 export interface DecorKind {
   id: string;
   /** Pixel rows, top to bottom; '.' is empty, other letters look up `colors`. */
   rows: string[];
+  /** For one that moves (a torch's flame): its frames, shown in turn; `rows` is the first. */
+  frames?: string[][];
   colors: Record<string, string>;
   /** Drawn standing, sorted with the things, its foot on the spot, rather than flat on the ground. */
   stands?: boolean;
@@ -44,9 +47,10 @@ export const DECOR: DecorKind[] = [
     colors: { b: '#e2ffb8', a: '#8cf06a', c: '#4fb04a', s: '#cfc6b0', d: '#8a8070' },
   },
   {
-    id: 'torch', stands: true, lift: 14, glow: { color: '#ffb060', r: 3.6, amount: 0.9, flicker: true, keys: 'yfW' },
-    rows: ['.y.', 'yfy', 'yWy', '.w.', 'kwk', '.w.', '.w.', '.w.'],
-    colors: { y: PALETTE.flame.base, f: PALETTE.flare.base, W: PALETTE.blaze.base, w: PALETTE.wood.shade, k: '#2e2a26' },
+    // The torch the survivor makes, hung on a wall.
+    id: 'torch', stands: true, lift: 8, glow: { color: '#ffb060', r: 3.6, amount: 0.9, flicker: true, keys: 'BYFf' },
+    rows: torchRows(FLAMES[0], 6), frames: FLAMES.map((f) => torchRows(f, 6)),
+    colors: { B: PALETTE.blaze.base, Y: PALETTE.flare.base, F: PALETTE.flame.base, f: PALETTE.flame.shade, W: PALETTE.wood.base, w: PALETTE.wood.shade },
   },
 ];
 for (const kind of DECOR) for (const key of kind.glow?.keys ?? '') GLOWING.add(kind.colors[key]);

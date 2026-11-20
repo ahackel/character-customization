@@ -23,6 +23,13 @@ import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from '.
 import { blocked, BuildingView, crosses, type Building, type Part, type PieceKind } from './building/building.ts';
 
 export interface Rect { x: number; y: number; w: number; h: number }
+/** A lamp for `World.lightField`: where it stands on the map, how far it reaches in tiles, its colour, its strength 0 to 1. */
+export interface TileLamp { i: number; j: number; r: number; color?: string; amount?: number }
+/** A lamp of a light field, with how far round walls its light must go to reach each cell (`World.lightField`). */
+export interface LitLamp { i: number; j: number; r: number; rgb: number[]; amount: number; detour: Float32Array }
+/** The lamps' light over the map, and which cells can hold light at all. */
+export interface TileLight { w: number; h: number; open: Uint8Array; lamps: LitLamp[] }
+const rgb3 = (hex: string) => [1, 3, 5].map((n) => parseInt(hex.slice(n, n + 2), 16));
 export type { Thing };
 
 /**
@@ -327,6 +334,69 @@ export class World {
     this.weather = w;
     weatherSea(w);
   }
+  /**
+   * Where on the map each pixel of the last window composed lies, while `trackSpots` is set: the map point of the ground
+   * seen there, or for a thing's pixel the thing's own spot, so a thing is lit as one by the light where it stands.
+   * NaN where nothing is. For lighting tile by tile (daylight.ts `lightByTile`).
+   */
+  spots: { i: Float32Array; j: Float32Array } | null = null;
+  trackSpots = false;
+
+  /**
+   * Light from lamps, as the old isometric games lit their dungeons but without their steps: for each lamp, how much
+   * further than straight the light has to go to reach each cell (its detour round walls, which it does not pass, and,
+   * in a `void` world, round cells that are nothing). The light at a point is then its straight distance plus the
+   * detour blended from the cells round it, so pools are round and smooth, yet stop at walls.
+   */
+  lightField(lamps: readonly TileLamp[]): TileLight {
+    const { w, h } = this.map;
+    const open = new Uint8Array(w * h);
+    for (let c = 0; c < w * h; c++) open[c] = this.void && this.map.levels[c] < SEA_LEVEL ? 0 : 1;
+    const walled = (a: { x: number; y: number }, b: { x: number; y: number }) => this.buildings.some((bd) => crosses(bd, a, b));
+    const out: LitLamp[] = [];
+    for (const lamp of lamps) {
+      const ci = Math.floor(lamp.i), cj = Math.floor(lamp.j);
+      if (!inside(this.map, ci, cj)) continue;
+      // Past the reach by a cell, so the blend at the rim has cells on both sides.
+      const far = lamp.r + 1.5;
+      const dist = new Float32Array(w * h).fill(Infinity);
+      dist[cj * w + ci] = Math.hypot(ci + 0.5 - lamp.i, cj + 0.5 - lamp.j);
+      // Few cells and few lamps: a plain scan for the nearest open cell stands in for a heap.
+      const todo = [cj * w + ci];
+      while (todo.length) {
+        let best = 0;
+        for (let n = 1; n < todo.length; n++) if (dist[todo[n]] < dist[todo[best]]) best = n;
+        const c = todo.splice(best, 1)[0];
+        const d = dist[c];
+        const i = c % w, j = Math.floor(c / w);
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          if (!di && !dj) continue;
+          const ni = i + di, nj = j + dj;
+          if (!inside(this.map, ni, nj)) continue;
+          const nc = nj * w + ni;
+          const nd = d + (di && dj ? Math.SQRT2 : 1);
+          if (!open[nc] || nd >= dist[nc] || nd > far) continue;
+          if (walled({ x: i + 0.5, y: j + 0.5 }, { x: ni + 0.5, y: nj + 0.5 })) continue;
+          dist[nc] = nd;
+          todo.push(nc);
+        }
+      }
+      const detour = new Float32Array(w * h).fill(far);
+      for (let c = 0; c < w * h; c++) {
+        if (dist[c] === Infinity) continue;
+        const straight = Math.hypot((c % w) + 0.5 - lamp.i, Math.floor(c / w) + 0.5 - lamp.j);
+        // Steps of eight ways run up to an eighth longer than straight in the open; that is no detour.
+        detour[c] = Math.max(0, dist[c] - straight * 1.09);
+      }
+      out.push({ i: lamp.i, j: lamp.j, r: lamp.r, rgb: rgb3(lamp.color ?? '#ffb060'), amount: lamp.amount ?? 1, detour });
+    }
+    return { w, h, open, lamps: out };
+  }
+
+  /** Beyond the map, open sea; or, for an inside such as a cave, nothing: black, and the cells under the water line too, so a cave's floor can have any outline. */
+  void = false;
+  /** How much darker than outside shadows fall: more in a cave, where little else lights the ground. */
+  shadowDepth = 1;
   /** Fish under the water, in view coordinates on `floor`; the game moves them (see fish.ts). */
   fish: Fish[] = [];
   /**
@@ -649,6 +719,10 @@ export class World {
       for (let x = 0; x < w; x++) {
         const gx = x + view.x;
         const o = (y * w + x) * 4;
+        if (this.void && (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w || g.cell[gy * g.w + gx] < 0 || g.depth[gy * g.w + gx] > 0)) {
+          d[o] = d[o + 1] = d[o + 2] = 0; d[o + 3] = 255;
+          continue;
+        }
         if (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w) {
           d[o] = SEA[0]; d[o + 1] = SEA[1]; d[o + 2] = SEA[2]; d[o + 3] = 255;
           const mark = markAt(gx, gy, 9, ms);
@@ -720,20 +794,42 @@ export class World {
         if (x >= 0 && y >= 0 && x < w && y < h && !g.shade[p] && !mask[y * w + x]) {
           mask[y * w + x] = 1;
           const o = (y * w + x) * 4;
-          const a = SHADE_ALPHA * shadowFade(g.depth[p]) * Math.max(shadowLight(this.weather), 3 * flash);
+          const a = Math.min(1, SHADE_ALPHA * this.shadowDepth) * shadowFade(g.depth[p]) * Math.max(shadowLight(this.weather), 3 * flash);
           for (let k = 0; k < 3; k++) d[o + k] += (SHADE_RGB[k] - d[o + k]) * a;
         }
       }
     }
+    const spots = this.trackSpots ? this.spotsOf(view, g) : null;
     for (const t of paintOrder(placed)) {
-      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) =>
-        hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.bases ? t.bases[(y - t.dy) * t.w + x - t.dx] : t.spot.level)));
+      stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => {
+        const hidden = hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.bases ? t.bases[(y - t.dy) * t.w + x - t.dx] : t.spot.level));
+        if (!hidden && spots) spots.i[y * w + x] = t.spot.i, spots.j[y * w + x] = t.spot.j;
+        return hidden;
+      });
     }
     if (this.weather !== CLEAR) {
       drawWeather(image, view, (gx, gy) => (gx < 0 || gy < 0 || gx >= g.w || gy >= g.h ? Infinity : g.depth[gy * g.w + gx]), ms, this.weather);
     }
     if (outline) this.drawEdge(image, view);
     return image;
+  }
+
+  /** `spots` for a window, filled with where the ground seen at each pixel lies on the map. */
+  private spotsOf(view: Rect, g: TerrainImage): { i: Float32Array; j: Float32Array } {
+    const n = view.w * view.h;
+    if (this.spots?.i.length !== n) this.spots = { i: new Float32Array(n), j: new Float32Array(n) };
+    const { i: si, j: sj } = this.spots;
+    for (let y = 0; y < view.h; y++) for (let x = 0; x < view.w; x++) {
+      const gx = x + view.x, gy = y + view.y, p = y * view.w + x;
+      const q = gy * g.w + gx;
+      if (gx < 0 || gy < 0 || gx >= g.w || gy >= g.h || g.cell[q] < 0) { si[p] = sj[p] = NaN; continue; }
+      // Back from the screen to the map: x tells i - j, y with the height there tells i + j.
+      const a = (gx + 0.5 - g.origin.x) / (TILE_W / 2);
+      const b = (gy + 0.5 - g.origin.y + g.height[q] * LEVEL_PX) / (TILE_H / 2);
+      si[p] = (a + b) / 2;
+      sj[p] = (b - a) / 2;
+    }
+    return this.spots;
   }
 
   private shore: { ground: TerrainImage; dist: Uint8Array } | null = null;

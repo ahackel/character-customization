@@ -75,6 +75,7 @@ const en = {
   'surface.sand': 'sand',
   'surface.grass': 'grass',
   'surface.rock': 'rock',
+  'surface.cave': 'cave floor',
   'hint.edit': 'Drag to use the tool; hold to keep raising, lowering, smoothing or levelling. Level keeps to the height where the drag starts. Pan with two fingers, the right mouse button or the arrow keys; zoom with a pinch, Ctrl and the wheel, or + and −; turn the scene with Q and R. The red line marks the edge of the scene.',
 
   'character': 'Character',
@@ -171,6 +172,7 @@ const de: Record<Key, string> = {
   'surface.sand': 'Sand',
   'surface.grass': 'Gras',
   'surface.rock': 'Fels',
+  'surface.cave': 'Höhlenboden',
   'hint.edit': 'Ziehen wendet das Werkzeug an; Gedrückthalten hebt, senkt, glättet oder ebnet weiter. Ebnen hält die Höhe, wo das Ziehen beginnt. Verschieben mit zwei Fingern, der rechten Maustaste oder den Pfeiltasten; zoomen mit zwei Fingern auseinander, Strg und Mausrad oder + und −; drehen mit Q und R. Die rote Linie zeigt den Rand der Szene.',
 
   'character': 'Figur',

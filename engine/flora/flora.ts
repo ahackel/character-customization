@@ -1,4 +1,4 @@
-import { hexOf, PAINT_KEYS, PALETTE, SHADOW, type Cell, type PaletteKey } from '../core/palette.ts';
+import { hexOf, LIT_KEYS, PAINT_KEYS, PALETTE, SHADOW, type Cell, type PaletteKey } from '../core/palette.ts';
 import { hashOf, pixelHash, rng } from '../../shared/random.ts';
 
 export { SHADOW };
@@ -319,6 +319,15 @@ export const SIZE_MAX = 2;
 const LIGHT: V3 = (() => { const l = Math.hypot(-0.55, 0.75, 0.35); return [-0.55 / l, 0.75 / l, 0.35 / l]; })();
 /** Towards the viewer, in plant space: what the 2:1 view looks along. */
 const CAMERA: V3 = [0, 1 / Math.sqrt(5), 2 / Math.sqrt(5)];
+const toneOf = (lit: number) => (lit > 0.72 ? 'light' : lit < 0.28 ? 'shade' : 'base');
+/**
+ * A rock in the dark, lit from behind as the old isometric games drew caves: the faces turned to the viewer are dark,
+ * the edges round the outline and the tops catch the light, the left side a little more.
+ */
+const rimTone = (n: V3) => {
+  const lit = 0.8 * (1 - dot(n, CAMERA)) + 0.4 * n[1] - 0.2 * n[0];
+  return lit > 0.6 ? 'light' : lit < 0.35 ? 'shade' : 'base';
+};
 
 /**
  * Turns the description into concrete geometry. Wind is applied later, when drawing.
@@ -507,14 +516,14 @@ function growAt(plant: Plant, options: GrowOptions, k: number): Grown {
     }
     for (let i = 0; i < n; i++) tris.push([rings[2][i], rings[2][(i + 1) % n], apex]);
     const color = part.color;
+    const backlit = LIT_KEYS.has(color);
     const facets: Facet[] = [];
     for (const t of tris) {
       let nrm = norm(cross(sub(t[1], t[0]), sub(t[2], t[0])));
       const mid: V3 = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3];
       if (dot(nrm, sub(mid, centre)) < 0) { nrm = [-nrm[0], -nrm[1], -nrm[2]]; t.reverse(); }
       if (dot(nrm, CAMERA) <= 0) continue; // facing away: hidden behind the front
-      const lit = dot(nrm, LIGHT);
-      const tone = lit > 0.72 ? 'light' : lit < 0.28 ? 'shade' : 'base';
+      const tone = backlit ? rimTone(nrm) : toneOf(dot(nrm, LIGHT));
       // Moss and lichen grow where rain and light fall: on the facets that face upwards.
       const key = part.texture === 'moss' && part.accent && nrm[1] > 0.55 ? dried(part.accent) : color;
       facets.push({ p: t, key, tone });

@@ -61,7 +61,17 @@ const FIXED = {
   blush: '#ef8f8a',
 } as const;
 
-export type PaletteKey = keyof typeof BASES | keyof typeof FIXED;
+/**
+ * Colours with their three tones set by hand rather than by the ramp: for things painted already lit for the dark, as
+ * the old isometric games did, with faces near black and the surfaces turned up to the light bright and cool.
+ */
+const LIT = {
+  cave: { base: '#4a4f6a', shade: '#23253a', light: '#a7b6dc' },
+} as const;
+/** The colours lit for the dark: rocks in them are drawn back-lit (see flora's `growRock`). */
+export const LIT_KEYS: ReadonlySet<string> = new Set(Object.keys(LIT));
+
+export type PaletteKey = keyof typeof BASES | keyof typeof FIXED | keyof typeof LIT;
 
 /** The ground shadow colour of everything drawn, laid over the ground once wherever any shadow falls. */
 export const SHADOW = '#2a1c3a38';
@@ -94,6 +104,7 @@ export const PALETTE = Object.fromEntries([
     return [key, key.startsWith('hair') ? { ...r, light: hexFrom(mix(rgbOf(hex), rgbOf(r.light), HAIR_LIGHT)) } : r];
   }),
   ...Object.entries(FIXED).map(([key, hex]) => [key, { base: hex, shade: hex, light: hex }]),
+  ...Object.entries(LIT),
 ]) as Record<PaletteKey, Record<Tone, string>>;
 
 export const PALETTE_KEYS = Object.keys(PALETTE) as PaletteKey[];

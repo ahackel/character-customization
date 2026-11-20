@@ -53,10 +53,10 @@ export function steepness(map: HeightMap, i: number, j: number): number {
   return Math.max(...NEIGHBOURS.map(([di, dj]) => Math.abs(here - surfaceLevel(map, i + di, j + dj))));
 }
 
-export const SURFACES = ['deep', 'shallow', 'beach', 'sand', 'grass', 'rock'] as const;
+export const SURFACES = ['deep', 'shallow', 'beach', 'sand', 'grass', 'rock', 'cave'] as const;
 export type Surface = (typeof SURFACES)[number];
 /** What can be painted on land. */
-export const PAINTS = ['sand', 'grass', 'rock'] as const;
+export const PAINTS = ['sand', 'grass', 'rock', 'cave'] as const;
 
 const paintAt = (map: HeightMap, i: number, j: number) => (map.paint && inside(map, i, j) ? map.paint[j * map.w + i] : 0);
 
@@ -196,6 +196,8 @@ const COLORS = {
   sand: '#f6e4b4',
   grass: '#8fcf78',
   rock: '#aeaba3',
+  /** A cave's floor: dark stone, painted for the dark it lies in. */
+  cave: '#3f4359',
 } as const;
 /** Side faces: the left one in light, the right one in shade, as everything else is lit. */
 const SIDES = {
@@ -203,6 +205,7 @@ const SIDES = {
   sand: ['#c9b077', '#b39a63'],
   grass: ['#b98f63', '#9c7650'],
   rock: ['#8f8b83', '#78746d'],
+  cave: ['#2c2f42', '#222433'],
 } as const;
 const GRASS_LIP = '#6c9f55';
 /** Water by depth in levels: pale turquoise at the beach to deep blue offshore. */
@@ -266,6 +269,7 @@ const CLUTTER: Record<Ground, { chance: number; tries: number; stamps: string[][
   sand: { chance: 0.22, tries: 2, stamps: [['lm', 'mds'], ['md'], ['l', 'ds']] },
   grass: { chance: 0.45, tries: 3, stamps: [['  l', 'l d', 'dmd'], ['l  l', 'd ld', ' dd '], ['l', 'd'], [' l ', 'dmd']] },
   rock: { chance: 0.35, tries: 2, stamps: [['lm', 'mds'], ['lmm', 'mdds'], ['d']] },
+  cave: { chance: 0.4, tries: 2, stamps: [['lm', 'mds'], ['lmm', 'mdds'], ['l'], ['d']] },
 };
 /** How deep under water, in levels, pebbles still show on the sea floor, fading with depth. */
 const PEBBLE_DEPTH = 1.4;
@@ -276,11 +280,13 @@ const PEBBLE = { l: '#d2cabb', m: '#a39886', d: '#7d7364' } as const;
 function clutterColor(kind: Ground, role: string, ground: string): string {
   if (role === 's') return mixHex(ground, SHADE, 0.3);
   if (kind === 'grass') return role === 'l' ? mixHex(ground, '#d8f5a8', 0.35) : mixHex(ground, GRASS_LIP, role === 'd' ? 0.85 : 0.5);
-  if (kind === 'rock') return role === 'l' ? mixHex(ground, LIT, 0.4) : mixHex(ground, '#000000', role === 'd' ? 0.3 : 0.14);
+  if (kind === 'rock' || kind === 'cave') return role === 'l' ? mixHex(ground, LIT, 0.4) : mixHex(ground, '#000000', role === 'd' ? 0.3 : 0.14);
   return mixHex(PEBBLE[role as keyof typeof PEBBLE], ground, 0.25);
 }
 /** What the ground is at a height, inside a cell of some surface: low ground is sand whatever the cell. */
 function groundAt(surface: Surface, h: number, painted = false): Ground {
+  // A cave's floor is stone to its edge, never wet sand.
+  if (surface === 'cave') return 'cave';
   if (h < 0.15) return 'wet';
   if (surface === 'rock') return 'rock';
   if (painted) return surface === 'grass' ? 'grass' : 'sand';
@@ -520,15 +526,18 @@ export function renderTerrain(shape: HeightMap, size?: { w: number; h: number; o
         // The light between the corners, in steps of a fiftieth, dithered so the steps do not band.
         const lit = w0 * l[0] + w1 * l[1] + w2 * l[2];
         const step = Math.floor(Math.min(0.22, Math.abs(lit) * 0.9) * 50 + BAYER[(y & 3) * 4 + (x & 3)]) * Math.sign(lit);
-        let tone = tones[kind + step];
+        // A cave's floor has no grid to read: it varies in soft patches by where it lies instead.
+        const patch = kind === 'cave' ? Math.round(2 * wobble((w0 * p[0][0] + w1 * p[1][0] + w2 * p[2][0]) / 6, (w0 * p[0][1] + w1 * p[1][1] + w2 * p[2][1]) / 6, 7)) : 0;
+        let tone = tones[kind + step + '|' + patch];
         if (!tone) {
           let color: string = COLORS[kind];
           if (step) color = mixHex(color, step > 0 ? LIT : DIM, Math.abs(step) / 50);
-          // Tiles alternate faintly so the one-metre grid reads.
-          if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
+          // Tiles alternate faintly so the one-metre grid reads; a cave's floor varies by patch instead.
+          if (kind === 'cave') color = mixHex(color, patch > 0 ? LIT : DIM, Math.abs(patch) * 0.07);
+          else if ((i + j) % 2 === 0) color = mixHex(color, '#ffffff', 0.05);
           // Grains: darker green on grass, the side colour elsewhere; sand gets fewer, fainter ones.
           const grain = kind === 'grass' ? GRASS_LIP : SIDES[kind][1];
-          tone = tones[kind + step] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
+          tone = tones[kind + step + '|' + patch] = [color, mixHex(color, grain, sandy ? 0.3 : 0.5)];
         }
         const color = hash(x, y) < (sandy ? 0.01 : 0.035) ? tone[1] : tone[0];
         put(x, y, color, index, level, kind);

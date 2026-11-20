@@ -4,6 +4,7 @@
 // lamp (a fire) lights a round patch around it, warm, as if the tint were lifted there.
 import { FIRE_KEYS, PALETTE } from '../core/palette.ts';
 import { rgb } from './ocean.ts';
+import type { TileLight } from './world.ts';
 
 /**
  * Colours that give their own light: the palette's fire tones. The time of day, the weather and
@@ -80,5 +81,68 @@ export function light(image: { data: Uint8ClampedArray; width?: number }, t: Tin
     d[k] *= r;
     d[k + 1] *= g;
     d[k + 2] *= b;
+  }
+}
+
+/**
+ * Lights a picture like `light`, but the lamps' light comes from a light field (`World.lightField`): each pixel is
+ * lifted by the light at its spot on the map (`World.spots`), by its distance to each lamp plus the detour round walls,
+ * so light stops at walls and a thing is lit as one by the light where it stands. Pixels with no spot take the tint.
+ */
+export function lightByTile(
+  image: { data: Uint8ClampedArray; width?: number },
+  t: Tint,
+  fade: number,
+  spots: { i: Float32Array; j: Float32Array },
+  field: TileLight,
+): void {
+  const keep = 1 - fade;
+  const fr = (1 - t.amount + (t.amount * t.r) / 255) * keep;
+  const fg = (1 - t.amount + (t.amount * t.g) / 255) * keep;
+  const fb = (1 - t.amount + (t.amount * t.b) / 255) * keep;
+  const d = image.data;
+  const { w, h, open, lamps } = field;
+  const cells = [0, 0, 0, 0], weights = [0, 0, 0, 0];
+  for (let p = 0; p < d.length >> 2; p++) {
+    const o = p * 4;
+    if (d[o + 3] === GLOW_ALPHA) continue;
+    let r = fr, g = fg, b = fb;
+    const si = spots.i[p], sj = spots.j[p];
+    if (si === si && lamps.length) {
+      // The open cells among the four whose middles are round the spot, and how much each counts.
+      const fi = si - 0.5, fj = sj - 0.5;
+      const i0 = Math.floor(fi), j0 = Math.floor(fj);
+      let n = 0, sum = 0;
+      for (let dj = 0; dj <= 1; dj++) for (let di = 0; di <= 1; di++) {
+        const i = i0 + di, j = j0 + dj;
+        if (i < 0 || j < 0 || i >= w || j >= h || !open[j * w + i]) continue;
+        cells[n] = j * w + i;
+        weights[n] = (di ? fi - i0 : 1 - (fi - i0)) * (dj ? fj - j0 : 1 - (fj - j0));
+        sum += weights[n++];
+      }
+      if (sum > 0) {
+        // Lamps add up as light does, each pulling the colour toward its own by how much it gives.
+        let dark = 1, lk = 0, lr = 0, lg = 0, lb = 0;
+        for (const lamp of lamps) {
+          let detour = 0;
+          for (let c = 0; c < n; c++) detour += lamp.detour[cells[c]] * weights[c];
+          const dist = Math.hypot(si - lamp.i, sj - lamp.j) + detour / sum;
+          if (dist >= lamp.r) continue;
+          const q = 1 - dist / lamp.r;
+          const v = lamp.amount * q * q * (3 - 2 * q);
+          dark *= 1 - v;
+          lk += v; lr += lamp.rgb[0] * v; lg += lamp.rgb[1] * v; lb += lamp.rgb[2] * v;
+        }
+        if (lk > 0) {
+          const e = (1 - dark) * t.amount * keep;
+          r += (keep * (lr / lk / 255) - r) * e;
+          g += (keep * (lg / lk / 255) - g) * e;
+          b += (keep * (lb / lk / 255) - b) * e;
+        }
+      }
+    }
+    d[o] *= r;
+    d[o + 1] *= g;
+    d[o + 2] *= b;
   }
 }

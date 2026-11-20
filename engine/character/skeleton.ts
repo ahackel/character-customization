@@ -26,7 +26,8 @@ export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> 
     }
     out[name] = face;
   }
-  return out;
+  // A skull never changes its look: every face is the neutral one.
+  return Object.fromEntries(Object.keys(out).map((name) => [name, out.neutral]));
 }
 
 /** A head stamp with the blush taken out of the ears and nose. */

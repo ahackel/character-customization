@@ -1367,7 +1367,8 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
       as('head');
       // Ears the hair leaves free are warmed a little, like the nose.
       const patch = earPatch(hv ?? (headBack ? 'back' : 'front'), ears);
-      const bare = headOf();
+      // A skull has no ears: side on the ear's place is plain bone, in the other views the ear is left off.
+      const bare = look.skeleton ? headOf().map((row, y) => row.map((cell, x) => (onEar(x, y) ? (hv === 'E' ? { key: look.skin, shade: false } : null) : cell))) : headOf();
       // Bone does not blush.
       const head = earsHidden() || look.skeleton ? bare : bare.map((row, y) => row.map((cell, x) => (cell && patch.has(`${x},${y}`) ? { ...cell, flush: true } : cell)));
       stampInto(sprite, headStamp(head).map((row, y) => (y > HEAD_FRAME.ay - lift ? row.map(() => null) : row)), HEAD_FRAME, hx, hy);

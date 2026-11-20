@@ -6,15 +6,13 @@ import { parseStamp, TORSO_FRAME, type Item, type Stamp } from '../core/puppet.t
 export const BONE: PaletteKey = 'bone';
 
 const INK: Cell = { key: 'ink', shade: false };
-const TOOTH: Cell = { key: 'tooth', shade: false };
 const SHADE: Cell = { key: BONE, shade: true };
 
 /**
- * The skull's one face, whatever the mood: big hollow eyes, a nose hole, and a grin of teeth
- * with the jaw a little open under them. Placed by where the neutral face has its eyes,
+ * The skull's one face, whatever the mood: big hollow eyes, a nose hole, and a grin, black pixels only Placed by where the neutral face has its eyes,
  * nose and mouth, so it fits each view. Every name gets the same face; the view from behind has none.
  */
-export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> {
+export function skullFaces(faces: Record<string, Stamp>, head: Stamp): Record<string, Stamp> {
   const from = faces.neutral;
   if (!from) return {};
   const cells = (match: (c: Cell) => boolean) => from.flatMap((row, y) => row.flatMap((c, x) => (c && match(c) ? [[x, y] as const] : [])));
@@ -40,24 +38,31 @@ export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> 
     const row = Math.max(...nose.map(([, y]) => y));
     for (const [x, y] of nose) if (y === row) put(x, y, INK);
   }
-  // The grin: a row of teeth, and the dark gap of the open jaw under it.
+  // The grin: black only, the teeth are the skull's own colour between the ticks. The ends turn up and
+  // the jaw is a little open under the teeth. An odd width keeps a tick in the middle.
   const mouth = cells((c) => c.key === 'mouth');
   if (mouth.length) {
     const mx = mouth.map(([x]) => x);
     // A row lower than a face puts it, so the nose hole has skin between it and the teeth.
     const y = mouth[0][1] + 1;
-    const x0 = Math.min(...mx);
-    const w = Math.max(...mx) - x0 + 1;
-    for (let p = 0; p < w; p++) {
-      put(x0 + p, y, p % 2 ? INK : TOOTH);
-      put(x0 + p, y + 1, INK);
+    const w = Math.max(...mx) - Math.min(...mx) + 1;
+    const x0 = Math.max(...mx) - (w % 2 ? w : w + 1) + 1;
+    const n = w % 2 ? w : w + 1;
+    for (let p = 0; p < n; p++) {
+      if (p === 0 || p === n - 1 || p % 2 === 0) put(x0 + p, y, INK);
+      if (p > 0 && p < n - 1) put(x0 + p, y + 1, INK);
     }
   }
-  return Object.fromEntries(Object.keys(faces).map((name) => [name, face]));
+  // Nothing outside the skull.
+  const clipped = face.map((row, y) => row.map((c, x) => (head[y]?.[x] ? c : null)));
+  return Object.fromEntries(Object.keys(faces).map((name) => [name, clipped]));
 }
 
-/** A head stamp with the blush taken out of the ears and nose. */
-export const boneHead = (stamp: Stamp): Stamp => stamp.map((row) => row.map((c) => (c?.flush ? { ...c, flush: false } : c)));
+/** A head stamp with no blush on the ears and nose, and no nose standing out past the face. */
+export const boneHead = (stamp: Stamp): Stamp => {
+  const reach = stamp.map((row) => row.reduce((last, c, x) => (c && !c.flush ? x : last), -1));
+  return stamp.map((row, y) => row.map((c, x) => (c?.flush ? (x > reach[y] ? null : { ...c, flush: false }) : c)));
+};
 
 // Body rows are written 9 wide and placed in the torso frame as underwear is: chest from row 2, pelvis from row 10.
 const body = (above: number, rows: string[]) =>

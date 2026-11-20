@@ -174,9 +174,9 @@ export function lookOf(source: State, underwear = true): Look {
     build: BUILDS.find((b) => b.id === source.build),
     frame: source.frame,
     head: headFor(source.skin, source.face.shape),
-    faces: bones ? skullFaces(facesFor(source.skin, source.face, source.hairColor, source.mood)) : facesFor(source.skin, source.face, source.hairColor, source.mood),
+    faces: bones ? skullFaces(facesFor(source.skin, source.face, source.hairColor, source.mood), headFor(source.skin, source.face.shape).front) : facesFor(source.skin, source.face, source.hairColor, source.mood),
     ...(source.face.glasses ? { glasses: source.face.glassesColor ?? 'black' } : {}),
-    views: bones ? Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { head: boneHead(v.head), faces: skullFaces(v.faces) }])) : views,
+    views: bones ? Object.fromEntries(Object.entries(views).map(([k, v]) => [k, { head: boneHead(v.head), faces: skullFaces(v.faces, boneHead(v.head)) }])) : views,
     items,
   };
 }

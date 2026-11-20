@@ -10,7 +10,8 @@ export { isShadow };
 export const SHAPES = ['box', 'cylinder', 'ball'] as const;
 /** The axis a cylinder lies along: standing (y), or lying along the footprint's width (x) or depth (z). */
 export const AXES = ['y', 'x', 'z'] as const;
-export const PAINTS = ['solid', 'glow', 'water'] as const;
+/** `dark`: always in its shade tone, wherever it faces, for insides and holes. */
+export const PAINTS = ['solid', 'glow', 'water', 'dark'] as const;
 export const LOOPS = ['none', 'blink', 'flow', 'bob'] as const;
 export const KINDS = ['furniture', 'device', 'garden', 'car'] as const;
 export type Shape = (typeof SHAPES)[number];
@@ -245,6 +246,7 @@ export function drawObject(prop: Prop, turn: Turn | number, frame = 0): ObjectFr
       const flat = p.shape === 'box' || Math.abs(n[AXES_INDEX[p.axis]]) > 0.99;
       let tone: Tone = lit > (flat ? 0.7 : 0.8) ? 'light' : lit < (flat ? 0.2 : 0.25) ? 'shade' : 'base';
       if (p.paint === 'glow') tone = 'light';
+      if (p.paint === 'dark') tone = 'shade';
       if (p.paint === 'water') {
         // Ripples across a surface, streaks down a falling jet; they run when the part flows.
         const run = p.loop === 'flow' ? f : 0;

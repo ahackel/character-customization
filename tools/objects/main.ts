@@ -22,7 +22,7 @@ const LABEL: Record<string, [string, string]> = {
   furniture: ['Furniture', 'Möbel'], device: ['Device', 'Gerät'], garden: ['Garden', 'Garten'], car: ['Car', 'Auto'],
   box: ['Box', 'Quader'], cylinder: ['Cylinder', 'Zylinder'], ball: ['Ball', 'Kugel'],
   y: ['Standing', 'Stehend'], x: ['Lying across', 'Quer liegend'], z: ['Lying along', 'Längs liegend'],
-  solid: ['Solid', 'Fest'], glow: ['Glows', 'Leuchtet'], water: ['Water', 'Wasser'],
+  solid: ['Solid', 'Fest'], glow: ['Glows', 'Leuchtet'], water: ['Water', 'Wasser'], dark: ['Dark', 'Dunkel'],
   none: ['Still', 'Ruhig'], blink: ['Blinks', 'Blinkt'], flow: ['Flows', 'Fließt'], bob: ['Bobs', 'Hüpft'],
   px: ['Across (x)', 'Quer (x)'], py: ['Height above floor', 'Höhe über Boden'], pz: ['Along (z)', 'Längs (z)'],
   w: ['Width', 'Breite'], h: ['Height', 'Höhe'], d: ['Depth', 'Tiefe'],

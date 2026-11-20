@@ -656,6 +656,24 @@ function whereIs(p: Pickable): { i: number; j: number } {
 }
 
 /** Whether a thing's picture covers a ground-image pixel, with a pixel of slack all round since the small animals are only a few pixels across. */
+const OUTLINE = [255, 216, 74];
+/** Draws a one-pixel line round a thing's picture (its shadow left out) into an image of the view. */
+function outline(image: { data: Uint8ClampedArray; width: number; height: number }, view: Rect, thing: Thing, [r, g, b]: number[]): void {
+  const at = footOf(world.ground, thing.spot);
+  const x0 = at.x - thing.foot.x - view.x, y0 = at.y - thing.foot.y - view.y;
+  const solid = (x: number, y: number) => {
+    const c = x >= 0 && y >= 0 && x < thing.w && y < thing.h ? thing.picture.get(x, y) : null;
+    return !!c && !isShadow(c);
+  };
+  for (let y = -1; y <= thing.h; y++) for (let x = -1; x <= thing.w; x++) {
+    if (solid(x, y) || !(solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1))) continue;
+    const px = x0 + x, py = y0 + y;
+    if (px < 0 || py < 0 || px >= image.width || py >= image.height) continue;
+    const p = (py * image.width + px) * 4;
+    image.data[p] = r; image.data[p + 1] = g; image.data[p + 2] = b; image.data[p + 3] = 255;
+  }
+}
+
 function covers(thing: Thing, x: number, y: number): boolean {
   const at = footOf(world.ground, thing.spot);
   return [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => {
@@ -1027,6 +1045,9 @@ function frame(ms: number): void {
       const lantern = prefs.mode === 'play' && actor ? [{ i: actor.i, j: actor.j, r: 4.2 * flicker(ms), amount: 1 }] : [];
       lightByTile(image, caveTint(world.scene), 0, world.spots!, world.lightField([...caveLamps(world, ms), ...lantern]));
     }
+    // The selected object, outlined over everything (lights included), so it shows even behind rock or in the dark.
+    const sel = prefs.mode === 'edit' && selected?.kind === 'item' ? world.scene.items.indexOf(selected.obj as PlacedItem) : -1;
+    if (sel >= 0) outline(image, view, world.itemThings()[sel], OUTLINE);
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
   requestAnimationFrame(frame);

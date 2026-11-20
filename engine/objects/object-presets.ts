@@ -23,31 +23,47 @@ const wheels = (r = 8) => [0, 21].flatMap((x) => [
 
 const make = (kind: Kind, w: number, d: number, parts: Part[], points: Point[] = []): Prop => cleanProp({ kind, w, d, parts, points });
 
-// The treasure chest: a box of dark planks with iron bands at its corners and rim, a domed lid of planks with
-// iron bands, and an iron hasp at the front (+z, the lower left at turn 0). The box is hollow and dark inside, so
-// the lid opening (OPENING) shows it.
+// The treasure chest: a box of planks framed in thin dark iron along every edge (each corner, and round the top and
+// the foot), a domed lid with an iron band near each end, and an iron hasp at the front (+z, the lower left at turn
+// 0). The iron stands one unit outside the box, so it reads as the box's edges from every side. The box is hollow
+// and dark inside, and the open lid hollow under its dome (OPENING).
+const IRON = 'black';
 const chestBox = [
-  box(2, 0, 4, 12, 6, 8, 'brown'),
-  box(2, 6, 4, 12, 1, 1, 'brown'), box(2, 6, 11, 12, 1, 1, 'brown'), box(2, 6, 5, 1, 1, 6, 'brown'), box(13, 6, 5, 1, 1, 6, 'brown'),
-  box(3, 5, 5, 10, 1, 6, 'ink'),
-  // Grooves between the planks, front and sides.
-  box(5, 1, 12, 1, 5, 1, 'ink'), box(10, 1, 12, 1, 5, 1, 'ink'), box(1, 1, 7, 1, 5, 1, 'ink'), box(14, 1, 7, 1, 5, 1, 'ink'),
-  // Iron at the corners and round the rim.
-  box(1, 0, 3, 2, 7, 2, 'grey'), box(13, 0, 3, 2, 7, 2, 'grey'), box(1, 0, 11, 2, 7, 2, 'grey'), box(13, 0, 11, 2, 7, 2, 'grey'),
-  box(3, 6, 12, 10, 1, 1, 'grey'),
+  box(3, 0, 5, 10, 5, 6, 'brown'),
+  // Its walls round a dark inside, a little lower.
+  box(3, 5, 5, 10, 2, 1, 'brown'), box(3, 5, 10, 10, 2, 1, 'brown'), box(3, 5, 6, 1, 2, 4, 'brown'), box(12, 5, 6, 1, 2, 4, 'brown'),
+  box(4, 5, 6, 8, 1, 4, 'black', { paint: 'dark' }),
+  // Iron down the four corners, and round the top and the foot.
+  ...[[2, 4], [13, 4], [2, 11], [13, 11]].map(([x, z]) => box(x, 0, z, 1, 7, 1, IRON)),
+  ...[0, 6].flatMap((y) => [box(3, y, 4, 10, 1, 1, IRON), box(3, y, 11, 10, 1, 1, IRON), box(2, y, 5, 1, 1, 6, IRON), box(13, y, 5, 1, 1, 6, IRON)]),
 ];
-/** A lid at (y, z), `h` high and `d` deep: a dome of planks with a groove, and an iron band a little in from each end. */
+/**
+ * A lid at (y, z), `h` high and `d` deep: a dome of planks as wide as the iron on the box, and at each end an iron
+ * ring a unit bigger all round. The planks come first, so on the end faces, where both lie flush, they win and the
+ * iron shows only as a rim round the edge, as on the box.
+ */
 const lid = (y: number, z: number, h: number, d: number) => [
   cyl(2, y, z, 12, h, d, 'brown', { axis: 'x' }),
-  cyl(7, y, z, 1, h, d, 'ink', { axis: 'x' }),
-  cyl(3, y, z, 1, h + 1, d, 'grey', { axis: 'x' }), cyl(12, y, z, 1, h + 1, d, 'grey', { axis: 'x' }),
+  cyl(2, y - 1, z - 1, 1, h + 2, d + 2, IRON, { axis: 'x' }), cyl(13, y - 1, z - 1, 1, h + 2, d + 2, IRON, { axis: 'x' }),
 ];
-/** The lid shut, the hasp hanging down the front over the box. */
-const chestLid = [...lid(4, 4, 7, 8), box(7, 4, 12, 2, 4, 1, 'grey')];
+/** The lid shut, over the box, the hasp hanging down the front. */
+const chestLid = [...lid(4, 5, 7, 6), box(7, 4, 11, 2, 4, 1, IRON)];
 const chest = (parts: Part[]) => make('furniture', 1, 1, [...chestBox, ...parts]);
-/** Frames of an object opening, after its shut picture: the chest's lid lifting and swinging back till it stands up behind the box. */
+/**
+ * Frames of an object opening, after its shut picture. The chest's lid lifts, then stands up behind the box, its
+ * dome to the back and its hollow underside to the front: dark, in a frame of its planks, the hasp at its top.
+ */
 export const OPENING: Record<string, Prop[]> = {
-  chest: [chest(lid(7, 3, 7, 7)), chest([...lid(6, 1, 9, 5), box(7, 12, 0, 2, 3, 1, 'grey')])],
+  chest: [
+    chest([...lid(6, 4, 7, 6), box(4, 6, 6, 8, 1, 3, 'black', { paint: 'dark' })]),
+    chest([
+      // The hollow a unit in front of the dome, so the dome does not show through it; its frame of planks in front again.
+      box(3, 7, 4, 10, 8, 4, 'black', { paint: 'dark' }),
+      ...lid(7, 1, 8, 6),
+      box(2, 7, 8, 1, 8, 1, 'brown'), box(13, 7, 8, 1, 8, 1, 'brown'), box(3, 14, 8, 10, 1, 1, 'brown'), box(3, 7, 8, 10, 1, 1, 'brown'),
+      box(7, 12, 9, 2, 3, 1, IRON),
+    ]),
+  ],
 };
 
 export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [

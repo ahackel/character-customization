@@ -66,6 +66,13 @@ const SHADOW_DEPTH = 1.5;
 const shadowFade = (depth: number) => Math.max(0, 1 - depth / SHADOW_DEPTH);
 /** How long a footprint takes to vanish. */
 const PRINT_MS = 60_000;
+/**
+ * How long the ground and water of a window stay good for. Waves, foam, the wash on the beach and
+ * the fish all step about ten times a second, so between those steps the base is kept as drawn
+ * rather than worked out per pixel again. Only the cache key is rounded to it: `ms` itself stays
+ * exact, so weather, lightning and footprints still move every frame.
+ */
+const WATER_MS = 100;
 /** Prints are pressed sand: tinted toward the sand's shaded side colour, at most this much. */
 const PRINT_RGB = rgb('#b39a63');
 const PRINT_DEPTH = 0.45;
@@ -629,7 +636,7 @@ export class World {
     const shore = this.shoreOf(g);
     const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
     const d = image.data;
-    const baseKey = `${view.x},${view.y},${w},${h}|${ms}|${grid}`;
+    const baseKey = `${view.x},${view.y},${w},${h}|${Math.floor(ms / WATER_MS)}|${grid}`;
     const kept = !highlight && this.base && this.base.ground === g && this.base.key === baseKey ? this.base.data : null;
     if (!kept) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const gx = x + view.x, gy = y + view.y;
@@ -757,7 +764,7 @@ export class World {
     return dist;
   }
 
-  /** The ground and water of the last window composed without a highlight: in Play the water moves ten times a second, the rest every frame. */
+  /** The ground and water of the last window composed without a highlight: it is redrawn `WATER_MS` apart, the rest every frame. */
   private base: { key: string; ground: TerrainImage; data: Uint8ClampedArray } | null = null;
   private shadows = new WeakMap<Picture, Map<string, Int32Array>>();
   private shadowsOf: TerrainImage | null = null;

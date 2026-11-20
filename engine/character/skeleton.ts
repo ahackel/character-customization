@@ -7,6 +7,8 @@ export const BONE: PaletteKey = 'bone';
 
 /** A face with the features turned into a skull's: hollow eyes and a row of teeth. */
 export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> {
+  // The view from behind has no face.
+  if (!faces.neutral) return {};
   const out: Record<string, Stamp> = {};
   for (const [name, stamp] of Object.entries(faces)) {
     const face: Stamp = stamp.map((row, y) => row.map((cell, x): Cell | null => {
@@ -26,8 +28,23 @@ export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> 
     }
     out[name] = face;
   }
-  // A skull never changes its look: every face is the neutral one.
-  return Object.fromEntries(Object.keys(out).map((name) => [name, out.neutral]));
+  // A skull never changes its look: every face is the neutral one, with the same grin.
+  const grin = out.neutral.map((row) => [...row]);
+  const mouth = faces.neutral.flatMap((row, y) => row.flatMap((c, x) => (c?.key === 'mouth' ? [[x, y] as const] : [])));
+  if (mouth.length) {
+    const xs = mouth.map(([x]) => x);
+    const y = mouth[0][1];
+    const x0 = Math.min(...xs) - 1;
+    const w = Math.max(...xs) - x0 + 2;
+    for (const [dy, odd] of [[0, 1], [1, 1]] as const) {
+      grin[y + dy] ??= [];
+      for (let p = 0; p < w; p++) {
+        const edge = p === 0 || p === w - 1;
+        grin[y + dy][x0 + p] = { key: edge || p % 2 === odd ? 'ink' : 'tooth', shade: false } as Cell;
+      }
+    }
+  }
+  return Object.fromEntries(Object.keys(out).map((name) => [name, grin]));
 }
 
 /** A head stamp with the blush taken out of the ears and nose. */

@@ -4,15 +4,17 @@ import { defaultState, download, loadRoster, lookOf, pickFile, type Saved } from
 import { FRAMES } from '../../engine/flora/flora.ts';
 import { FLORA, plantById } from '../../engine/flora/flora-catalog.ts';
 import { castShadow, footOf, layShadow, ROOM, stamp, type Picture } from '../../engine/world/island.ts';
-import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, surfaceAt, TILE_H, TILE_W } from '../../engine/world/terrain.ts';
+import { heightAt, inside, levelAt, MAX_LEVEL, MIN_LEVEL, PAINTS, SEA_LEVEL, setLevel, standingHeight, surfaceAt, TILE_H, TILE_W } from '../../engine/world/terrain.ts';
 import { Actor, EMOTES, type Carried, type Emote } from '../../engine/world/actor.ts';
 import { ITEMS, itemPicture, type PlacedItem } from '../../engine/world/props.ts';
 import { Herd } from '../../engine/world/herd.ts';
 import {
-  createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, refreshLinks, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
+  CAVE_DEFAULTS, createCave, createScene, loadLibrary, MAX_SIZE, MIN_SIZE, readSceneFile, refreshLinks, resized, saveLibrary, sceneFile, SEEDS, TURNS, type PlacedPerson, type PlacedPlant, type Scene,
 } from '../../engine/world/scene.ts';
 import { grows, rasterOf, smooth, World, type Rect, type Thing } from '../../engine/world/world.ts';
 import { DECOR, decorById, decorPixels } from '../../engine/world/decor.ts';
+import { carve, caveLamps, caveThings, caveTint, CAVE_DAY, flicker } from '../../engine/world/cave.ts';
+import { lightByTile } from '../../engine/world/daylight.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../../engine/animals/animal.ts';
 import { drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing } from '../../engine/core/puppet.ts';
 import { STAND } from '../../engine/core/poses.ts';
@@ -29,13 +31,17 @@ import { t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'person', 'item', 'erase', 'spawn'] as const;
+const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'carve', 'fill', 'plant', 'decor', 'animal', 'person', 'item', 'erase', 'spawn', 'exit'] as const;
 type Tool = (typeof TOOLS)[number];
-const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
+/** An island's ground is shaped by height and paint; a cave's is carved out of the rock and has ways out. */
+const CAVE_ONLY: Tool[] = ['carve', 'fill', 'exit'];
+const ISLAND_ONLY: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint'];
+const toolsHere = () => TOOLS.filter((tool) => !(sceneNow().cave ? ISLAND_ONLY : CAVE_ONLY).includes(tool));
+const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'carve', 'fill', 'erase'];
 const ZOOM = { min: 1, max: 8 };
 const BRUSH_MAX = 7;
 const TOOL_ICONS: Record<Tool, IconName> = {
-  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', person: 'person', item: 'box', erase: 'eraser', spawn: 'flag',
+  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', carve: 'pickaxe', fill: 'rock', exit: 'door', plant: 'palm', decor: 'shell', animal: 'paw', person: 'person', item: 'box', erase: 'eraser', spawn: 'flag',
 };
 
 interface Prefs {
@@ -60,10 +66,12 @@ interface Prefs {
   grid: boolean;
   /** Frames per second under the zoom buttons. */
   fps: boolean;
+  /** A cave evenly lit while editing, rather than as dark as in Play. */
+  bright: boolean;
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false, bright: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -78,6 +86,7 @@ function loadPrefs(): Prefs {
     if ([0, 1, 2, 3].includes(saved?.rot)) prefs.rot = saved.rot;
     prefs.grid = saved?.grid === true;
     prefs.fps = saved?.fps === true;
+    prefs.bright = saved?.bright === true;
   } catch {
     // Settings are a convenience; without storage the defaults apply.
   }
@@ -117,8 +126,27 @@ function sceneChanged(): void {
 // Nothing made in the last moment before closing is lost.
 window.addEventListener('pagehide', () => saveTimer && store());
 
+/** The scene as it was before each of the last edits, to step back to. */
+const undoStack: Scene[] = [];
+const UNDO_MAX = 40;
+/** Keeps the scene as it is now, before an edit changes it. */
+function remember(): void {
+  world.commit();
+  undoStack.push(structuredClone(world.scene));
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+}
+function undo(): void {
+  const before = undoStack.pop();
+  if (!before) return;
+  library.scenes[library.scenes.findIndex((s) => s.id === before.id)] = before;
+  world = new World(before, prefs.rot);
+  selected = null;
+  sceneChanged();
+}
+
 function switchTo(scene: Scene): void {
   if (saveTimer) store();
+  undoStack.length = 0;
   if (!library.scenes.includes(scene)) library.scenes.push(scene);
   library.current = scene.id;
   selected = null;
@@ -237,13 +265,15 @@ function cannotEdit(at: { i: number; j: number }): boolean {
     case 'person':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'decor':
-      return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
+      return !decorFits(at);
     case 'item':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     case 'raise':
       return brushCells(at).every((c) => world.map.levels[c] >= MAX_LEVEL);
     case 'lower':
       return brushCells(at).every((c) => world.map.levels[c] <= MIN_LEVEL);
+    case 'exit':
+      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
     default:
       return false;
   }
@@ -276,8 +306,27 @@ function placePlant(at: { i: number; j: number }, placed: Set<PlacedPlant>): voi
 /** Decorations lie on land and on the sea floor down to this level, where the water still shows them. */
 const DECOR_DEPTH = SEA_LEVEL - 2;
 
+/** Where on a tile a thing hung on a wall goes: just in front of the wall at its back, if it has one. */
+function onWall(at: { i: number; j: number }): { i: number; j: number } | null {
+  const rock = (i: number, j: number) => !inside(world.map, i, j) || levelAt(world.map, i, j) < SEA_LEVEL;
+  if (rock(at.i, at.j - 1)) return { i: at.i + 0.5, j: at.j + 0.28 };
+  if (rock(at.i - 1, at.j)) return { i: at.i + 0.28, j: at.j + 0.5 };
+  return null;
+}
+
+/** Decorations lie on land and the sea floor near it; in a cave only on its floor, not in the rock. */
+const decorFits = (at: { i: number; j: number }) =>
+  world.scene.cave ? levelAt(world.map, at.i, at.j) >= SEA_LEVEL : levelAt(world.floor, at.i, at.j) >= DECOR_DEPTH;
+
 function placeDecor(at: { i: number; j: number }): void {
-  if (levelAt(world.floor, at.i, at.j) < DECOR_DEPTH) return;
+  if (!decorFits(at)) return;
+  if (decorById(prefs.decor)?.lift) {
+    const spot = onWall(at);
+    if (!spot) return say(t('decor.wall'));
+    if (world.viewDecor().some((d) => Math.hypot(d.vi - spot.i, d.vj - spot.j) < 0.4)) return;
+    world.scene.decor.push({ decor: prefs.decor, ...world.toData(spot) });
+    return;
+  }
   const i = at.i + 0.15 + Math.random() * 0.7;
   const j = at.j + 0.15 + Math.random() * 0.7;
   if (world.viewDecor().some((d) => Math.hypot(d.vi - i, d.vj - j) < 0.2)) return;
@@ -405,6 +454,13 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       for (const c of fresh) map.paint[c] = prefs.paint;
       groundDirty ||= fresh.length > 0;
       break;
+    case 'carve':
+    case 'fill':
+      groundDirty = carve(map, fresh, prefs.tool === 'carve') || groundDirty;
+      break;
+    case 'exit':
+      if (fresh.length) toggleExit(at);
+      break;
     case 'plant':
       if (fresh.length) placePlant(at, (stroke.placed ??= new Set()));
       break;
@@ -428,6 +484,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       world.scene.animals = kept(world.scene.animals, world.viewAnimals());
       world.scene.people = kept(world.scene.people, world.scene.people.map((p) => { const v = world.toView(p); return { vi: v.i, vj: v.j }; }));
       world.scene.items = kept(world.scene.items, world.viewItems());
+      if (world.scene.cave) world.scene.cave.exits = kept(world.scene.cave.exits, world.scene.cave.exits.map((e) => { const v = world.toView(e); return { vi: v.i, vj: v.j }; }));
       break;
     }
     case 'spawn':
@@ -436,6 +493,20 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
   }
   sceneChanged();
 }
+
+/** A way out of the cave on a tile of floor, or none there any more if it had one. */
+function toggleExit(at: { i: number; j: number }): void {
+  const cave = world.scene.cave;
+  if (!cave || levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
+  const here = (e: { i: number; j: number }) => { const v = world.toView(e); return Math.floor(v.i) === at.i && Math.floor(v.j) === at.j; };
+  if (cave.exits.some(here)) cave.exits = cave.exits.filter((e) => !here(e));
+  else cave.exits.push(world.toData({ i: at.i + 0.5, j: at.j + 0.5 }));
+}
+
+/** A way out, shown while editing: a little patch of daylight. */
+const EXIT_MARK: Picture = {
+  get: (x, y) => (Math.abs(x - 3) + Math.abs(y - 3) > 3 ? null : Math.abs(x - 3) + Math.abs(y - 3) === 3 ? '#5a6a86' : CAVE_DAY),
+};
 
 /** A placed thing the Move tool holds: the object in the scene (data coordinates) and what it is. */
 type Selected = { kind: 'plant' | 'decor' | 'animal' | 'person' | 'item' | 'spawn'; obj: { i: number; j: number } };
@@ -476,7 +547,7 @@ function canStand(sel: Selected, at: { i: number; j: number }): boolean {
   const j = Math.floor(at.j);
   if (!inside(world.map, i, j)) return false;
   if (sel.kind === 'plant') return grows(world.map, (sel.obj as PlacedPlant).plant, at.i, at.j);
-  if (sel.kind === 'decor') return levelAt(world.floor, i, j) >= DECOR_DEPTH;
+  if (sel.kind === 'decor') return decorFits({ i, j });
   return levelAt(world.map, i, j) >= SEA_LEVEL;
 }
 
@@ -642,11 +713,18 @@ function emote(e: Emote): void {
 const keys = new Set<string>();
 const typing = (e: Event) => e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !!document.querySelector('dialog[open]');
 window.addEventListener('keydown', (e) => {
-  if (typing(e) || e.metaKey || e.ctrlKey) return;
+  if (typing(e)) return;
+  if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && !e.shiftKey && prefs.mode === 'edit') {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if (e.metaKey || e.ctrlKey) return;
   if (prefs.mode === 'play' && e.code === 'KeyE') emote('wave');
   if (prefs.mode === 'play' && e.code === 'KeyF') emote('use');
   if (prefs.mode === 'edit' && selected && selected.kind !== 'spawn' && (e.code === 'Delete' || e.code === 'Backspace')) {
     const gone = selected.obj;
+    remember();
     world.scene.plants = world.scene.plants.filter((p) => p !== gone);
     world.scene.decor = world.scene.decor.filter((d) => d !== gone);
     world.scene.animals = world.scene.animals.filter((a) => a !== gone);
@@ -728,9 +806,11 @@ canvas.addEventListener('pointerdown', (e) => {
       if (selected) {
         const v = world.toView(selected.obj);
         const foot = world.screenOf(v.i, v.j);
+        remember();
         gesture = { kind: 'move', sel: selected, grab: { x: p.x - foot.x, y: p.y - foot.y }, from: { ...selected.obj } };
       } else gesture = { kind: 'pan', x: e.clientX, y: e.clientY, cam: { ...cam } };
     } else if (prefs.mode === 'edit') {
+      remember();
       gesture = { kind: 'stroke', touched: new Set(), last: '', at: 0 };
       strokeAt(e);
     } else {
@@ -851,13 +931,21 @@ function frame(ms: number): void {
   const wind = Math.floor((ms / 1000) * 6) % FRAMES;
   const waves = Math.floor(ms / 100);
   const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
-  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
+  const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}|${prefs.bright}`;
   if (prefs.mode === 'play' || key !== shown) {
-    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms))];
+    const cave = world.scene.cave;
+    const things: Thing[] = [
+      ...world.plantThings(wind), ...world.decorThings(), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms)),
+      ...(cave ? caveThings(world) : []),
+    ];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
       things.push({ spot: { i: s.i, j: s.j, level: Math.max(SEA_LEVEL, levelAt(world.map, Math.floor(s.i), Math.floor(s.j))) }, picture: FLAG, w: 6, h: 13, foot: { x: 0, y: 12 } });
+      for (const e of cave?.exits ?? []) {
+        const v = world.toView(e);
+        things.push({ spot: { i: v.i, j: v.j, level: standingHeight(world.map, v.i, v.j) }, picture: EXIT_MARK, w: 7, h: 7, foot: { x: 3, y: 3 }, shadow: [] });
+      }
     }
     // In Play the key alone does not say whether anyone moved: the picture is the same while every thing shows the same frame in the same place.
     const still = key === shown && things.length === shownThings.length
@@ -874,6 +962,11 @@ function frame(ms: number): void {
     }
     canvas.style.cursor = prefs.mode === 'edit' && prefs.tool === 'move' ? (gesture?.kind === 'move' ? 'grabbing' : 'default') : blocked ? 'not-allowed' : prefs.mode === 'edit' ? 'crosshair' : 'pointer';
     const image = world.compose(view, things, highlight, prefs.mode === 'edit', waves * 100, prefs.mode === 'edit' && prefs.grid);
+    // A cave is as dark as in the game, but where its lights and the character's lantern reach; while editing it can be seen into.
+    if (cave && !(prefs.mode === 'edit' && prefs.bright)) {
+      const lantern = prefs.mode === 'play' && actor ? [{ i: actor.i, j: actor.j, r: 4.2 * flicker(ms), amount: 1 }] : [];
+      lightByTile(image, caveTint(world.scene), 0, world.spots!, world.lightField([...caveLamps(world, ms), ...lantern]));
+    }
     ctx.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
   }
   requestAnimationFrame(frame);
@@ -988,6 +1081,8 @@ function showActions(): void {
 }
 const fpsButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ fps: !prefs.fps }), icon('gauge'));
 const gridButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ grid: !prefs.grid }), icon('grid'));
+const brightButton = tap({ class: 'stage__button', 'aria-pressed': 'false' }, () => set({ bright: !prefs.bright }), icon('sun'));
+const undoButton = tap({ class: 'stage__button' }, undo, icon('undo'));
 const dock = h('nav', { class: 'toolbar' });
 const options = h('section', { class: 'opts' });
 /** Who walks around in Play: picked while editing. */
@@ -1072,7 +1167,7 @@ function castOptions(): Node[] {
 
 /** One line of tool icons, in Edit only: Play's actions float over the scene. */
 function toolbar(): Node[] {
-  return TOOLS.map((tool) => tap({ class: 'toolbar__btn', 'aria-pressed': String(tool === prefs.tool), 'aria-label': t(`tool.${tool}` as Key), title: t(`tool.${tool}` as Key) }, () => set({ tool }), icon(TOOL_ICONS[tool])));
+  return toolsHere().map((tool) => tap({ class: 'toolbar__btn', 'aria-pressed': String(tool === prefs.tool), 'aria-label': t(`tool.${tool}` as Key), title: t(`tool.${tool}` as Key) }, () => set({ tool }), icon(TOOL_ICONS[tool])));
 }
 
 function set(change: Partial<Prefs>): void {
@@ -1091,6 +1186,8 @@ function set(change: Partial<Prefs>): void {
 }
 
 function render(): void {
+  // A tool the scene has no use for (raising the ground of a cave, say) gives way to Move.
+  if (!toolsHere().includes(prefs.tool)) prefs.tool = 'move';
   const other = prefs.mode === 'edit' ? 'play' : 'edit';
   sceneSelect.replaceChildren(...library.scenes.map((s) => h('option', { value: s.id }, s.name)));
   sceneSelect.value = library.current;
@@ -1120,6 +1217,10 @@ function render(): void {
   cast.replaceChildren(...(editing ? castOptions() : []));
   showActions();
   gridButton.setAttribute('aria-pressed', String(prefs.grid));
+  brightButton.setAttribute('aria-pressed', String(prefs.bright));
+  brightButton.hidden = !editing || !sceneNow().cave;
+  undoButton.hidden = !editing;
+  viewport.style.background = sceneNow().cave ? '#000' : ocean.deep;
   fpsButton.setAttribute('aria-pressed', String(prefs.fps));
   fpsLine.hidden = !prefs.fps;
 }
@@ -1132,24 +1233,34 @@ function sceneDialog(kind: 'new' | 'settings'): void {
   const size = (value: number) => h('input', { type: 'number', min: String(MIN_SIZE), max: String(MAX_SIZE), step: '1', required: '', value: String(value) });
   const w = size(kind === 'new' ? 28 : scene.w);
   const hh = size(kind === 'new' ? 28 : scene.h);
-  const island = h('input', { type: 'checkbox' });
-  island.checked = true;
+  const kinds = ['island', 'sea', 'cave'] as const;
+  const startWith = h('select', { class: 'select' }, ...kinds.map((k) => h('option', { value: k }, t(`dialog.kind.${k}`))));
+  // A cave's own settings: how its dark looks and how much rubble lies about.
+  const caveNow = kind === 'settings' ? scene.cave : undefined;
+  const tint = h('input', { type: 'color', value: caveNow?.tint ?? CAVE_DEFAULTS.tint });
+  const slider = (value: number) => h('input', { type: 'range', class: 'slider', min: '0', max: '1', step: '0.05', value: String(value) });
+  const dark = slider(caveNow?.dark ?? CAVE_DEFAULTS.dark);
+  const rubble = slider(caveNow?.rubble ?? CAVE_DEFAULTS.rubble);
   const ok = h('button', { type: 'submit', class: 'button button--primary', value: 'ok' }, t('dialog.ok'));
   const cancel = h('button', { type: 'button', class: 'button' }, t('dialog.cancel'));
   const form = h('form', { method: 'dialog', class: 'dialog__form' },
     h('h2', {}, t(kind === 'new' ? 'dialog.new' : 'dialog.settings')),
     h('label', {}, t('dialog.name'), name),
     h('div', { class: 'dialog__sizes' }, h('label', {}, t('dialog.width'), w), h('label', {}, t('dialog.height'), hh)),
-    kind === 'new' ? h('label', { class: 'dialog__check' }, island, t('dialog.island')) : h('p', { class: 'hint' }, t('dialog.shrink')),
+    kind === 'new' ? h('label', {}, t('dialog.kind'), startWith) : h('p', { class: 'hint' }, t('dialog.shrink')),
+    ...(caveNow ? [h('label', {}, t('dialog.tint'), tint), h('label', {}, t('dialog.dark'), dark), h('label', {}, t('dialog.rubble'), rubble)] : []),
     h('div', { class: 'dialog__actions' }, cancel, ok),
   );
   const dialog = h('dialog', { class: 'dialog' }, form);
   cancel.addEventListener('click', () => dialog.close());
   form.addEventListener('submit', () => {
     const label = name.value.trim().slice(0, 40) || t('scene.first');
-    if (kind === 'new') return switchTo(createScene(label, Number(w.value), Number(hh.value), island.checked));
+    if (kind === 'new') {
+      return switchTo(startWith.value === 'cave' ? createCave(label, Number(w.value), Number(hh.value)) : createScene(label, Number(w.value), Number(hh.value), startWith.value === 'island'));
+    }
     const next = Number(w.value) !== scene.w || Number(hh.value) !== scene.h ? resized(scene, Number(w.value), Number(hh.value)) : scene;
     next.name = label;
+    if (next.cave) Object.assign(next.cave, { tint: tint.value, dark: Number(dark.value), rubble: Number(rubble.value) });
     library.scenes[library.scenes.indexOf(scene)] = next;
     switchTo(next);
   });
@@ -1184,12 +1295,15 @@ function mount(): void {
   document.title = t('title');
   canvas.setAttribute('aria-label', t('view'));
   gridButton.setAttribute('aria-label', t('zoom.grid'));
+  brightButton.setAttribute('aria-label', t('bright'));
+  brightButton.title = t('bright');
+  undoButton.setAttribute('aria-label', t('undo'));
+  undoButton.title = t('undo');
   gridButton.title = t('zoom.grid');
   fpsButton.setAttribute('aria-label', t('zoom.fps'));
   fpsButton.title = t('zoom.fps');
   sceneSelect.setAttribute('aria-label', t('scene'));
   sceneSelect.onchange = () => switchTo(library.scenes.find((s) => s.id === sceneSelect.value)!);
-  viewport.style.background = ocean.deep;
   viewport.replaceChildren(
     canvas,
     options,
@@ -1199,6 +1313,8 @@ function mount(): void {
       tap({ class: 'stage__button', 'aria-label': t('zoom.out'), title: t('zoom.out') }, () => stepZoom(-1), icon('zoomOut')),
       tap({ class: 'stage__button', 'aria-label': t('rotate.left'), title: t('rotate.left') }, () => rotate(-1), icon('turnLeft')),
       tap({ class: 'stage__button', 'aria-label': t('rotate.right'), title: t('rotate.right') }, () => rotate(1), icon('turnRight')),
+      undoButton,
+      brightButton,
       gridButton,
       fpsButton,
       fpsLine,

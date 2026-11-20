@@ -71,7 +71,20 @@ export interface Scene {
   /** Crates and the like, standing on the ground, that can be carried in Play. */
   items: PlacedItem[];
   spawn: { i: number; j: number };
+  /** Set for a cave: all rock but what is carved open, seen into from the front (see cave.ts). */
+  cave?: CaveSettings;
 }
+
+export interface CaveSettings {
+  /** The colour the dark goes toward, and how dark it is away from any light, 0 to 1. */
+  tint: string;
+  dark: number;
+  /** How much rubble lies along the walls' feet, 0 to 1. */
+  rubble: number;
+  /** The ways out, where daylight comes in, in metres from the north corner of the map. */
+  exits: { i: number; j: number }[];
+}
+export const CAVE_DEFAULTS: Omit<CaveSettings, 'exits'> = { tint: '#080e50', dark: 0.9, rubble: 0.45 };
 
 export const MIN_SIZE = 8;
 export const MAX_SIZE = 64;
@@ -89,6 +102,14 @@ export function createScene(name: string, w: number, h: number, island: boolean,
   return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], animals: [], people: [], items: [], spawn: { i: w / 2, j: h / 2 } };
 }
 
+/** A new cave: solid rock all through, to be carved open (cave.ts `carve`). */
+export function createCave(name: string, w: number, h: number): Scene {
+  const scene = createScene(name, w, h, false);
+  scene.levels.fill(MIN_LEVEL);
+  scene.paint.fill(PAINTS.indexOf('cave') + 1);
+  return { ...scene, cave: { ...CAVE_DEFAULTS, exits: [] } };
+}
+
 /** The scene's ground as the terrain code reads it. */
 export const mapOf = (scene: Scene): HeightMap & { paint: Uint8Array } =>
   ({ w: scene.w, h: scene.h, levels: Int8Array.from(scene.levels), paint: Uint8Array.from(scene.paint) });
@@ -98,7 +119,8 @@ export function resized(scene: Scene, w: number, h: number): Scene {
   w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
   h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
   const levels = new Array(w * h).fill(MIN_LEVEL);
-  const paint = new Array(w * h).fill(0);
+  // New ground is sea, or in a cave solid rock.
+  const paint = new Array(w * h).fill(scene.cave ? PAINTS.indexOf('cave') + 1 : 0);
   for (let j = 0; j < Math.min(h, scene.h); j++) for (let i = 0; i < Math.min(w, scene.w); i++) {
     levels[j * w + i] = scene.levels[j * scene.w + i];
     paint[j * w + i] = scene.paint[j * scene.w + i];
@@ -110,6 +132,7 @@ export function resized(scene: Scene, w: number, h: number): Scene {
     animals: scene.animals.filter((a) => a.i < w && a.j < h),
     items: scene.items.filter((it) => it.i < w && it.j < h),
     spawn: { i: Math.min(scene.spawn.i, w - 0.5), j: Math.min(scene.spawn.j, h - 0.5) },
+    ...(scene.cave && { cave: { ...scene.cave, exits: scene.cave.exits.filter((e) => e.i < w && e.j < h) } }),
   };
 }
 
@@ -181,10 +204,19 @@ export function cleanScene(input: unknown): Scene {
     .map((it) => ({ item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2) }));
   const scene: Scene = {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
-    name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : 'Island',
+    name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : s.cave ? 'Cave' : 'Island',
     w, h, levels, paint, plants, decor, animals, people, items,
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
+  const c = s.cave;
+  if (c && typeof c === 'object') {
+    scene.cave = {
+      tint: typeof c.tint === 'string' && /^#[0-9a-f]{6}$/i.test(c.tint) ? c.tint : CAVE_DEFAULTS.tint,
+      dark: num(c.dark, 0, 1, CAVE_DEFAULTS.dark),
+      rubble: num(c.rubble, 0, 1, CAVE_DEFAULTS.rubble),
+      exits: (Array.isArray(c.exits) ? c.exits : []).filter((e) => !!e && typeof e === 'object').map((e) => ({ i: num(e.i, 0, w, w / 2), j: num(e.j, 0, h, h / 2) })),
+    };
+  }
   refreshLinks(scene, sources);
   return scene;
 }

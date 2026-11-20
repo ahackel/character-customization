@@ -562,7 +562,7 @@ export class World {
     const d = image.data;
     for (const item of this.viewDecor()) {
       const kind = decorById(item.decor);
-      if (!kind) continue;
+      if (!kind || kind.stands) continue;
       const level = heightAt(this.floor, item.vi, item.vj);
       const at = footOf(g, { i: item.vi, j: item.vj, level });
       if (at.x < view.x - 8 || at.y < view.y - 8 || at.x > view.x + view.w + 8 || at.y > view.y + view.h + 8) continue;
@@ -643,6 +643,21 @@ export class World {
     return out;
   }
 
+  /** The decorations that stand up (crystals, a torch) as things; the rest lie on the ground. */
+  decorThings(): Thing[] {
+    return this.viewDecor().flatMap((d) => {
+      const kind = decorById(d.decor);
+      if (!kind?.stands) return [];
+      const w = Math.max(...kind.rows.map((r) => r.length)), h = kind.rows.length;
+      const lift = kind.lift ?? 0;
+      // One hung up on a wall casts no shadow on the floor.
+      return [{
+        spot: { i: d.vi, j: d.vj, level: standingHeight(this.map, d.vi, d.vj) }, w, h, foot: { x: Math.floor(w / 2), y: h - 1 + lift },
+        picture: { get: (x: number, y: number) => kind.colors[kind.rows[y]?.[x]] ?? null }, ...(lift && { shadow: [] }),
+      }];
+    });
+  }
+
   itemThings(): Thing[] {
     return this.viewItems().map((it) => ({ spot: { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) }, ...itemPicture(it.item, this.rot) }));
   }
@@ -719,7 +734,8 @@ export class World {
       for (let x = 0; x < w; x++) {
         const gx = x + view.x;
         const o = (y * w + x) * 4;
-        if (this.void && (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w || g.cell[gy * g.w + gx] < 0 || g.depth[gy * g.w + gx] > 0)) {
+        // In a void world, nothing but the open cells: not their slopes down to the cells below the water line either.
+        if (this.void && (gy < 0 || gx < 0 || gy >= g.h || gx >= g.w || g.cell[gy * g.w + gx] < 0 || g.depth[gy * g.w + gx] > 0 || this.map.levels[g.cell[gy * g.w + gx]] < SEA_LEVEL)) {
           d[o] = d[o + 1] = d[o + 2] = 0; d[o + 3] = 255;
           continue;
         }
@@ -738,7 +754,7 @@ export class World {
         else if (depth > 0) {
           const mark = markAt(gx, gy, depth, ms);
           if (mark) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * mark;
-        } else if (shore[p] <= WASH_RUN) {
+        } else if (shore[p] <= WASH_RUN && !this.void) { // no sea washes a cave's floor
           const { sheet, wet } = washAt(shore[p], gx, gy, ms);
           if (wet) for (let k = 0; k < 3; k++) d[o + k] += (WET_RGB[k] - d[o + k]) * wet * WET_DEPTH;
           if (sheet) for (let k = 0; k < 3; k++) d[o + k] += (FOAM[k] - d[o + k]) * sheet;
@@ -803,7 +819,17 @@ export class World {
     for (const t of paintOrder(placed)) {
       stamp(image, t.picture, t.w, t.h, t.dx, t.dy, (x, y) => {
         const hidden = hiddenByGround(this.map, g, x + view.x, y + view.y, t.spot.i, t.spot.j, Math.max(SEA_LEVEL, t.bases ? t.bases[(y - t.dy) * t.w + x - t.dx] : t.spot.level));
-        if (!hidden && spots) spots.i[y * w + x] = t.spot.i, spots.j[y * w + x] = t.spot.j;
+        if (!hidden && spots) {
+          const b = t.box;
+          if (b) {
+            // A wall is long: each column of it is lit by the light at its own place along the wall, not all by its middle's.
+            const a = (x + view.x + 0.5 - g.origin.x) / (TILE_W / 2);
+            const along = b.x1 - b.x0 >= b.y1 - b.y0;
+            const jc = (b.y0 + b.y1) / 2, ic = (b.x0 + b.x1) / 2;
+            spots.i[y * w + x] = along ? Math.max(b.x0, Math.min(b.x1, a + jc)) : ic;
+            spots.j[y * w + x] = along ? jc : Math.max(b.y0, Math.min(b.y1, ic - a));
+          } else spots.i[y * w + x] = t.spot.i, spots.j[y * w + x] = t.spot.j;
+        }
         return hidden;
       });
     }

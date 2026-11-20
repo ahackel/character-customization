@@ -17,7 +17,7 @@ const BASES = {
   hairGrey: '#a9a9b6',
   white: '#f4f0e4',
   // Bare bone: a skeleton's skin.
-  bone: '#e6dfc9',
+  bone: '#d8ceae',
   cream: '#e9dcb6',
   red: '#d4463f',
   orange: '#e98b3a',

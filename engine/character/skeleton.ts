@@ -5,46 +5,55 @@ import { parseStamp, TORSO_FRAME, type Item, type Stamp } from '../core/puppet.t
 
 export const BONE: PaletteKey = 'bone';
 
-/** A face with the features turned into a skull's: hollow eyes and a row of teeth. */
+const INK: Cell = { key: 'ink', shade: false };
+const TOOTH: Cell = { key: 'tooth', shade: false };
+const SHADE: Cell = { key: BONE, shade: true };
+
+/**
+ * The skull's one face, whatever the mood: big hollow eyes, a nose hole, and a grin of teeth
+ * with the jaw a little open under them. Placed by where the neutral face has its eyes,
+ * nose and mouth, so it fits each view. Every name gets the same face; the view from behind has none.
+ */
 export function skullFaces(faces: Record<string, Stamp>): Record<string, Stamp> {
-  // The view from behind has no face.
-  if (!faces.neutral) return {};
-  const out: Record<string, Stamp> = {};
-  for (const [name, stamp] of Object.entries(faces)) {
-    const face: Stamp = stamp.map((row, y) => row.map((cell, x): Cell | null => {
-      if (!cell) return null;
-      if (cell.key === 'ink' || cell.key === 'tooth') return { key: 'ink', shade: false };
-      if (cell.key === 'mouth') return { key: (x + y) % 2 ? 'tooth' : 'ink', shade: false };
-      return null;
-    }));
-    // Two eyes seen face on get a pixel wider, towards the outside: big round sockets.
-    const eyes = face.flatMap((row, y) => row.flatMap((c, x) => (c?.key === 'ink' ? [[x, y] as const] : [])));
-    const top = Math.min(...eyes.map(([, y]) => y));
-    const socket = eyes.filter(([, y]) => y <= top + 2);
-    const xs = socket.map(([x]) => x);
-    if (socket.length && Math.max(...xs) - Math.min(...xs) > 4) {
-      const mid = (Math.max(...xs) + Math.min(...xs)) / 2;
-      for (const [x, y] of socket) face[y][x < mid ? x - 1 : x + 1] ??= { key: 'ink', shade: false } as Cell;
-    }
-    out[name] = face;
+  const from = faces.neutral;
+  if (!from) return {};
+  const cells = (match: (c: Cell) => boolean) => from.flatMap((row, y) => row.flatMap((c, x) => (c && match(c) ? [[x, y] as const] : [])));
+  const face: Stamp = from.map((row) => row.map(() => null));
+  const put = (x: number, y: number, cell: Cell) => { (face[y] ??= [])[x] = cell; };
+  // Eyes: the ink of the top rows, two face on, one side on. Face on they are a pixel wider, outwards.
+  const ink = cells((c) => c.key === 'ink' || c.key === 'tooth');
+  const top = Math.min(...ink.map(([, y]) => y));
+  const sockets = ink.filter(([, y]) => y <= top + 2);
+  const xs = sockets.map(([x]) => x);
+  const two = Math.max(...xs) - Math.min(...xs) > 4;
+  const mid = (Math.max(...xs) + Math.min(...xs)) / 2;
+  for (const [x, y] of sockets) {
+    put(x, y, INK);
+    if (two) put(x < mid ? x - 1 : x + 1, y, INK);
   }
-  // A skull never changes its look: every face is the neutral one, with the same grin.
-  const grin = out.neutral.map((row) => [...row]);
-  const mouth = faces.neutral.flatMap((row, y) => row.flatMap((c, x) => (c?.key === 'mouth' ? [[x, y] as const] : [])));
+  // A little shade under the outer end of each socket, for the cheekbones.
+  const bottom = top + 3;
+  for (const x of two ? [Math.min(...xs) - 1, Math.max(...xs) + 1] : []) put(x, bottom, SHADE);
+  // The nose hole: the lowest row of the nose, between the eyes face on.
+  const nose = cells((c) => !!c.flush).filter(([x]) => !two || (x >= Math.min(...xs) && x <= Math.max(...xs)));
+  if (nose.length) {
+    const row = Math.max(...nose.map(([, y]) => y));
+    for (const [x, y] of nose) if (y === row) put(x, y, INK);
+  }
+  // The grin: a row of teeth, and the dark gap of the open jaw under it.
+  const mouth = cells((c) => c.key === 'mouth');
   if (mouth.length) {
-    const xs = mouth.map(([x]) => x);
-    const y = mouth[0][1];
-    const x0 = Math.min(...xs) - 1;
-    const w = Math.max(...xs) - x0 + 2;
-    for (const [dy, odd] of [[0, 1], [1, 1]] as const) {
-      grin[y + dy] ??= [];
-      for (let p = 0; p < w; p++) {
-        const edge = p === 0 || p === w - 1;
-        grin[y + dy][x0 + p] = { key: edge || p % 2 === odd ? 'ink' : 'tooth', shade: false } as Cell;
-      }
+    const mx = mouth.map(([x]) => x);
+    // A row lower than a face puts it, so the nose hole has skin between it and the teeth.
+    const y = mouth[0][1] + 1;
+    const x0 = Math.min(...mx);
+    const w = Math.max(...mx) - x0 + 1;
+    for (let p = 0; p < w; p++) {
+      put(x0 + p, y, p % 2 ? INK : TOOTH);
+      put(x0 + p, y + 1, INK);
     }
   }
-  return Object.fromEntries(Object.keys(out).map((name) => [name, grin]));
+  return Object.fromEntries(Object.keys(faces).map((name) => [name, face]));
 }
 
 /** A head stamp with the blush taken out of the ears and nose. */
@@ -60,7 +69,7 @@ export const RIBS: Item = {
   slot: 'top',
   open: true,
   torso: {
-    front: body(2, ['WWWWWWWWW', '.W..W..W.', '.WWWWWWW.', '.W..W..W.', '.WWWWWWW.', '..W.W.W..', '...WWW...', '....W....']),
+    front: body(2, ['WWWWWWWWw', '.W..W..w.', '.WWWWWWw.', '.W..w..w.', '.WWWwwWw.', '..w.w.w..', '...www...', '....w....']),
     back: body(2, ['wWWWWWWWw', '.W..W..W.', '.WWWWWWW.', '.W..W..W.', '.WWWWWWW.', '..W.W.W..', '...WWW...', '....W....']),
   },
 };
@@ -70,7 +79,7 @@ export const PELVIS: Item = {
   slot: 'bottom',
   open: true,
   torso: {
-    front: body(10, ['.WWWWWWW.', 'WWW.W.WWW', '.WW...WW.']),
+    front: body(10, ['.WWWWWWw.', 'WWW.W.WWw', '.WW...ww.']),
     back: body(10, ['.wWWWWWw.', 'WWWWWWWWW', '.WW...WW.']),
   },
 };

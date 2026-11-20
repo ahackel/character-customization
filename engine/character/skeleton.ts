@@ -52,7 +52,7 @@ export const boneHead = (stamp: Stamp): Stamp => stamp.map((row) => row.map((c) 
 
 // Body rows are written 9 wide and placed in the torso frame as underwear is: chest from row 2, pelvis from row 10.
 const body = (above: number, rows: string[]) =>
-  parseStamp([...Array(above).fill('.'.repeat(TORSO_FRAME.w)), ...rows.map((row) => '...' + row + '...')], { W: BONE });
+  parseStamp([...Array(above).fill('.'.repeat(TORSO_FRAME.w)), ...rows.map((row) => '......' + row + '......')], { W: BONE });
 
 /** Ribs: bars with nothing between them, round a spine. `open` leaves the body block out, so the gaps are see-through. */
 export const RIBS: Item = {

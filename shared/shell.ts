@@ -97,6 +97,16 @@ export const ICONS = {
   hammer: 'M15 12l-8.4 8.4a2.1 2.1 0 1 1-3-3L12 9 M17.6 15L22 10.6 M20.5 12.1l-1.6-1.6a2 2 0 0 1-.6-1.4V7.5l-2.6-2.6a6 6 0 0 0-4.2-1.8H9l.9.9a6 6 0 0 1 1.8 4.2V10l2 2h1.6a2 2 0 0 1 1.4.6l1.6 1.6',
   pointer: 'M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z',
   hand: 'M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2 M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2 M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8 M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15',
+  // The pixel editor and the tools built on it.
+  bucket: 'M19 11l-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11z M5 2l5 5 M2 13h15 M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4z',
+  pipette: 'M2 22l1-1h3l9-9 M3 21v-3l9-9 M15 6l3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4z',
+  line: 'M5 19L19 5 M3 21h4v-4H3z M17 7h4V3h-4z',
+  mirror: 'M12 3v18 M8 7L3 12l5 5z M16 7l5 5-5 5z',
+  flip: 'M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3 M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3 M12 20v2 M12 14v2 M12 8v2 M12 2v2',
+  layers: 'M12 2l10 5-10 5L2 7z M2 17l10 5 10-5 M2 12l10 5 10-5',
+  search: 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z M21 21l-4.3-4.3',
+  wall: 'M3 4h18v16H3z M3 9h18 M3 14h18 M9 4v5 M15 9v5 M9 14v6',
+  props: 'M3 21h18 M6 21V10l3-3 3 3v11 M14 21v-6h6v6 M9 7V4',
   // Moods, as faces.
   'mood.neutral': FACE + EYES + ' M8 15h8',
   'mood.smile': FACE + EYES + ' M8 14s1.5 2 4 2 4-2 4-2',
@@ -152,13 +162,13 @@ export function flag(lang: Lang): SVGSVGElement {
 
 const WORDS = {
   en: {
-    tools: 'Tools', home: 'Home', wardrobe: 'Wardrobe', animals: 'Animals', objects: 'Objects', flora: 'Flora', scene: 'Scene',
+    tools: 'Tools', home: 'Home', wardrobe: 'Wardrobe', animals: 'Animals', objects: 'Objects', flora: 'Flora', scene: 'Scene', props: 'Props', walls: 'Walls', parts: 'Parts',
     animate: 'Animate', about: 'About this tool', more: 'More', undo: 'Undo', redo: 'Redo', shuffle: 'Shuffle all', language: 'Language', preview: 'Preview',
     name: 'Name', rollName: 'Roll a name', picture: 'Save a picture', rollTab: 'Shuffle this tab', lock: 'Keep this tab when shuffling all',
     pickStart: 'Pick a start', pickStartHint: 'You can change everything after.', close: 'Close', rollThree: 'Roll three new ones',
   },
   de: {
-    tools: 'Werkzeuge', home: 'Start', wardrobe: 'Garderobe', animals: 'Tiere', objects: 'Objekte', flora: 'Flora', scene: 'Szene',
+    tools: 'Werkzeuge', home: 'Start', wardrobe: 'Garderobe', animals: 'Tiere', objects: 'Objekte', flora: 'Flora', scene: 'Szene', props: 'Requisiten', walls: 'Wände', parts: 'Teile',
     animate: 'Bewegen', about: 'Über dieses Werkzeug', more: 'Mehr', undo: 'Rückgängig', redo: 'Wiederholen', shuffle: 'Alles würfeln', language: 'Sprache', preview: 'Vorschau',
     name: 'Name', rollName: 'Namen würfeln', picture: 'Bild speichern', rollTab: 'Diesen Reiter würfeln', lock: 'Beim Würfeln behalten',
     pickStart: 'Wähle einen Anfang', pickStartHint: 'Danach kannst du alles ändern.', close: 'Schließen', rollThree: 'Drei neue würfeln',
@@ -166,13 +176,16 @@ const WORDS = {
 } satisfies Record<Lang, Record<string, string>>;
 export const word = (key: keyof typeof WORDS.en): string => WORDS[currentLang()][key];
 
-export type ToolId = 'home' | 'wardrobe' | 'animals' | 'objects' | 'flora' | 'scene';
+export type ToolId = 'home' | 'wardrobe' | 'parts' | 'animals' | 'props' | 'objects' | 'flora' | 'walls' | 'scene';
 const TOOLS: { id: ToolId; href: string; icon: IconName }[] = [
   { id: 'home', href: '../../', icon: 'home' },
   { id: 'wardrobe', href: '../wardrobe/', icon: 'shirt' },
+  { id: 'parts', href: '../parts/', icon: 'scissors' },
   { id: 'animals', href: '../animals/', icon: 'paw' },
+  { id: 'props', href: '../props/', icon: 'props' },
   { id: 'objects', href: '../objects/', icon: 'armchair' },
   { id: 'flora', href: '../flora/', icon: 'sprout' },
+  { id: 'walls', href: '../walls/', icon: 'wall' },
   { id: 'scene', href: '../scene/', icon: 'mountain' },
 ];
 

@@ -12,7 +12,8 @@ import { PRESETS } from '../animals/animal-presets.ts';
 import { cleanState, defaultState, loadRoster, type State } from '../character/character.ts';
 import { decorById, type PlacedDecor } from './decor.ts';
 import { OWN, propOf, type PlacedItem } from './props.ts';
-import { cleanProp, type Prop } from '../objects/object.ts';
+import { cleanBuild, type Build } from '../objects/object.ts';
+import { carriedFor, cleanPlacedProp, useCarried, type Carried, type PlacedProp } from './prop.ts';
 import { createHeightMap, generateIsland, MAX_LEVEL, MIN_LEVEL, PAINTS, type HeightMap } from './terrain.ts';
 
 export interface PlacedPlant {
@@ -75,7 +76,11 @@ export interface Scene {
   /** Objects standing on the ground: crates (carried in Play), chests, and any other object. */
   items: PlacedItem[];
   /** The scene's own objects, made in the object editor, by `OWN` id: kept here so the scene stands on its own. */
-  props?: Record<string, Prop>;
+  objects?: Record<string, Build>;
+  /** Anything else standing on the ground, from the props library (engine/world/prop.ts). Missing in older scenes. */
+  props?: PlacedProp[];
+  /** The painted props and locked pixels it uses, so it draws the same in a game or on another device (see prop.ts). */
+  carried?: Carried;
   spawn: { i: number; j: number };
   /** Set for a cave: all rock but what is carved open, seen into from the front (see cave.ts). */
   cave?: CaveSettings;
@@ -114,7 +119,7 @@ export function createScene(name: string, w: number, h: number, island: boolean,
   w = clamp(Math.round(w), MIN_SIZE, MAX_SIZE);
   h = clamp(Math.round(h), MIN_SIZE, MAX_SIZE);
   const map = island ? generateIsland(seed, w, h) : createHeightMap(w, h, -1);
-  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], animals: [], people: [], items: [], spawn: { i: w / 2, j: h / 2 } };
+  return { id: newId(), name, w, h, levels: Array.from(map.levels), paint: new Array(w * h).fill(0), plants: [], decor: [], animals: [], people: [], items: [], props: [], spawn: { i: w / 2, j: h / 2 } };
 }
 
 /** A new cave: solid rock all through, to be carved open (cave.ts `carve`). */
@@ -146,6 +151,7 @@ export function resized(scene: Scene, w: number, h: number): Scene {
     decor: scene.decor.filter((d) => d.i < w && d.j < h),
     animals: scene.animals.filter((a) => a.i < w && a.j < h),
     items: scene.items.filter((it) => it.i < w && it.j < h),
+    props: (scene.props ?? []).filter((p) => p.i < w && p.j < h),
     spawn: { i: Math.min(scene.spawn.i, w - 0.5), j: Math.min(scene.spawn.j, h - 0.5) },
     ...(scene.cave && { cave: { ...scene.cave, exits: scene.cave.exits.filter((e) => e.i < w && e.j < h) } }),
   };
@@ -215,20 +221,23 @@ export function cleanScene(input: unknown): Scene {
         ...(cleanPose(p.pose) && { pose: cleanPose(p.pose) }),
       };
     });
-  const props: Record<string, Prop> = {};
-  if (s.props && typeof s.props === 'object') for (const [id, prop] of Object.entries(s.props)) if (id.startsWith(OWN)) props[id] = cleanProp(prop);
+  const objects: Record<string, Build> = {};
+  if (s.objects && typeof s.objects === 'object') for (const [id, o] of Object.entries(s.objects)) if (id.startsWith(OWN)) objects[id] = cleanBuild(o);
   const items = (Array.isArray(s.items) ? s.items : [])
-    .filter((it): it is PlacedItem => !!it && typeof it === 'object' && typeof it.item === 'string' && !!propOf(it.item, props))
+    .filter((it): it is PlacedItem => !!it && typeof it === 'object' && typeof it.item === 'string' && !!propOf(it.item, objects))
     .map((it) => ({
       item: it.item, i: num(it.i, 0, w, w / 2), j: num(it.j, 0, h, h / 2),
       ...(it.turn && { turn: Math.round(num(it.turn, 0, 3, 0)) }),
       ...(Array.isArray(it.loot) && it.loot.length && { loot: it.loot.filter((l: unknown) => typeof l === 'string').slice(0, 20) }),
     }));
+  // What the scene brought along first, so its props are known when they are checked.
+  useCarried(s.carried);
+  const props = (Array.isArray(s.props) ? s.props : []).map((p) => cleanPlacedProp(p, w, h)).filter((p): p is PlacedProp => !!p);
   const scene: Scene = {
     id: typeof s.id === 'string' && s.id ? s.id : newId(),
     name: typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 40) : s.cave ? 'Cave' : 'Island',
-    w, h, levels, paint, plants, decor, animals, people, items,
-    ...(Object.keys(props).length && { props }),
+    w, h, levels, paint, plants, decor, animals, people, items, props,
+    ...(Object.keys(objects).length && { objects }),
     spawn: { i: num(s.spawn?.i, 0, w, w / 2), j: num(s.spawn?.j, 0, h, h / 2) },
   };
   const c = s.cave;
@@ -317,10 +326,19 @@ export function loadLibrary(firstName: string): Library {
   return { current, scenes };
 }
 
+/** The ids of every prop kind a scene draws: its plants, items and props. */
+const kindsUsed = (scene: Scene) => [...scene.plants.map((p) => p.plant), ...scene.items.filter((it) => !it.item.startsWith(OWN)).map((it) => `object:${it.item}`), ...(scene.props ?? []).map((p) => p.kind)];
+/** A scene with what it carries brought up to date, for saving and export. */
+export const withCarried = (scene: Scene): Scene => {
+  const carried = carriedFor(kindsUsed(scene));
+  const { carried: _, ...rest } = scene;
+  return carried ? { ...rest, carried } : rest;
+};
+
 /** False when the browser refuses, so the page can warn that changes are not kept. */
 export function saveLibrary(library: Library): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...library, scenes: library.scenes.map(withCarried) }));
     return true;
   } catch {
     return false;
@@ -328,7 +346,7 @@ export function saveLibrary(library: Library): boolean {
 }
 
 const FILE_TYPE = 'pixel-scene';
-export const sceneFile = (scene: Scene) => JSON.stringify({ type: FILE_TYPE, version: 1, scene });
+export const sceneFile = (scene: Scene) => JSON.stringify({ type: FILE_TYPE, version: 1, scene: withCarried(scene) });
 
 export function readSceneFile(text: string): Scene {
   const data = JSON.parse(text);

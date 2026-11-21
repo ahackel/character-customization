@@ -2,6 +2,7 @@ import { BEARD_STYLES, beardFromBehind, catalogHairViews, stubbled, tidyBeard } 
 import { compile } from './items.ts';
 import shellFile from './data/shell-hair.json' with { type: 'json' };
 import { JOB_ITEMS } from './jobs.ts';
+import { editedItem } from './parts.ts';
 import { ANIMAL_KEYS, FIRE_KEYS, FIXED_KEYS, PALETTE, PLANT_KEYS, SKIN_KEYS, type Cell, type PaletteKey } from '../core/palette.ts';
 import type { Item, Slot, Stamp, StampPair } from '../core/puppet.ts';
 
@@ -17,6 +18,8 @@ export interface Entry {
   item: Item;
   /** The item's own colours, most used first. These are the ones a player may swap. */
   colors: PaletteKey[];
+  /** The item as the rules made it, when it was polished by hand in the parts editor. */
+  original?: Item;
 }
 
 const files = import.meta.glob<unknown[]>('./data/{sprite,recipe}-*.json', { eager: true, import: 'default' });
@@ -143,6 +146,11 @@ function build(): Entry[] {
   // Beards drawn by hand, for the everyday shapes the model did not make.
   for (const style of BEARD_STYLES) {
     entries.push({ id: `base-beard-${style.id}`, label: style.label, slot: 'beard', format: 'paint', island: false, item: style.item, colors: colorsOf(style.item) });
+  }
+  // Parts polished by hand in the parts editor, on this device, laid over what the rules made.
+  for (const entry of entries) {
+    const item = editedItem(entry.id, entry.item);
+    if (item !== entry.item) Object.assign(entry, { item, original: entry.item, colors: colorsOf(item) });
   }
   return entries;
 }

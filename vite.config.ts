@@ -46,8 +46,8 @@ function faceShapes(): Plugin {
 }
 
 // Relative base so the built site works from any path (static hosting, file previews).
-// `vite build` builds the published site (andreashackel.de/pixel-art/): the start page and the five
-// tools in `tools/`: wardrobe, animal editor, object editor, flora tool and scene editor.
+// `vite build` builds the published site (andreashackel.de/pixel-art/): the start page and the tools
+// in `tools/`: wardrobe, parts editor, animal editor, props tool, object editor, flora tool, wall editor and scene editor.
 export default defineConfig({
   base: './',
   plugins: [faceShapes()],
@@ -62,6 +62,9 @@ export default defineConfig({
         objects: 'tools/objects/index.html',
         flora: 'tools/flora/index.html',
         scene: 'tools/scene/index.html',
+        props: 'tools/props/index.html',
+        walls: 'tools/walls/index.html',
+        parts: 'tools/parts/index.html',
       },
     },
   },

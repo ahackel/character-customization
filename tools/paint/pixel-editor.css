@@ -3,7 +3,7 @@
 .px__tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .px__tools .ib[aria-pressed='true'] { background: var(--accent); color: var(--bg, #fff); }
 .px__sep { width: 1px; height: 24px; background: var(--line, #0002); margin: 0 4px; }
-.px__wrap { overflow: auto; max-height: 62vh; border-radius: 8px; border: 2px solid var(--fg); background: #f3efe7; display: flex; }
+.px__wrap { overflow: auto; max-height: 62vh; border-radius: 8px; border: 2px solid var(--fg); background: #d6dbe2; display: flex; }
 .px__canvas { display: block; margin: auto; touch-action: none; cursor: crosshair; image-rendering: pixelated; }
 .px__canvas:focus-visible { outline: 3px solid var(--accent); }
 .px__info { font-size: 12px; min-height: 16px; opacity: 0.7; font-variant-numeric: tabular-nums; }

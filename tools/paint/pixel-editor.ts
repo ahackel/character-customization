@@ -92,7 +92,7 @@ export function pixelEditor(o: PixelEditorOptions): { el: HTMLElement; redraw():
     ctx.imageSmoothingEnabled = false;
     // A checkerboard shows what is empty.
     for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) {
-      ctx.fillStyle = (x + y) % 2 ? '#e7e2d8' : '#f3efe7';
+      ctx.fillStyle = (x + y) % 2 ? '#c4cad3' : '#d6dbe2';
       ctx.fillRect(x * s, y * s, s, s);
     }
     const under = showOnion ? o.onion?.(o.view) : null;

@@ -1,4 +1,5 @@
-import { tryPlant, type Category, type Plant } from './flora.ts';
+import { recolorPlant, tryPlant, type Category, type Plant } from './flora.ts';
+import { readStore } from '../../shared/files.ts';
 import { PALETTE, type PaletteKey } from '../core/palette.ts';
 
 /** One plant as the model wrote it, compiled. */
@@ -51,3 +52,28 @@ export const FLORA_STORE = 'island-flora';
 /** A colour swap from storage: which of a plant's own colours is replaced by which. Anything that is not a palette colour is left out. */
 export const cleanSwap = (swap: unknown): Partial<Record<PaletteKey, PaletteKey>> =>
   Object.fromEntries(Object.entries(swap ?? {}).filter(([from, to]) => from in PALETTE && to && (to as string) in PALETTE));
+
+/**
+ * Plants as the flora tool shows them: a recipe edited there, and colours swapped there, are kept
+ * in that tool's storage and used here too. Read once per page load.
+ */
+const floraEdits = readStore<{ custom?: Record<string, unknown>; colors?: Record<string, unknown> } | null>(FLORA_STORE, null);
+const plantCache = new Map<string, Plant>();
+export function plantOf(entry: PlantEntry): Plant {
+  let plant = plantCache.get(entry.id);
+  if (plant) return plant;
+  plant = entry.plant;
+  const text = floraEdits?.custom?.[entry.id];
+  if (typeof text === 'string') {
+    try {
+      const parsed = tryPlant(JSON.parse(text));
+      if (parsed.ok) plant = parsed.compiled.plant;
+    } catch {
+      // A broken edit in the flora tool falls back to the original recipe, as it does there.
+    }
+  }
+  plant = recolorPlant(plant, cleanSwap(floraEdits?.colors?.[entry.id]));
+  plantCache.set(entry.id, plant);
+  return plant;
+}
+

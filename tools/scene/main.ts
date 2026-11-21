@@ -13,6 +13,8 @@ import {
 } from '../../engine/world/scene.ts';
 import { grows, rasterOf, smooth, World, type Rect, type Thing } from '../../engine/world/world.ts';
 import { DECOR, decorById, decorPixels } from '../../engine/world/decor.ts';
+import { isHidden, propKind, propKinds, propPicture, variantsOf } from '../../engine/world/prop.ts';
+import { pictureCache, trimmed } from '../../shared/pixels.ts';
 import { CLIPS, drawAnimal, isShadow, savedAnimals, type Animal } from '../../engine/animals/animal.ts';
 import { drawCharacter, FACING_RING, SPRITE_H, SPRITE_W, turnFacing, type Facing } from '../../engine/core/puppet.ts';
 import { STAND } from '../../engine/core/poses.ts';
@@ -29,13 +31,13 @@ import { t, type Key } from './i18n.ts';
 
 // ------------------------------------------------------------------ settings
 
-const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'plant', 'decor', 'animal', 'person', 'item', 'erase', 'spawn'] as const;
+const TOOLS = ['move', 'raise', 'lower', 'smooth', 'level', 'paint', 'prop', 'plant', 'decor', 'animal', 'person', 'item', 'erase', 'spawn'] as const;
 type Tool = (typeof TOOLS)[number];
 const BRUSHED: Tool[] = ['raise', 'lower', 'smooth', 'level', 'paint', 'erase'];
 const ZOOM = { min: 1, max: 8 };
 const BRUSH_MAX = 7;
 const TOOL_ICONS: Record<Tool, IconName> = {
-  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', plant: 'palm', decor: 'shell', animal: 'paw', person: 'person', item: 'box', erase: 'eraser', spawn: 'flag',
+  move: 'pointer', raise: 'raise', lower: 'lower', smooth: 'smooth', level: 'level', paint: 'brush', prop: 'props', plant: 'palm', decor: 'shell', animal: 'paw', person: 'person', item: 'box', erase: 'eraser', spawn: 'flag',
 };
 
 interface Prefs {
@@ -46,6 +48,9 @@ interface Prefs {
   /** Brush size in tiles across, 1 to 7; the brush is round. */
   brush: number;
   plant: string;
+  /** A prop kind id: what the Props tool sets down, and what its search box holds. */
+  prop: string;
+  propQuery: string;
   /** A `DECOR` id: what the Decor tool lays down. */
   decor: string;
   /** What the Animal tool sets down: a saved animal's id, or `preset:` and a preset id. */
@@ -63,7 +68,7 @@ interface Prefs {
 }
 const PREFS_KEY = 'pixel-scenes-ui';
 function loadPrefs(): Prefs {
-  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false };
+  const prefs: Prefs = { mode: 'edit', tool: 'raise', paint: 2, brush: 1, plant: FLORA.find((e) => e.category === 'palm')?.id ?? FLORA[0].id, prop: propKinds()[0]?.id ?? '', propQuery: '', decor: DECOR[0].id, animal: `preset:${PRESETS[0].id}`, character: '', person: '', rot: 0, grid: false, fps: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
     if (saved?.mode === 'edit' || saved?.mode === 'play') prefs.mode = saved.mode;
@@ -72,6 +77,8 @@ function loadPrefs(): Prefs {
     if (Number.isInteger(saved?.brush) && saved.brush >= 1 && saved.brush <= BRUSH_MAX) prefs.brush = saved.brush;
     if (plantById(saved?.plant)) prefs.plant = saved.plant;
     if (decorById(saved?.decor)) prefs.decor = saved.decor;
+    if (propKind(saved?.prop)) prefs.prop = saved.prop;
+    if (typeof saved?.propQuery === 'string') prefs.propQuery = saved.propQuery.slice(0, 60);
     if (typeof saved?.animal === 'string') prefs.animal = saved.animal;
     if (typeof saved?.character === 'string') prefs.character = saved.character;
     if (typeof saved?.person === 'string') prefs.person = saved.person;
@@ -240,6 +247,12 @@ function cannotEdit(at: { i: number; j: number }): boolean {
       return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
     case 'item':
       return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
+    case 'prop': {
+      const kind = propKind(prefs.prop);
+      if (kind?.place === 'plant') return !grows(world.map, kind.id, at.i + 0.5, at.j + 0.5);
+      if (kind?.place === 'decor') return levelAt(world.floor, at.i, at.j) < DECOR_DEPTH;
+      return levelAt(world.map, at.i, at.j) < SEA_LEVEL;
+    }
     case 'raise':
       return brushCells(at).every((c) => world.map.levels[c] >= MAX_LEVEL);
     case 'lower':
@@ -376,6 +389,41 @@ function placeItem(at: { i: number; j: number }): void {
   world.scene.items.push({ item: ITEMS[0].id, ...world.toData({ i: at.i + 0.5, j: at.j + 0.5 }) });
 }
 
+/** The way the last prop set down was turned, in eighths: the next one is turned the same way. */
+let propTurn = 0;
+/**
+ * Sets down the prop picked in the library. Plants, decorations and the crate go into their own
+ * lists, as their own tools put them; everything else is a placed prop in the middle of the tile.
+ */
+function placeProp(at: { i: number; j: number }, placed: Set<PlacedPlant>): void {
+  const kind = propKind(prefs.prop);
+  if (!kind) return;
+  if (kind.place === 'plant') {
+    const was = prefs.plant;
+    prefs.plant = kind.id;
+    placePlant(at, placed);
+    prefs.plant = was;
+    return;
+  }
+  if (kind.place === 'decor') {
+    const was = prefs.decor;
+    prefs.decor = kind.id.replace(/^decor:/, '');
+    placeDecor(at);
+    prefs.decor = was;
+    return;
+  }
+  if (kind.place === 'item') return placeItem(at);
+  if (levelAt(world.map, at.i, at.j) < SEA_LEVEL) return;
+  const seen = world.viewProps();
+  const list = world.scene.props ?? [];
+  world.scene.props = list.filter((_, k) => Math.floor(seen[k].vi) !== at.i || Math.floor(seen[k].vj) !== at.j);
+  // Small painted things land anywhere in the tile; built ones in its middle, where their footprint fits.
+  const jitter = kind.build ? 0 : 0.5;
+  const i = at.i + 0.5 + (Math.random() - 0.5) * jitter, j = at.j + 0.5 + (Math.random() - 0.5) * jitter;
+  // Turned as seen: the view's quarter turns are taken off, so it faces the same way on screen.
+  world.scene.props.push({ kind: kind.id, ...world.toData({ i, j }), turn: (((propTurn - world.rot * 2) % 8) + 8) % 8, seed: Math.floor(Math.random() * variantsOf(kind)), size: 1 });
+}
+
 /**
  * Applies the tool once to a tile. `stroke.touched` keeps a drag from raising, lowering or
  * painting a tile twice; smoothing works again on every tile the drag enters, and levelling
@@ -420,6 +468,9 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
     case 'item':
       if (fresh.length) placeItem(at);
       break;
+    case 'prop':
+      if (fresh.length) placeProp(at, (stroke.placed ??= new Set()));
+      break;
     case 'erase': {
       const cells = new Set(brushCells(at));
       const kept = <T>(list: T[], seen: { vi: number; vj: number }[]) => list.filter((_, k) => !cells.has(Math.floor(seen[k].vj) * map.w + Math.floor(seen[k].vi)));
@@ -428,6 +479,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
       world.scene.animals = kept(world.scene.animals, world.viewAnimals());
       world.scene.people = kept(world.scene.people, world.scene.people.map((p) => { const v = world.toView(p); return { vi: v.i, vj: v.j }; }));
       world.scene.items = kept(world.scene.items, world.viewItems());
+      world.scene.props = kept(world.scene.props ?? [], world.viewProps());
       break;
     }
     case 'spawn':
@@ -438,7 +490,7 @@ function apply(at: { i: number; j: number }, stroke: { touched: Set<number>; lev
 }
 
 /** A placed thing the Move tool holds: the object in the scene (data coordinates) and what it is. */
-type Selected = { kind: 'plant' | 'decor' | 'animal' | 'person' | 'item' | 'spawn'; obj: { i: number; j: number } };
+type Selected = { kind: 'plant' | 'decor' | 'animal' | 'person' | 'item' | 'prop' | 'spawn'; obj: { i: number; j: number } };
 let selected: Selected | null = null;
 
 /** The placed thing under a ground-image pixel, the front-most; decorations lie flat, so they come last. */
@@ -455,6 +507,7 @@ function objectAt(x: number, y: number): Selected | null {
       return [{ kind: 'person', obj: p }, thing.spot, covers(thing, x, y)];
     }),
     ...world.itemThings().map((thing, k): [Selected, { i: number; j: number }, boolean] => [{ kind: 'item', obj: world.scene.items[k] }, thing.spot, covers(thing, x, y)]),
+    ...world.propThings(0).map((thing, k): [Selected, { i: number; j: number }, boolean] => [{ kind: 'prop', obj: world.scene.props![k] }, thing.spot, covers(thing, x, y)]),
     [{ kind: 'spawn', obj: world.scene.spawn }, s, x >= flag.x - 1 && x <= flag.x + 6 && y >= flag.y - 13 && y <= flag.y + 1],
   ];
   const plant = world.plantAt(x, y);
@@ -652,7 +705,15 @@ window.addEventListener('keydown', (e) => {
     world.scene.animals = world.scene.animals.filter((a) => a !== gone);
     world.scene.people = world.scene.people.filter((p) => p !== gone);
     world.scene.items = world.scene.items.filter((it) => it !== gone);
+    world.scene.props = (world.scene.props ?? []).filter((p) => p !== gone);
     selected = null;
+    sceneChanged();
+  }
+  // T turns the selected prop or plant an eighth; the next one set down is turned the same way.
+  if (prefs.mode === 'edit' && selected && (selected.kind === 'prop' || selected.kind === 'plant') && e.code === 'KeyT') {
+    const obj = selected.obj as unknown as { turn: number };
+    obj.turn = (obj.turn + (e.shiftKey ? 7 : 1)) % 8;
+    if (selected.kind === 'prop') propTurn = (obj.turn + world.rot * 2) % 8;
     sceneChanged();
   }
   if (e.code === 'KeyQ') rotate(-1);
@@ -853,7 +914,7 @@ function frame(ms: number): void {
   const idle = Math.floor((ms / 1000) * CLIPS.idle.rate);
   const key = `${version}|${view.x},${view.y},${vw},${vh}|${wind}|${waves}|${idle}|${hover?.i},${hover?.j}|${prefs.mode}`;
   if (prefs.mode === 'play' || key !== shown) {
-    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.scene.people.map((p) => personThing(p, ms))];
+    const things: Thing[] = [...world.plantThings(wind), ...world.animalThings(ms, herd ?? undefined), ...world.itemThings(), ...world.propThings(wind), ...world.scene.people.map((p) => personThing(p, ms))];
     if (prefs.mode === 'play' && actor) things.push(actor.thing(world, ms), ...actor.dropThings());
     else {
       const s = world.toView(world.scene.spawn);
@@ -1002,6 +1063,31 @@ function picks<T extends { id: string; name: string; picture: HTMLElement }>(lab
   }));
 }
 
+const propThumbs = pictureCache('plant__picture', 400);
+/** The props tool's library: one search box over every prop, then pictures to pick from. */
+function propLibrary(): Node[] {
+  const input = h('input', { type: 'search', class: 'opts__search', placeholder: t('props.search'), 'aria-label': t('props.search'), value: prefs.propQuery });
+  const grid = h('div');
+  const fill = () => {
+    const q = prefs.propQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const list = propKinds().filter((k) => !isHidden(k.id) && q.every((w) => [k.name, k.source, ...k.tags, ...k.features, k.locked ? 'locked' : ''].join(' ').toLowerCase().includes(w)));
+    grid.replaceChildren(picks(t('props'), list.slice(0, 80).map((k) => ({
+      id: k.id, name: k.name,
+      picture: propThumbs.of(`${k.id}|${k.art ? k.art.views[0].join('').length : ''}|${k.locked}`, () => {
+        const p = propPicture(k, 0, 0, 0);
+        return p ? trimmed(p, p.w, p.h, 40) : h('canvas');
+      }),
+    })), prefs.prop, (prop) => set({ prop })), list.length ? '' : h('p', { class: 'opts__tip' }, t('props.none')));
+  };
+  input.addEventListener('input', () => {
+    prefs.propQuery = input.value;
+    savePrefs();
+    fill();
+  });
+  fill();
+  return [input, grid, h('a', { class: 'opts__link', href: '../props/' }, t('props.edit'))];
+}
+
 /** The round brush as a little picture of the tiles it covers. */
 function brushPicture(size: number): HTMLElement {
   const on = new Set(roundBrush(size).map(([di, dj]) => `${di},${dj}`));
@@ -1033,6 +1119,7 @@ function editOptions(): Node[] {
     slider.addEventListener('change', () => set({ brush: Number(slider.value) }));
     out.push(h('div', { class: 'opts__brush' }, h('span', { class: 'opts__label' }, t('brush'), size), slider, picture));
   }
+  if (tool === 'prop') out.push(...propLibrary());
   if (tool === 'plant') out.push(picks(t('plants'), FLORA.map((e) => ({ id: e.id, name: plantName(e.id, e.label), picture: thumb(e.id) })), prefs.plant, (plant) => set({ plant })));
   if (tool === 'decor') out.push(picks(t('decor'), DECOR.map((d) => ({ id: d.id, name: t(`decor.${d.id}` as Key), picture: decorThumb(d.id) })), prefs.decor, (decor) => set({ decor })));
   if (tool === 'animal') {

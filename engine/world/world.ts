@@ -1,9 +1,8 @@
 // The running world of a scene: its ground drawn once per change, its plants drawn per wind
 // frame, and a camera window composed each frame with everything standing on the ground. Also
 // answers where a screen pixel is on the map, and where a walker may go.
-import { drawPlant, FRAMES, grow, isStill, recolorPlant, tryPlant, type Category, type Grown, type Plant, type Raster } from '../flora/flora.ts';
-import { readStore } from '../../shared/files.ts';
-import { cleanSwap, FLORA_STORE, plantById, type PlantEntry } from '../flora/flora-catalog.ts';
+import { drawPlant, FRAMES, grow, isStill, type Category, type Grown, type Raster } from '../flora/flora.ts';
+import { plantById, plantOf } from '../flora/flora-catalog.ts';
 import { blend, footOf, HOMES, stamp, type Picture, type Pixels, type Spot, type Thing } from './island.ts';
 import { SHADOW } from '../core/palette.ts';
 import {
@@ -17,7 +16,8 @@ import { decorById, decorPixels } from './decor.ts';
 import { GLOWING } from './daylight.ts';
 import { fishPixels, type Fish } from './fish.ts';
 import { CLEAR, drawWeather, flashAt, plantWind, shadowLight, weatherSea, type Weather } from './weather.ts';
-import { ITEM_ROOM, itemPicture, type PlacedItem } from './props.ts';
+import { ITEM_ROOM, itemById, itemPicture, type PlacedItem } from './props.ts';
+import { blockRadius, lockedPicture, propKind, propPicture } from './prop.ts';
 import { ocean, rgb, WATER_COLORS } from './ocean.ts';
 import { mapOf, TURNS, type PlacedAnimal, type PlacedPlant, type Scene } from './scene.ts';
 import { blocked, BuildingView, crosses, type Building, type Part, type PieceKind } from './building/building.ts';
@@ -233,29 +233,7 @@ const BLOCK: Record<Category, number> = { palm: 0.3, jungle: 0.35, cactus: 0.3, 
 
 // ------------------------------------------------------------------ plants
 
-/**
- * Plants as the flora tool shows them: a recipe edited there, and colours swapped there, are kept
- * in that tool's storage and used here too. Read once per page load.
- */
-const floraEdits = readStore<{ custom?: Record<string, unknown>; colors?: Record<string, unknown> } | null>(FLORA_STORE, null);
-const plantCache = new Map<string, Plant>();
-export function plantOf(entry: PlantEntry): Plant {
-  let plant = plantCache.get(entry.id);
-  if (plant) return plant;
-  plant = entry.plant;
-  const text = floraEdits?.custom?.[entry.id];
-  if (typeof text === 'string') {
-    try {
-      const parsed = tryPlant(JSON.parse(text));
-      if (parsed.ok) plant = parsed.compiled.plant;
-    } catch {
-      // A broken edit in the flora tool falls back to the original recipe, as it does there.
-    }
-  }
-  plant = recolorPlant(plant, cleanSwap(floraEdits?.colors?.[entry.id]));
-  plantCache.set(entry.id, plant);
-  return plant;
-}
+export { plantOf };
 
 /** Up to how many wind frames a plant runs behind the shared wind. */
 const WIND_LAG = 3;
@@ -574,14 +552,40 @@ export class World {
     for (const p of this.viewPlants()) {
       // Each plant sways a little behind or ahead of its neighbours, and turns with the view.
       const lag = ((Math.imul(Math.floor(p.i * 97), 73856093) ^ Math.imul(Math.floor(p.j * 89), 19349663)) >>> 0) % WIND_LAG;
-      const raster = rasterOf({ ...p, turn: (p.turn ?? 0) + this.rot * (TURNS / 4) }, (frame + lag) % FRAMES, plantWind(this.weather));
-      if (raster) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
+      const turn = (p.turn ?? 0) + this.rot * (TURNS / 4);
+      const spot = { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) };
+      // A plant frozen in the props tool is drawn from its painted pixels.
+      const locked = lockedPicture(p.plant, turn, (frame + lag) % FRAMES, plantWind(this.weather));
+      if (locked) {
+        out.push({ spot, picture: locked, w: locked.w, h: locked.h, foot: locked.foot });
+        continue;
+      }
+      const raster = rasterOf({ ...p, turn }, (frame + lag) % FRAMES, plantWind(this.weather));
+      if (raster) out.push({ spot, picture: raster, w: raster.w, h: raster.h, foot: raster.origin });
     }
     return out;
   }
 
   itemThings(): Thing[] {
-    return this.viewItems().map((it) => ({ spot: { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) }, ...itemPicture(it.item, this.rot) }));
+    return this.viewItems().map((it) => {
+      const spot = { i: it.vi, j: it.vj, level: standingHeight(this.map, it.vi, it.vj) };
+      const locked = lockedPicture(`object:${itemById(it.item)?.preset}`, this.rot * 2);
+      return locked ? { spot, picture: locked, w: locked.w, h: locked.h, foot: locked.foot } : { spot, ...itemPicture(it.item, this.rot) };
+    });
+  }
+
+  viewProps() { return this.seen(this.scene.props ?? []); }
+  /** The props from the library standing in the scene, turned with the view, in a frame of the wind and loops. */
+  propThings(frame: number): Thing[] {
+    const out: Thing[] = [];
+    for (const p of this.viewProps()) {
+      const kind = propKind(p.kind);
+      if (!kind) continue;
+      const lag = ((Math.imul(Math.floor(p.i * 97), 73856093) ^ Math.imul(Math.floor(p.j * 89), 19349663)) >>> 0) % WIND_LAG;
+      const picture = propPicture(kind, p.turn + this.rot * 2, frame + lag, plantWind(this.weather), p.seed, p.size);
+      if (picture) out.push({ spot: { i: p.vi, j: p.vj, level: standingHeight(this.map, p.vi, p.vj) }, picture, w: picture.w, h: picture.h, foot: picture.foot });
+    }
+    return out;
   }
 
   private animalFrames = new WeakMap<Animal, Map<string, AnimalSprite>>();
@@ -871,6 +875,13 @@ export class World {
       if (!r) continue;
       const near = Math.hypot(p.vi - to.i, p.vj - to.j);
       // Moving away is always allowed, so nobody gets stuck inside a plant placed on them.
+      if (near < r && near < Math.hypot(p.vi - from.i, p.vj - from.j)) return false;
+    }
+    for (const p of this.viewProps()) {
+      const kind = propKind(p.kind);
+      const r = kind ? blockRadius(kind, p.size) : 0;
+      if (!r) continue;
+      const near = Math.hypot(p.vi - to.i, p.vj - to.j);
       if (near < r && near < Math.hypot(p.vi - from.i, p.vj - from.j)) return false;
     }
     for (const it of this.viewItems()) {

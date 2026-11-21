@@ -32,7 +32,7 @@ export interface Part {
 }
 /** A named point (a bed, a screen, a seat), in the same units as the parts. */
 export interface Point { name: string; x: number; y: number; z: number }
-export interface Prop {
+export interface Build {
   kind: Kind;
   /** Footprint in tiles: along x (width) and z (depth). */
   w: number;
@@ -51,14 +51,14 @@ export const LOOP_FRAMES = 8;
 export const LOOP_RATE = 6;
 
 export const newPart = (over: Partial<Part> = {}): Part => ({ shape: 'box', axis: 'y', x: 4, y: 0, z: 4, w: 8, h: 8, d: 8, color: 'wood', paint: 'solid', loop: 'none', ...over });
-export const DEFAULT_PROP: Prop = { kind: 'furniture', w: 1, d: 1, parts: [newPart()], points: [] };
+export const DEFAULT_BUILD: Build = { kind: 'furniture', w: 1, d: 1, parts: [newPart()], points: [] };
 
 const num = (v: unknown, lo: number, hi: number, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : fallback);
 const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (list.includes(v as T) ? (v as T) : fallback);
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 /** Reads an object from untrusted JSON: every field checked, anything unknown or out of range replaced. */
-export function cleanProp(input: unknown): Prop {
+export function cleanBuild(input: unknown): Build {
   const raw = obj(input);
   const w = num(raw.w, 1, MAX_TILES, 1);
   const d = num(raw.d, 1, MAX_TILES, 1);
@@ -81,7 +81,7 @@ export function cleanProp(input: unknown): Prop {
   return { kind: pick(raw.kind, KINDS, 'furniture'), w, d, parts, points };
 }
 
-export const framesOf = (prop: Prop) => (prop.parts.some((p) => p.loop !== 'none') ? LOOP_FRAMES : 1);
+export const framesOf = (prop: Build) => (prop.parts.some((p) => p.loop !== 'none') ? LOOP_FRAMES : 1);
 
 // ------------------------------------------------------------------ drawing
 
@@ -179,7 +179,7 @@ const AXES_INDEX: Record<Axis, number> = { x: 0, y: 1, z: 2 };
 const hash = cellHash;
 
 /** Draws one frame of an object in one camera turn. A half turn (0.5, 1.5…) is an eighth turn, for an object in a character's arms. */
-export function drawObject(prop: Prop, turn: Turn | number, frame = 0): ObjectFrame {
+export function drawObject(prop: Build, turn: Turn | number, frame = 0): ObjectFrame {
   const W = OBJECT_W, H = OBJECT_H;
   const f = ((frame % LOOP_FRAMES) + LOOP_FRAMES) % LOOP_FRAMES;
   const cx = (prop.w * UNIT) / 2, cz = (prop.d * UNIT) / 2;
@@ -315,7 +315,7 @@ export function drawObject(prop: Prop, turn: Turn | number, frame = 0): ObjectFr
 }
 
 /** Rows from the top of the drawn object to the floor at its middle, turn 0. */
-export function heightOf(prop: Prop): number {
+export function heightOf(prop: Build): number {
   const { sprite } = drawObject(prop, 0);
   for (let y = 0; y < OBJECT_H; y++) for (let x = 0; x < OBJECT_W; x++) if (sprite.get(x, y) && !isShadow(sprite.get(x, y))) return OY - y;
   return 0;
@@ -326,12 +326,12 @@ export function heightOf(prop: Prop): number {
 /** Where the object editor keeps its work on this device: the object being worked on, My things, and which of them is picked. */
 export const OBJECT_STORE = { draft: 'pixel-object-draft', roster: 'pixel-objects', current: 'pixel-objects-current' } as const;
 /** The objects in My things. */
-export const savedProps = () => savedList(OBJECT_STORE.roster, 'prop', cleanProp);
+export const savedProps = () => savedList(OBJECT_STORE.roster, 'prop', cleanBuild);
 
 const FILE_TYPE = 'pixel-object';
-export const propFile = (name: string, prop: Prop) => JSON.stringify({ type: FILE_TYPE, version: 1, name, object: prop }, null, 2);
-export function readPropFile(text: string): { name: string; prop: Prop } {
+export const propFile = (name: string, prop: Build) => JSON.stringify({ type: FILE_TYPE, version: 1, name, object: prop }, null, 2);
+export function readPropFile(text: string): { name: string; prop: Build } {
   const raw = JSON.parse(text);
   if (!raw || raw.type !== FILE_TYPE) throw new Error('not a pixel-object file');
-  return { name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 40) : 'Object', prop: cleanProp(raw.object) };
+  return { name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 40) : 'Object', prop: cleanBuild(raw.object) };
 }

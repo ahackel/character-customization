@@ -2,9 +2,9 @@
 // camera turns, and keep a named list on the device. Points for the game sit behind Expert tools.
 // Built on the shared editor shell, like the wardrobe.
 import {
-  AXES, COLOR_KEYS, cleanProp, DEFAULT_PROP, drawObject, framesOf, heightOf, isShadow, KINDS, LOOP_RATE, LOOPS, MAX_HEIGHT, MAX_PARTS, MAX_TILES, newPart,
+  AXES, COLOR_KEYS, cleanBuild, DEFAULT_BUILD, drawObject, framesOf, heightOf, isShadow, KINDS, LOOP_RATE, LOOPS, MAX_HEIGHT, MAX_PARTS, MAX_TILES, newPart,
   ObjectSprite, OBJECT_H, OBJECT_STORE, OBJECT_W, PAINTS, propFile, readPropFile, savedProps, SHAPES, UNIT,
-  type ObjectFrame, type Part, type Prop, type Turn,
+  type ObjectFrame, type Part, type Build, type Turn,
 } from '../../engine/objects/object.ts';
 import { OBJECT_PRESETS } from '../../engine/objects/object-presets.ts';
 import { download, newId, pickFile, readStore, writeStore } from '../../shared/files.ts';
@@ -35,9 +35,9 @@ const label = (key: string) => (LABEL[key] ? LABEL[key][de() ? 1 : 0] : key);
 // ------------------------------------------------------------------ state
 
 const { draft: DRAFT_KEY, roster: ROSTER_KEY, current: CURRENT_KEY } = OBJECT_STORE;
-interface Saved { id: string; name: string; prop: Prop }
+interface Saved { id: string; name: string; prop: Build }
 
-let prop = cleanProp(readStore(DRAFT_KEY, OBJECT_PRESETS[0].prop));
+let prop = cleanBuild(readStore(DRAFT_KEY, OBJECT_PRESETS[0].prop));
 let roster: Saved[] = savedProps();
 let currentId: string | null = readStore<string | null>(CURRENT_KEY, null);
 if (!roster.some((s) => s.id === currentId)) currentId = null;
@@ -63,7 +63,7 @@ let message = '';
 // ------------------------------------------------------------------ drawing
 
 /** A square around the object in every turn, so the view does not jump when turning. */
-function cropFor(p: Prop): Rect {
+function cropFor(p: Build): Rect {
   let x0 = OBJECT_W, y0 = OBJECT_H, x1 = 0, y1 = 0;
   for (const at of [0, 1, 2, 3] as const) {
     const { sprite } = drawObject(p, at);
@@ -78,7 +78,7 @@ function cropFor(p: Prop): Rect {
 }
 
 /** A small picture of an object, trimmed to what it paints. */
-function thumbnail(p: Prop, box = 60): HTMLCanvasElement {
+function thumbnail(p: Build, box = 60): HTMLCanvasElement {
   return thumbs.of(`${box}|${JSON.stringify(p)}`, () => trimmed(drawObject(p, 0).sprite, OBJECT_W, OBJECT_H, box, isShadow));
 }
 /** The panel is rebuilt on every change and shows the same presets and saved objects again: their pictures are drawn once. */
@@ -121,13 +121,13 @@ function setCurrent(id: string | null): void {
   currentId = id;
   writeStore(CURRENT_KEY, id);
 }
-function addThing(name: string, from: Prop): void {
+function addThing(name: string, from: Build): void {
   const saved = { id: newId(), name: name.slice(0, 40), prop: structuredClone(from) };
   roster.push(saved);
   setCurrent(saved.id);
   storeRoster();
 }
-function load(next: Prop, id: string | null): void {
+function load(next: Build, id: string | null): void {
   prop = structuredClone(next);
   selected = 0;
   setCurrent(id);
@@ -154,7 +154,7 @@ function remove(): void {
   render();
 }
 async function importFile(): Promise<void> {
-  let file: { name: string; prop: Prop };
+  let file: { name: string; prop: Build };
   try {
     file = readPropFile(await pickFile());
   } catch {
@@ -169,7 +169,7 @@ async function importFile(): Promise<void> {
 // ------------------------------------------------------------------ shuffle
 
 /** New colours for every part; parts of one colour stay one colour. */
-function recolour(p: Prop): Prop {
+function recolour(p: Build): Build {
   const next = structuredClone(p);
   const map = new Map<PaletteKey, PaletteKey>();
   for (const part of next.parts) {
@@ -414,7 +414,7 @@ function renderBar(): void {
         render();
       } },
       { label: L('Start over', 'Neu beginnen'), icon: 'reset', run: () => {
-        prop = structuredClone(DEFAULT_PROP);
+        prop = structuredClone(DEFAULT_BUILD);
         selected = 0;
         changed();
       } },

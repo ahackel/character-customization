@@ -3,7 +3,7 @@
 // to check the light: top light, front (lower left) base, side (lower right) shade (docs/object-spec.md).
 //
 // Usage: node scripts/objects-check.mjs
-import { cleanProp, drawObject, framesOf, isShadow, newPart, OBJECT_H, OBJECT_ORIGIN, OBJECT_W } from '../engine/objects/object.ts';
+import { cleanBuild, drawObject, framesOf, isShadow, newPart, OBJECT_H, OBJECT_ORIGIN, OBJECT_W } from '../engine/objects/object.ts';
 import { OBJECT_PRESETS } from '../engine/objects/object-presets.ts';
 import { PALETTE } from '../engine/core/palette.ts';
 
@@ -11,7 +11,7 @@ const problems = [];
 
 // ---- the light on one box
 {
-  const { sprite } = drawObject(cleanProp({ w: 1, d: 1, parts: [newPart({ x: 2, z: 2, w: 12, d: 12, h: 10, color: 'red' })] }), 0);
+  const { sprite } = drawObject(cleanBuild({ w: 1, d: 1, parts: [newPart({ x: 2, z: 2, w: 12, d: 12, h: 10, color: 'red' })] }), 0);
   const at = (dx, dy) => sprite.get(OBJECT_ORIGIN.x + dx, OBJECT_ORIGIN.y + dy);
   const want = [[0, -12, 'light', 'top'], [-5, 0, 'base', 'front'], [5, 0, 'shade', 'side']];
   for (const [dx, dy, tone, face] of want) if (at(dx, dy) !== PALETTE.red[tone]) problems.push(`box ${face}: ${at(dx, dy)}, expected ${tone} ${PALETTE.red[tone]}`);
@@ -21,7 +21,7 @@ const problems = [];
 let frames = 0;
 if (OBJECT_PRESETS.length !== 21) problems.push(`${OBJECT_PRESETS.length} presets, expected 21`);
 for (const { id, prop } of OBJECT_PRESETS) {
-  if (JSON.stringify(cleanProp(prop)) !== JSON.stringify(prop)) problems.push(`${id}: changed by cleanProp`);
+  if (JSON.stringify(cleanBuild(prop)) !== JSON.stringify(prop)) problems.push(`${id}: changed by cleanBuild`);
   const seen = new Set();
   for (let f = 0; f < framesOf(prop); f++) {
     for (const turn of [0, 1, 2, 3]) {

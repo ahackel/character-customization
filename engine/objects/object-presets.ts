@@ -2,7 +2,7 @@
 // built from parts. Units: across the floor 1/16 of a tile edge, up in pixels; people are 48 px tall.
 // At turn 0 the width (x) runs to the lower right and the depth (z) to the lower left: the long lit
 // front of a 2×1 object faces the lower left.
-import { cleanProp, type Axis, type Kind, type Loop, type Paint, type Part, type Point, type Prop, type Shape } from './object.ts';
+import { cleanBuild, type Axis, type Kind, type Loop, type Paint, type Part, type Point, type Build, type Shape } from './object.ts';
 import type { PaletteKey } from '../core/palette.ts';
 
 type Opt = { axis?: Axis; paint?: Paint; loop?: Loop };
@@ -21,9 +21,9 @@ const wheels = (r = 8) => [0, 21].flatMap((x) => [
   box(x + 5, Math.round(r / 2) - 1, 0, 2, 2, 1, 'grey'),
 ]);
 
-const make = (kind: Kind, w: number, d: number, parts: Part[], points: Point[] = []): Prop => cleanProp({ kind, w, d, parts, points });
+const make = (kind: Kind, w: number, d: number, parts: Part[], points: Point[] = []): Build => cleanBuild({ kind, w, d, parts, points });
 
-export const OBJECT_PRESETS: { id: string; name: string; prop: Prop }[] = [
+export const OBJECT_PRESETS: { id: string; name: string; prop: Build }[] = [
   { id: 'reception', name: 'Reception', prop: make('furniture', 2, 1, [
     box(1, 0, 4, 30, 17, 9, 'wood'),
     box(0, 17, 3, 32, 2, 11, 'tan'),

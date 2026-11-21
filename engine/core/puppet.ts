@@ -799,12 +799,31 @@ function drawFigure(look: Look, pose: Pose, facing: Facing, options: DrawOptions
     const arms = { shoulderL: flip(pose.shoulderR), elbowL: flip(pose.elbowR), handL: flip(pose.handR), shoulderR: flip(pose.shoulderL), elbowR: flip(pose.elbowL), handR: flip(pose.handL) };
     return drawFigure(look, { ...pose, ...arms }, facing, options, working === 'R' ? 'L' : 'R', mirrored);
   }
+  // Side on, depth is the character's own x, so the lower shoulder is the far one. A tool swung in
+  // that hand is hidden behind the body and the near arm, and the hand left over reads as a loose
+  // piece. The near hand swings instead, as it does for a wave above.
+  if (own === 'E' && options.swing && pose[working === 'R' ? 'shoulderR' : 'shoulderL'][0] < pose[working === 'R' ? 'shoulderL' : 'shoulderR'][0]) {
+    const flip = (v: Vec3): Vec3 => [-v[0], v[1], v[2]];
+    const arms = { shoulderL: flip(pose.shoulderR), elbowL: flip(pose.elbowR), handL: flip(pose.handR), shoulderR: flip(pose.shoulderL), elbowR: flip(pose.elbowL), handR: flip(pose.handL) };
+    return drawFigure(look, { ...pose, ...arms }, facing, options, working === 'R' ? 'L' : 'R', mirrored);
+  }
   // Side on, an arm raised out to the side would stand straight up through the head; it is raised
   // forward instead, in front of the face, where it shows.
   if (own === 'E' && !options.swing && pose.handR[1] > pose.shoulderR[1] + 2) {
     const s = pose.shoulderR;
     const forward = (v: Vec3): Vec3 => [s[0], v[1], v[2] + Math.abs(v[0] - s[0]) * 2.2];
     pose = { ...pose, elbowR: forward(pose.elbowR), handR: forward(pose.handR) };
+  }
+  // Side on, both arms of the use clip reach forward together. The far one has the body in front of
+  // it, so all that clears the near arm is a stray piece of hand. It is tucked down at the side,
+  // keeping a little of the reach, where the body covers it for the whole swing.
+  if (own === 'E' && options.swing) {
+    const far: 'L' | 'R' = pose.shoulderL[0] < pose.shoulderR[0] ? 'L' : 'R';
+    const at = far === 'L' ? pose.shoulderL : pose.shoulderR;
+    const tuck = (v: Vec3, drop: number): Vec3 => [at[0], at[1] - drop, at[2] + (v[2] - at[2]) * 0.35];
+    pose = far === 'L'
+      ? { ...pose, elbowL: tuck(pose.elbowL, 4.5), handL: tuck(pose.handL, 9) }
+      : { ...pose, elbowR: tuck(pose.elbowR, 4.5), handR: tuck(pose.handR, 9) };
   }
 
   const sprite = new Sprite();

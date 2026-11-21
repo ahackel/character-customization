@@ -15,6 +15,10 @@ import { generateIsland, renderTerrain } from '../engine/world/terrain.ts';
 import { h, topBar, word, type ToolId } from '../shared/shell.ts';
 import { currentLang } from '../shared/lang.ts';
 import { trimmed } from '../shared/pixels.ts';
+import { propKind, propPicture } from '../engine/world/prop.ts';
+import { createHeightMap } from '../engine/world/terrain.ts';
+import { BuildingView, edgeKey, emptyBuilding } from '../engine/world/building/building.ts';
+import { edgeKindOf, wallKinds } from '../engine/world/building/walls.ts';
 
 // The start page of the published site: what the tools are, each with a small live picture
 // drawn by the same code as the tool itself.
@@ -28,6 +32,9 @@ const en = {
   'objects.short': 'Build furniture and cars.',
   'flora.short': 'Grow palms and cacti.',
   'scene.short': 'Shape an island.',
+  'props.short': 'Find any prop, freeze it, polish its pixels.',
+  'walls.short': 'Walls for huts, painted over by hand.',
+  'parts.short': 'Touch up hats, hair and clothes.',
   'things': 'My things',
   'things.note': 'Pick up where you left off.',
   'things.none': 'Things you make show up here.',
@@ -45,6 +52,9 @@ const de: Record<Key, string> = {
   'objects.short': 'Baue Möbel und Autos.',
   'flora.short': 'Lass Palmen wachsen.',
   'scene.short': 'Forme eine Insel.',
+  'props.short': 'Finde jede Requisite, friere sie ein, poliere ihre Pixel.',
+  'walls.short': 'Wände für Hütten, von Hand übermalt.',
+  'parts.short': 'Bessere Hüte, Haare und Kleidung nach.',
   'things': 'Meine Sachen',
   'things.note': 'Mach weiter, wo du warst.',
   'things.none': 'Was du machst, erscheint hier.',
@@ -157,6 +167,53 @@ function smallIsland(seed: number, clip: Clip, facing: Facing) {
   };
 }
 const floraIsle = smallIsland(4, AUTHORED.idle, 0);
+
+// ------------------------------------------------------------------ props, walls and parts
+
+/** Pictures standing in a row on one ground line. */
+function row(pictures: { get(x: number, y: number): string | null; w: number; h: number; foot: { x: number; y: number } }[], xs: number[], size: { w: number; h: number; ground: number }): Pixels {
+  const image: Pixels = { data: new Uint8ClampedArray(size.w * size.h * 4), width: size.w, height: size.h };
+  pictures.forEach((p, k) => stamp(image, p, p.w, p.h, xs[k] - p.foot.x, size.ground - p.foot.y));
+  return image;
+}
+const PROP_ROW = ['plant-palms-1', 'object:crate', 'decor:starfish-orange', 'object:fountain'];
+const PROPS_SIZE = { w: 172, h: 70, ground: 62 };
+function propsAt(frame: number): Pixels {
+  const kinds = PROP_ROW.map((id) => propKind(id)).filter((k) => !!k);
+  const pictures = kinds.map((k, n) => propPicture(k!, n % 2 ? 1 : 0, frame, 1)).filter((p) => !!p);
+  return row(pictures as NonNullable<ReturnType<typeof propPicture>>[], [30, 82, 112, 142], PROPS_SIZE);
+}
+/** A little hut of the first wall, standing on nothing: the card's sand is the ground. */
+function wallsPicture(): Pixels {
+  const map = createHeightMap(8, 8, 1);
+  const site = { map, ground: renderTerrain(map) };
+  const wall = wallKinds()[0];
+  const b = emptyBuilding(wall.height);
+  const add = (axis: 'H' | 'V', i: number, j: number) => b.edges.set(edgeKey({ axis, i, j }), { kind: 'w', edge: { axis, i, j } });
+  add('H', 3, 3); add('H', 4, 3); add('H', 3, 5);
+  for (let j = 3; j <= 4; j++) { add('V', 3, j); add('V', 5, j); }
+  const parts = new BuildingView({ w: edgeKindOf(wall) }, site).parts(b).sort((p, q) => p.key - q.key);
+  const x0 = Math.min(...parts.map((p) => p.x)), y0 = Math.min(...parts.map((p) => p.y));
+  const w = Math.max(...parts.map((p) => p.x + p.w)) - x0, h = Math.max(...parts.map((p) => p.y + p.h)) - y0;
+  const image: Pixels = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
+  for (const p of parts) for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+    const k = (y * p.w + x) * 4;
+    if (!p.rgba[k + 3]) continue;
+    const o = ((p.y - y0 + y) * w + p.x - x0 + x) * 4;
+    for (let c = 0; c < 4; c++) image.data[o + c] = p.rgba[k + c];
+  }
+  return image;
+}
+const PARTS_SIZE = { w: 172, h: 60, ground: 54 };
+const PARTS_CAST = [
+  outfitLook('skinD', 'hairBlack', 'happy', 0, ['recipe-everyday-hats-1']),
+  outfitLook('skinA', 'hairRed', 'smile', 0, ['sprite-bandana-0', 'recipe-tops-0']),
+  outfitLook('skinC', 'hairBlond', 'happy', 0, ['sprite-hat-2', 'recipe-everyday-0']),
+];
+function partsPicture(): Pixels {
+  const sprites = PARTS_CAST.map((look, n) => drawCharacter(look, AUTHORED.idle.frames[0], ([4, 0, 1] as Facing[])[n]));
+  return row(sprites.map((s) => ({ get: (x: number, y: number) => s.get(x, y), w: SPRITE_W, h: SPRITE_H, foot: CHARACTER_ORIGIN })), [46, 86, 126], PARTS_SIZE);
+}
 const sceneIsle = smallIsland(11, AUTHORED.wave, 1);
 
 // ------------------------------------------------------------------ page
@@ -166,6 +223,10 @@ const herdCanvas = h('canvas', { class: 'tool__canvas', width: String(HERD_SIZE.
 const setCanvas = h('canvas', { class: 'tool__canvas', width: String(SET_SIZE.w), height: String(SET_SIZE.h) });
 const islandCanvas = h('canvas', { class: 'tool__canvas', width: String(floraIsle.ground.w), height: String(floraIsle.ground.h) });
 const sceneCanvas = h('canvas', { class: 'tool__canvas', width: String(sceneIsle.ground.w), height: String(sceneIsle.ground.h) });
+const propsCanvas = h('canvas', { class: 'tool__canvas', width: String(PROPS_SIZE.w), height: String(PROPS_SIZE.h) });
+const wallsImage = wallsPicture();
+const wallsCanvas = h('canvas', { class: 'tool__canvas', width: String(wallsImage.width), height: String(wallsImage.height) });
+const partsCanvas = h('canvas', { class: 'tool__canvas', width: String(PARTS_SIZE.w), height: String(PARTS_SIZE.h) });
 
 function paint(canvas: HTMLCanvasElement, image: Pixels): void {
   canvas.getContext('2d')!.putImageData(new ImageData(image.data as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
@@ -248,9 +309,12 @@ function mount(): void {
       h('main', { class: 'home' },
         h('section', { class: 'tiles', 'aria-label': t('tools') },
           card('wardrobe', './tools/wardrobe/', castCanvas, 'cast'),
+          card('parts', './tools/parts/', partsCanvas, 'cast'),
           card('animals', './tools/animals/', herdCanvas, 'cast'),
+          card('props', './tools/props/', propsCanvas, 'cast'),
           card('objects', './tools/objects/', setCanvas, 'cast'),
           card('flora', './tools/flora/', islandCanvas, 'island'),
+          card('walls', './tools/walls/', wallsCanvas, 'cast'),
           card('scene', './tools/scene/', sceneCanvas, 'island'),
         ),
         h('section', { class: 'mine', 'aria-label': t('things') },
@@ -291,8 +355,11 @@ const tick = (ms: number) => {
     paint(setCanvas, setAt(time));
     paint(islandCanvas, floraIsle.at(time, frame));
     paint(sceneCanvas, sceneIsle.at(time, frame));
+    paint(propsCanvas, propsAt(frame));
   }
   requestAnimationFrame(tick);
 };
+paint(wallsCanvas, wallsImage);
+paint(partsCanvas, partsPicture());
 requestAnimationFrame(tick);
 document.body.dataset.ready = '1';

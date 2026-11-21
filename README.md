@@ -2,7 +2,7 @@
 
 Tools for a pixel-art game in isometric view about a shipwreck survivor on an island: stylized characters with good animation, plants, rocks and terrain, with the content written by a language model and drawn by rules. People only review and touch up.
 
-The tools are published at [andreashackel.de/pixel-art](https://andreashackel.de/pixel-art/): a start page, the [wardrobe](https://andreashackel.de/pixel-art/tools/wardrobe/), the [animal editor](https://andreashackel.de/pixel-art/tools/animals/), the [object editor](https://andreashackel.de/pixel-art/tools/objects/) ([`docs/animal-spec.md`](docs/animal-spec.md), [`docs/object-spec.md`](docs/object-spec.md), made for Animal Hospital), the [flora tool](https://andreashackel.de/pixel-art/tools/flora/) and the [scene editor](https://andreashackel.de/pixel-art/tools/scene/).
+The tools are published at [andreashackel.de/pixel-art](https://andreashackel.de/pixel-art/): a start page, the [wardrobe](https://andreashackel.de/pixel-art/tools/wardrobe/), the [animal editor](https://andreashackel.de/pixel-art/tools/animals/), the [object editor](https://andreashackel.de/pixel-art/tools/objects/) ([`docs/animal-spec.md`](docs/animal-spec.md), [`docs/object-spec.md`](docs/object-spec.md), made for Animal Hospital), the [flora tool](https://andreashackel.de/pixel-art/tools/flora/), the [props tool](https://andreashackel.de/pixel-art/tools/props/), the [wall editor](https://andreashackel.de/pixel-art/tools/walls/), the [parts editor](https://andreashackel.de/pixel-art/tools/parts/) and the [scene editor](https://andreashackel.de/pixel-art/tools/scene/).
 
 The repository started as an exploration of customizable characters, and the earlier work is still here:
 
@@ -27,7 +27,7 @@ Open the printed address for the start page.
 npm run build
 ```
 
-builds the start page and the five tools into `dist/`, which is what gets published. The type check (`tsc --noEmit`) is the only static check.
+builds the start page and the tools into `dist/`, which is what gets published. The type check (`tsc --noEmit`) is the only static check.
 
 ## Publishing
 
@@ -37,6 +37,14 @@ builds the start page and the five tools into `dist/`, which is what gets publis
 
 With the dev server running, open `/tools/wardrobe/` to dress a pixel person: gender, skin, three builds, face options, hair, beard, hat, top, bottom, shoes and a held item, with colour swaps, five actions and four facings. A condition from neat to tattered is a value of the character and ages everything worn, and the hair, by rule (`engine/character/wear.ts`). A mood drives the facial expression. **Saved characters** keeps named characters on this device (save, save as new, delete, export and import as JSON); the scene editor plays them. The character model and that list are in `engine/character/character.ts`. Its items are the model-generated ones from `engine/character/data/`, assembled by `engine/character/catalog.ts`. The text is in English and German (`tools/wardrobe/i18n.ts`).
 
+
+## Polishing by hand: props, walls and parts
+
+Everything is drawn by rule first; these three tools let a person freeze what a rule drew into pixels and touch it up in one shared pixel editor (`tools/paint/pixel-editor.ts`: pencil, eraser, fill, picker, line, rectangle, mirror painting, nudging, the rule-drawn version as an onion skin). Paint is always a palette entry in one of its three tones (`engine/core/stamp.ts`), so frozen things can still be recoloured and lit.
+
+- **Props** (`/tools/props/`, `engine/world/prop.ts`, plan in [`docs/props.md`](docs/props.md)): one searchable library over every plant, object, decoration and the crate, and props painted on this device. A stage shows the picked prop beside the survivor from all eight directions; tabs set how many views it has and which are mirrored, its shape (a flora recipe, or an object's parts), its features (wind, loop, glow, blocks, carry) and its pixels. Freezing a catalogue prop **locks** it: scenes and games draw the painted pixels until it is unlocked. Scenes carry the painted props and locks they use, so a game shows them too. The scene editor's Props tool searches the same library.
+- **Walls** (`/tools/walls/`, `engine/world/building/walls.ts`): the wall pieces of buildings on a test ground with a hut, a ramp, a cliff and the thatch roof. A painted wall is kept per screen column from its foot up (`pieces/painted-wall.ts`), so it still follows slopes and cliffs. A frozen built-in wall is locked, and `wallKind()` hands games the painted one.
+- **Parts** (`/tools/parts/`, `engine/character/parts.ts`): every wardrobe item as the stamps the puppet draws, layer by layer, on a figure from all eight sides with wear. Edits are laid over the catalogue, so the wardrobe and everything else here wears them.
 
 ## Island flora
 
@@ -65,7 +73,7 @@ Known limit: every ground edit redraws the whole ground, about 70 ms for a 28 by
 |---|---|
 | `shared/` | Utilities with no knowledge of the game: seeded random, local storage and file helpers, undo history, brush, language switch, the page shell and styles shared by every tool |
 | `engine/` | Everything that draws or simulates, no page code |
-| `tools/` | The editors, one folder per page: `wardrobe/`, `animals/`, `objects/`, `flora/`, `scene/` |
+| `tools/` | The editors, one folder per page: `wardrobe/`, `parts/`, `animals/`, `props/`, `objects/`, `flora/`, `walls/`, `scene/`; `paint/` is the pixel editor they share |
 | `home/` | The start page (`index.html` at the root loads it) |
 | `scripts/` | Node scripts: baking, format descriptions, preview sheets and checks |
 | `docs/` | Specs and research; `docs/specs/` holds the format descriptions given to the model |

@@ -1,5 +1,22 @@
 # Props: one thing in the world (proposal, 2026-11-20)
 
+## Status (2026-11-21)
+
+| Phase | State |
+| --- | --- |
+| 0 | Done: `Build`, `cleanBuild`, `DEFAULT_BUILD`. |
+| 1 | Done: `engine/world/prop.ts` (`PropKind`, `PlacedProp`, view maps, features, `propKinds()` over flora, object presets, saved objects and decorations). `Scene.props` is a new optional list; `plants`, `decor` and `items` keep what they hold. |
+| 2 | Done: `tools/props`, with search and filter chips by source and feature, hidden kinds behind a chip. |
+| 3 | Mostly: the Shape tab edits a flora recipe (stored where the flora tool keeps it) and a built prop's size, parts and points (`tools/objects/build-panel.ts`, shared with the object editor). The library renames, duplicates, hides, deletes and paints new. **Not done:** the flora and object pages are not retired. The flora tool's island preview, dryness and colour swaps live only there. |
+| 4 | Done: views (1, 2, 4, 8, optionally mirrored) and features apply to every source; wind on a painted prop shears its columns by height (`flex`), loop bobs it. `states` is not built. |
+| 5 | Done as a new Props tool in the scene editor (one search box over everything); the Plant and Decor tools stay. Plants, decorations and the crate picked there still go into their own lists. With Move, T turns a prop or plant an eighth. |
+| 6 | Done: the `painted` source and the pixel editor (`tools/paint/pixel-editor.ts`), shared with the wall and parts editors. |
+| 7 | Done: freezing draws every own view once into one art (`engine/core/stamp.ts`). A catalogue kind is **locked**: the world draws its pixels for plants, the crate and placed props, with a badge in the library and Unlock to go back. A kind of this device just becomes painted. Scene files carry the painted kinds and locks they use (`Scene.carried`), so a game on another site draws them too. |
+
+Answers to the open questions below: `seed` is a variant index clamped to what a kind has. A grown kind has four and everything painted has one. The views of a painted kind are separate grids in one art with one shared legend. `carry` reuses the kind's own picture.
+
+The same freezing serves walls (`tools/walls`, `engine/world/building/walls.ts`) and wardrobe parts (`tools/parts`, `engine/character/parts.ts`).
+
 **The name.** A prop is anything standing in the world that is not terrain and not a character: a
 palm, a rock, a crate, a chest, a tuft of grass. `Item` is taken by the wardrobe's clothing and the
 game's bag (66 uses), and `Object` is both too general and the name of today's box-and-cylinder
